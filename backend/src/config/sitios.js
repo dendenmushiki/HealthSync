@@ -1,0 +1,12 @@
+module.exports = [
+  'Capitol',
+  'Melgar',
+  'Refulgente',
+  'F. Enriquez',
+  'Motus/Inocencio',
+  'Cipriano',
+  'Meren',
+  'Omeña Ave',
+  'Villa Emilia',
+  'Libtong'
+];
