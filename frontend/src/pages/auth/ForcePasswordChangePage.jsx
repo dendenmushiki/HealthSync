@@ -1,7 +1,8 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api/apiClient';
+import PinDigitInput from '../../components/common/PinDigitInput';
 import './ForcePasswordChangePage.css';
 
 const ForcePasswordChangePage = () => {
@@ -17,6 +18,8 @@ const ForcePasswordChangePage = () => {
   const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [pin, setPin] = useState('');
   const [pinConfirmation, setPinConfirmation] = useState('');
+  const pinInputRef = useRef(null);
+  const pinConfirmationInputRef = useRef(null);
   const [setupToken, setSetupToken] = useState('');
   const [setupUser, setSetupUser] = useState(null);
   useEffect(() => {
@@ -52,6 +55,8 @@ const ForcePasswordChangePage = () => {
           navigate(user?.role === 'admin' ? '/admin-dashboard' : '/dashboard', { replace: true });
           return;
         }
+        pinInputRef.current?.clear();
+        pinConfirmationInputRef.current?.clear();
         setComplete(true);
         return;
       }
@@ -125,11 +130,21 @@ const ForcePasswordChangePage = () => {
                 <li className={requirements.bcryptLimit ? 'valid' : ''}>No more than 72 UTF-8 bytes</li>
               </ul>
               {setupRequired && <>
-                <label htmlFor="hs-offline-pin">Six-digit PIN</label>
-                <input id="hs-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} required />
-                <label htmlFor="hs-confirm-offline-pin">Confirm six-digit PIN</label>
-                <input id="hs-confirm-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinConfirmation} onChange={(event) => setPinConfirmation(event.target.value)} required />
-                {pinConfirmation && pin !== pinConfirmation && <span className="hs-force-inline-error">PIN entries do not match.</span>}
+                <fieldset className="hs-force-pin-group">
+                  <legend>Six-digit PIN</legend>
+                  <PinDigitInput ref={pinInputRef} onChange={setPin} showStrengthHint />
+                </fieldset>
+                <fieldset className="hs-force-pin-group">
+                  <legend>Confirm six-digit PIN</legend>
+                  <PinDigitInput
+                    ref={pinConfirmationInputRef}
+                    invalid={Boolean(pinConfirmation && pin !== pinConfirmation)}
+                    describedBy={pinConfirmation && pin !== pinConfirmation ? 'hs-force-pin-mismatch' : undefined}
+                    autoFocus={false}
+                    onChange={setPinConfirmation}
+                  />
+                </fieldset>
+                {pinConfirmation && pin !== pinConfirmation && <span id="hs-force-pin-mismatch" className="hs-force-inline-error" role="status">PIN entries do not match.</span>}
               </>}
               <button type="submit" className="hs-force-primary" disabled={!valid || busy}>
                 {busy ? <><span className="hs-force-spinner" aria-hidden="true" /> Saving...</> : setupRequired ? 'Save password and PIN' : 'Save new password'}
@@ -137,11 +152,21 @@ const ForcePasswordChangePage = () => {
             </form>
             )}
             {(passwordUpdated || !user?.must_change_password) && <form onSubmit={submit} className="hs-force-form">
-              <label htmlFor="hs-offline-pin">Six-digit PIN</label>
-              <input id="hs-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} required />
-              <label htmlFor="hs-confirm-offline-pin">Confirm six-digit PIN</label>
-              <input id="hs-confirm-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinConfirmation} onChange={(event) => setPinConfirmation(event.target.value)} required />
-              {pinConfirmation && pin !== pinConfirmation && <span className="hs-force-inline-error">PIN entries do not match.</span>}
+              <fieldset className="hs-force-pin-group">
+                <legend>Six-digit PIN</legend>
+                <PinDigitInput ref={pinInputRef} onChange={setPin} showStrengthHint />
+              </fieldset>
+              <fieldset className="hs-force-pin-group">
+                <legend>Confirm six-digit PIN</legend>
+                <PinDigitInput
+                  ref={pinConfirmationInputRef}
+                  invalid={Boolean(pinConfirmation && pin !== pinConfirmation)}
+                  describedBy={pinConfirmation && pin !== pinConfirmation ? 'hs-force-pin-mismatch' : undefined}
+                  autoFocus={false}
+                  onChange={setPinConfirmation}
+                />
+              </fieldset>
+              {pinConfirmation && pin !== pinConfirmation && <span id="hs-force-pin-mismatch" className="hs-force-inline-error" role="status">PIN entries do not match.</span>}
               {offlineWarning && <p className="hs-force-error" role="alert">{offlineWarning}</p>}
               <button type="submit" className="hs-force-primary" disabled={!valid || busy}>
                 {busy ? <><span className="hs-force-spinner" aria-hidden="true" /> Saving...</> : 'Save PIN'}

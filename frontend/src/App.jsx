@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, use
 import { BrowserRouter as Router, Routes, Route, Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import LoginPage from './pages/auth/LoginPage';
+import OfflineUnlockScreen from './pages/auth/OfflineUnlockScreen';
 import ForcePasswordChangePage from './pages/auth/ForcePasswordChangePage';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import OfflineSyncCoordinator from './components/common/OfflineSyncCoordinator';
@@ -128,10 +129,12 @@ function AppContent() {
   const location = useLocation();
   const {
     user, loading, updateUser, offlineVaultReady, unlockOfflineAccess,
+    offlineVaultError, logout,
     sessionCleanupError,
   } = useContext(AuthContext);
   const isLoginRoute = location.pathname === '/login';
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [unlockTransition, setUnlockTransition] = useState(false);
 
   useEffect(() => {
     const updateNetworkState = () => setOnline(navigator.onLine);
@@ -166,11 +169,31 @@ function AppContent() {
   if (user?.must_change_password || user?.offline_pin_setup_required) {
     return <Navigate to="/change-password" replace />;
   }
-  if (user && offlineAuthorized && !offlineVaultReady) {
-    return <OfflineUnlockScreen user={user} unlockOfflineAccess={unlockOfflineAccess} online={online} />;
+  if (user && offlineAuthorized && (!offlineVaultReady || unlockTransition)) {
+    return (
+      <OfflineUnlockScreen
+        user={user}
+        unlockOfflineAccess={unlockOfflineAccess}
+        logout={logout}
+        online={online}
+        authorized
+        offlineVaultError={offlineVaultError}
+        onUnlockTransition={setUnlockTransition}
+      />
+    );
   }
   if (user && !online && (!offlineAuthorized || !offlineVaultReady)) {
-    return <OfflineUnlockScreen user={user} unlockOfflineAccess={unlockOfflineAccess} online={online} />;
+    return (
+      <OfflineUnlockScreen
+        user={user}
+        unlockOfflineAccess={unlockOfflineAccess}
+        logout={logout}
+        online={online}
+        authorized={false}
+        offlineVaultError={offlineVaultError}
+        onUnlockTransition={setUnlockTransition}
+      />
+    );
   }
 
   if (isLoginRoute) {
@@ -183,69 +206,6 @@ function AppContent() {
   }
 
   return <><InactivityLockManager /><AppShell /></>;
-}
-
-function OfflineUnlockScreen({ user, unlockOfflineAccess, online }) {
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const grant = getOfflineSession();
-  const authorized = user.offline_pin_enrolled && !user.must_change_password &&
-    !user.offline_pin_setup_required && grant &&
-    String(grant.userId) === String(user.user_id) && grant.role === user.role &&
-    grant.deviceId === localStorage.getItem('hs_offline_device_id');
-
-  const submit = async (event) => {
-    event.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      await unlockOfflineAccess(pin);
-      setPin('');
-    } catch (unlockError) {
-      setError(unlockError.message || 'Unable to unlock secure offline data.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <main className="container py-5">
-      <section className="card mx-auto p-4" style={{ maxWidth: 480 }} aria-labelledby="offline-unlock-title">
-        <h1 id="offline-unlock-title" className="h3">Unlock offline access</h1>
-        {authorized ? (
-          <>
-            <p>Enter your six-digit PIN to unlock this device’s encrypted offline data. The offline authorization is device-bound and is not an API token.</p>
-            {error && <div className="alert alert-danger" role="alert">{error}</div>}
-            <form onSubmit={submit}>
-              <label className="form-label" htmlFor="offline-account-pin">Six-digit PIN</label>
-              <input
-                id="offline-account-pin"
-                className="form-control mb-3"
-                type="password"
-                inputMode="numeric"
-                autoComplete="current-password"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                value={pin}
-                onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                required
-              />
-              <button className="btn btn-primary" type="submit" disabled={busy}>
-                {busy ? 'Unlocking…' : 'Unlock HealthSync'}
-              </button>
-            </form>
-          </>
-        ) : (
-          <div className="alert alert-warning mb-0" role="status">
-            {online
-              ? 'Offline access is not prepared for this device. Sign in online and set up your six-digit PIN in Settings → Security.'
-              : 'Offline authorization is unavailable for this account or device. Reconnect and sign in online, then set up a PIN before using offline data.'}
-          </div>
-        )}
-      </section>
-    </main>
-  );
 }
 
 function InactivityLockManager() {
@@ -286,16 +246,32 @@ function InactivityLockManager() {
 
   if (countdown === null) return null;
   return (
-    <div className="modal d-block" role="alertdialog" aria-modal="true" aria-labelledby="idle-lock-title">
-      <div className="modal-dialog modal-dialog-centered">
-        <div className="modal-content p-4">
-          <h2 id="idle-lock-title" className="h5">HealthSync will lock soon</h2>
-          <p>For your privacy, HealthSync will lock in {countdown} seconds. Continue working to keep your session open.</p>
-          <button type="button" className="btn btn-primary" onClick={() => resetTimerRef.current()}>
-            Stay signed in
-          </button>
+    <div className="hs-inactivity-overlay">
+      <section className="hs-inactivity-modal" role="alertdialog" aria-modal="true" aria-labelledby="idle-lock-title" aria-describedby="idle-lock-description">
+        <header className="hs-inactivity-modal-heading">
+          <span className="hs-inactivity-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="8.5" />
+              <path d="M12 7v5l3.25 2" />
+            </svg>
+          </span>
+          <div>
+            <span className="hs-inactivity-eyebrow">Session security</span>
+            <h2 id="idle-lock-title">HealthSync will lock soon</h2>
+          </div>
+        </header>
+        <p id="idle-lock-description" className="hs-inactivity-description">
+          For your privacy, HealthSync locks automatically after inactivity.
+        </p>
+        <div className="hs-inactivity-countdown">
+          <strong>{countdown}</strong>
+          <span>seconds until lock</span>
         </div>
-      </div>
+        <p className="hs-inactivity-guidance">Stay signed in to continue your work.</p>
+        <button type="button" className="hs-inactivity-button" onClick={() => resetTimerRef.current()}>
+          <span>Stay signed in</span><span aria-hidden="true">→</span>
+        </button>
+      </section>
     </div>
   );
 }

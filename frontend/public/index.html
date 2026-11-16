@@ -18,9 +18,12 @@
           document.documentElement.dataset.theme = dark ? 'dark' : 'light';
           document.documentElement.dataset.themePreference = theme;
           document.documentElement.dataset.textSize = preferences.textSize || 'default';
+          var scales = { small: '.875', default: '1', large: '1.125', 'extra-large': '1.25' };
+          document.documentElement.style.setProperty('--hs-font-scale', scales[preferences.textSize] || '1');
         } catch (error) {
           document.documentElement.dataset.theme = 'light';
           document.documentElement.dataset.textSize = 'default';
+          document.documentElement.style.setProperty('--hs-font-scale', '1');
         }
       })();
     </script>

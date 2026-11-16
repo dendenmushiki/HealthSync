@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api/apiClient';
@@ -38,7 +38,10 @@ beforeEach(() => {
 
 test('asks for the account password only after PIN confirmation and Set up PIN', async () => {
   render(
-    <MemoryRouter initialEntries={['/admin-settings?tab=security']}>
+    <MemoryRouter
+      initialEntries={['/admin-settings?tab=security']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <AuthContext.Provider value={{
         user,
         updateUser: jest.fn(),
@@ -50,12 +53,14 @@ test('asks for the account password only after PIN confirmation and Set up PIN',
     </MemoryRouter>
   );
 
-  const pinInput = await screen.findByLabelText('New six-digit PIN');
-  const confirmationInput = screen.getByLabelText('Confirm new PIN');
+  const pinGroup = await screen.findByRole('group', { name: 'New six-digit PIN' });
+  const confirmationGroup = screen.getByRole('group', { name: 'Confirm new PIN' });
+  const pinInput = within(pinGroup).getByLabelText('PIN digit 1 of 6');
+  const confirmationInput = within(confirmationGroup).getByLabelText('PIN digit 1 of 6');
   expect(screen.queryByLabelText('Current account password')).not.toBeInTheDocument();
 
-  fireEvent.change(pinInput, { target: { value: '012345' } });
-  fireEvent.change(confirmationInput, { target: { value: '012345' } });
+  fireEvent.paste(pinInput, { clipboardData: { getData: () => '012345' } });
+  fireEvent.paste(confirmationInput, { clipboardData: { getData: () => '012345' } });
   fireEvent.click(screen.getByRole('button', { name: 'Set up PIN' }));
 
   const passwordInput = await screen.findByLabelText('Current account password');

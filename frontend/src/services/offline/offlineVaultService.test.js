@@ -6,6 +6,7 @@ import {
   getOfflineRecord,
   getOfflineRecords,
   getOfflineVaultMetadata,
+  getPinAttemptStatus,
   lockOfflineVault,
   isOfflineVaultUnlocked,
   putOfflineRecord,
@@ -191,6 +192,29 @@ test('rejects malformed PINs and locks after five incorrect attempts', async () 
   } finally {
     jest.restoreAllMocks();
   }
+});
+
+test('reports the existing local PIN attempt and lockout status', async () => {
+  await idb.putToStore('offlineSecurity', {
+    key: 'pin-attempts:7',
+    failures: 3,
+    lockedUntil: 0,
+  });
+  await expect(getPinAttemptStatus(7)).resolves.toEqual({
+    attemptsRemaining: 2,
+    lockedUntil: 0,
+  });
+
+  const lockedUntil = Date.now() + 15 * 60 * 1000;
+  await idb.putToStore('offlineSecurity', {
+    key: 'pin-attempts:7',
+    failures: 0,
+    lockedUntil,
+  });
+  await expect(getPinAttemptStatus(7)).resolves.toEqual({
+    attemptsRemaining: 0,
+    lockedUntil,
+  });
 });
 
 test('requires a valid account grant and rejects role metadata tampering', async () => {

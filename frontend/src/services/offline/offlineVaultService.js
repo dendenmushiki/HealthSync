@@ -201,6 +201,18 @@ export async function getOfflineVaultMetadata(userId) {
   return publicVaultMetadata(await idb.getFromStore('offlineVaults', ownerId));
 }
 
+export async function getPinAttemptStatus(userId) {
+  const ownerId = normalizeUserId(userId);
+  const attempts = await idb.getFromStore('offlineSecurity', `pin-attempts:${ownerId}`);
+  const lockedUntil = Number(attempts?.lockedUntil) || 0;
+  const activeLockout = lockedUntil > Date.now();
+  const failures = Math.min(5, Math.max(0, Number(attempts?.failures) || 0));
+  return {
+    attemptsRemaining: activeLockout ? 0 : 5 - failures,
+    lockedUntil: activeLockout ? lockedUntil : 0,
+  };
+}
+
 function normalizeRole(role) {
   if (typeof role !== 'string' || !role.trim()) {
     throw new Error('An authorized account role is required for offline storage.');
@@ -474,6 +486,7 @@ const offlineVaultService = {
   getOfflineRecord,
   getOfflineRecords,
   getOfflineVaultMetadata,
+  getPinAttemptStatus,
   getUnlockedOfflineVaultRole,
   isOfflineVaultUnlocked,
   offlineValuesEqual,

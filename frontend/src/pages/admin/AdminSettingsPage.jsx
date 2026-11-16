@@ -12,6 +12,7 @@ import {
   unlockOfflineVault,
 } from '../../services/offline/offlineVaultService';
 import { createOfflineSession } from '../../services/offline/offlineSessionService';
+import PinDigitInput from '../../components/common/PinDigitInput';
 
 const SECTIONS = [
   { id: 'profile', label: 'Profile' },
@@ -122,6 +123,8 @@ const AdminSettingsPage = () => {
   const [pinForm, setPinForm] = useState({ currentPassword: '', pin: '', confirm: '' });
   const [pinPasswordStep, setPinPasswordStep] = useState(false);
   const pinPasswordInputRef = useRef(null);
+  const pinInputRef = useRef(null);
+  const pinConfirmInputRef = useRef(null);
   const [pinMessage, setPinMessage] = useState('');
   const [authorizedDevices, setAuthorizedDevices] = useState([]);
   const [devicesError, setDevicesError] = useState('');
@@ -496,6 +499,8 @@ const AdminSettingsPage = () => {
       await unlockOfflineAccess(pinForm.pin);
       updateUser({ ...user, offline_pin_enrolled: true, offline_pin_setup_required: false });
       setPinForm({ currentPassword: '', pin: '', confirm: '' });
+      pinInputRef.current?.clear();
+      pinConfirmInputRef.current?.clear();
       setPinPasswordStep(false);
       setPinMessage(user.offline_pin_enrolled ? 'PIN changed successfully.' : 'PIN set up successfully.');
     } catch (pinError) {
@@ -673,13 +678,30 @@ const AdminSettingsPage = () => {
                 >
                   <form className="settings-password-form" onSubmit={handlePinSave}>
                     <div className="settings-field">
-                      <label htmlFor="settings-offline-pin">New six-digit PIN</label>
-                      <input id="settings-offline-pin" className="form-control" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinForm.pin} onChange={(event) => setPinForm((current) => ({ ...current, pin: event.target.value.replace(/\D/g, '').slice(0, 6) }))} required />
+                      <fieldset className="settings-pin-group">
+                        <legend>New six-digit PIN</legend>
+                        <PinDigitInput
+                          ref={pinInputRef}
+                          onChange={(pin) => setPinForm((current) => ({ ...current, pin }))}
+                          showStrengthHint
+                        />
+                      </fieldset>
                     </div>
                     <div className="settings-field">
-                      <label htmlFor="settings-offline-pin-confirm">Confirm new PIN</label>
-                      <input id="settings-offline-pin-confirm" className="form-control" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinForm.confirm} onChange={(event) => setPinForm((current) => ({ ...current, confirm: event.target.value.replace(/\D/g, '').slice(0, 6) }))} required />
+                      <fieldset className="settings-pin-group">
+                        <legend>Confirm new PIN</legend>
+                        <PinDigitInput
+                          ref={pinConfirmInputRef}
+                          invalid={Boolean(pinForm.confirm && pinForm.pin !== pinForm.confirm)}
+                          describedBy={pinForm.confirm && pinForm.pin !== pinForm.confirm ? 'settings-pin-mismatch' : undefined}
+                          autoFocus={false}
+                          onChange={(pin) => setPinForm((current) => ({ ...current, confirm: pin }))}
+                        />
+                      </fieldset>
                     </div>
+                    {pinForm.confirm && pinForm.pin !== pinForm.confirm && (
+                      <p id="settings-pin-mismatch" className="settings-inline-error" role="status">PIN entries do not match.</p>
+                    )}
                     {(user?.offline_pin_enrolled || pinPasswordStep) && <div className="settings-field">
                       <label htmlFor="settings-pin-current-password">Current account password</label>
                       <input ref={pinPasswordInputRef} id="settings-pin-current-password" className="form-control" type="password" autoComplete="current-password" value={pinForm.currentPassword} onChange={(event) => setPinForm((current) => ({ ...current, currentPassword: event.target.value }))} required />
