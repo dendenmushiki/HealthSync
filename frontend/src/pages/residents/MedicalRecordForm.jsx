@@ -152,7 +152,9 @@ const MedicalRecordForm = ({ recordType, resident }) => {
         next.delete('recordId');
         setSearchParams(next, { replace: true });
       }
-      setMessage('Record saved successfully.');
+      setMessage(result.offline
+        ? 'Saved locally. This record is waiting to synchronize.'
+        : 'Record saved successfully.');
       setCollapsed(Object.fromEntries(config.sections.map((section, index) => [section.title, index > 0])));
       await refresh();
     } catch (saveError) {

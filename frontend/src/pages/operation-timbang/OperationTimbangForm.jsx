@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ResidentAutocomplete from '../../components/residents/ResidentAutocomplete';
 import { calculateOperationTimbang, createOperationTimbang } from '../../services/api/operationTimbangService';
-import { formatResidentName } from '../../utils/residentUtils';
+import { formatResidentName, normalizeResidentId } from '../../utils/residentUtils';
 import OperationTimbangFormRedesign from './OperationTimbangFormRedesign';
 
 const getLocalDateString = () => {
@@ -108,7 +108,7 @@ const OperationTimbangForm = ({ onSaved }) => {
     const timer = setTimeout(async () => {
       try {
         const response = await calculateOperationTimbang({
-          resident_id: Number(form.resident_id),
+          resident_id: normalizeResidentId(form.resident_id),
           date_recorded: form.date_recorded,
           weight_kg: Number(form.weight_kg),
           measurement_cm: Number(form.measurement_cm),
@@ -159,7 +159,7 @@ const OperationTimbangForm = ({ onSaved }) => {
     setSaving(true);
     try {
       const response = await createOperationTimbang({
-        resident_id: Number(form.resident_id),
+        resident_id: normalizeResidentId(form.resident_id),
         date_recorded: form.date_recorded,
         weight_kg: Number(form.weight_kg),
         measurement_cm: Number(form.measurement_cm),

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ResidentAutocomplete from '../../components/residents/ResidentAutocomplete';
 import { createAdolescentBMI, previewAdolescentBMI } from '../../services/api/adolescentBMIService';
+import { normalizeResidentId } from '../../utils/residentUtils';
 
 const getLocalDate = () => {
   const now = new Date();
@@ -96,7 +97,7 @@ const AdolescentBMIForm = ({ onSaved }) => {
     let active = true;
     const timer = setTimeout(async () => {
       try {
-        const response = await previewAdolescentBMI({ resident_id: Number(form.resident_id), record_date: form.record_date, height_cm: height, weight_kg: weight });
+        const response = await previewAdolescentBMI({ resident_id: normalizeResidentId(form.resident_id), record_date: form.record_date, height_cm: height, weight_kg: weight });
         if (active && response?.success && response.data?.bmi_for_age_category && Number.isFinite(response.data.bmi_for_age_zscore)) {
           setResult(response.data);
           setResultKey(calculationKey);
@@ -147,7 +148,7 @@ const AdolescentBMIForm = ({ onSaved }) => {
     setLoading(true);
     try {
       const payload = {
-        resident_id: Number(form.resident_id),
+        resident_id: normalizeResidentId(form.resident_id),
         record_date: form.record_date,
         height_cm: Number(form.height_cm),
         weight_kg: Number(form.weight_kg),

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/authenticate');
 const authorizeRole = require('../middleware/authorize');
+const createIdempotencyMiddleware = require('../middleware/idempotency');
 const {
   listAdolescentBMI,
   getAdolescentBMI,
@@ -19,8 +20,8 @@ router.get('/previous/:residentId', authenticateToken, authorizeRole(['bhw']), l
 router.get('/:id', authenticateToken, authorizeRole(['bhw']), getAdolescentBMI);
 
 // Create and update - BHW and Admin only
-router.post('/', authenticateToken, authorizeRole(['bhw']), createAdolescentBMI);
-router.put('/:id', authenticateToken, authorizeRole(['bhw']), updateAdolescentBMI);
-router.delete('/:id', authenticateToken, authorizeRole(['bhw']), deleteAdolescentBMI);
+router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adolescent_bmi', 'adolescent_bmi_records'), createAdolescentBMI);
+router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adolescent_bmi', 'adolescent_bmi_records'), updateAdolescentBMI);
+router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adolescent_bmi', 'adolescent_bmi_records'), deleteAdolescentBMI);
 
 module.exports = router;

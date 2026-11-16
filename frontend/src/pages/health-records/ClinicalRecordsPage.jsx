@@ -42,6 +42,7 @@ const ClinicalRecordsPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -88,6 +89,7 @@ const ClinicalRecordsPage = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+    setSuccessMessage('');
     setSaving(true);
 
     try {
@@ -103,6 +105,7 @@ const ClinicalRecordsPage = () => {
         ? await updateHealthRecord(editingId, payload)
         : await createHealthRecord(payload);
       if (response?.success) {
+        setSuccessMessage(response.offline ? 'Saved locally. This record is waiting to synchronize.' : '');
         setForm(initialForm);
         setEditingId(null);
         if (searchParams.has('recordId')) {
@@ -148,6 +151,7 @@ const ClinicalRecordsPage = () => {
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}
+      {successMessage && <div className="alert alert-info" role="status">{successMessage}</div>}
 
       <div className="healthsync-form-shell">
         <div className="healthsync-form-card">

@@ -25,6 +25,7 @@ import SyncStatus from './pages/SyncStatus';
 import ReportsPage from './pages/reports/ReportsPage';
 import { getProfilePhotoUrl } from './utils/profilePhoto';
 import useSyncStatus from './services/offline/useSyncStatus';
+import { getOfflineSession } from './services/offline/offlineSessionService';
 import './App.css';
 import './nutrition.css';
 import './pages/dashboard/Dashboard.css';
@@ -125,8 +126,37 @@ function ThemePreferenceManager() {
 
 function AppContent() {
   const location = useLocation();
-  const { user, loading, updateUser } = useContext(AuthContext);
+  const {
+    user, token, loading, updateUser, offlineVaultReady, unlockOfflineAccess, lockOfflineAccess,
+  } = useContext(AuthContext);
   const isLoginRoute = location.pathname === '/login';
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [offlineAuthorizationCheck, setOfflineAuthorizationCheck] = useState(0);
+
+  useEffect(() => {
+    const updateNetworkState = () => setOnline(navigator.onLine);
+    window.addEventListener('online', updateNetworkState);
+    window.addEventListener('offline', updateNetworkState);
+    return () => {
+      window.removeEventListener('online', updateNetworkState);
+      window.removeEventListener('offline', updateNetworkState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (online) return undefined;
+    const timer = window.setInterval(() => setOfflineAuthorizationCheck(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, [online]);
+
+  const offlineGrant = getOfflineSession();
+  const offlineAuthorized = Boolean(offlineGrant && user &&
+    String(offlineGrant.userId) === String(user.user_id) &&
+    offlineGrant.role === user.role && !user.must_change_password);
+
+  useEffect(() => {
+    if (!online && user && !offlineAuthorized) lockOfflineAccess();
+  }, [lockOfflineAccess, offlineAuthorizationCheck, offlineAuthorized, online, user]);
 
   useEffect(() => {
     const requirePasswordChange = () => {
@@ -137,6 +167,9 @@ function AppContent() {
   }, [updateUser, user]);
 
   if (loading) return null;
+  if (!online && user && token && (!offlineVaultReady || !offlineAuthorized)) {
+    return <OfflineUnlockScreen user={user} unlockOfflineAccess={unlockOfflineAccess} />;
+  }
   if (location.pathname === '/change-password') {
     return user ? <ForcePasswordChangePage /> : <Navigate to="/login" replace />;
   }
@@ -154,6 +187,62 @@ function AppContent() {
   }
 
   return <AppShell />;
+}
+
+function OfflineUnlockScreen({ user, unlockOfflineAccess }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const grant = getOfflineSession();
+  const authorized = !user.must_change_password && grant &&
+    String(grant.userId) === String(user.user_id) && grant.role === user.role;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await unlockOfflineAccess(password);
+      setPassword('');
+    } catch (unlockError) {
+      setError(unlockError.message || 'Unable to unlock secure offline data.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="container py-5">
+      <section className="card mx-auto p-4" style={{ maxWidth: 480 }} aria-labelledby="offline-unlock-title">
+        <h1 id="offline-unlock-title" className="h3">Unlock offline access</h1>
+        {authorized ? (
+          <>
+            <p>Enter your HealthSync account password to unlock this account’s encrypted offline data. This does not use your offline grant as an API token.</p>
+            {error && <div className="alert alert-danger" role="alert">{error}</div>}
+            <form onSubmit={submit}>
+              <label className="form-label" htmlFor="offline-account-password">Account password</label>
+              <input
+                id="offline-account-password"
+                className="form-control mb-3"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button className="btn btn-primary" type="submit" disabled={busy}>
+                {busy ? 'Unlocking…' : 'Unlock offline data'}
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className="alert alert-warning mb-0" role="status">
+            Offline authorization is unavailable or expired. It cannot be renewed while disconnected. Reconnect and sign in online, then use Offline data at the top of the app to download a fresh copy before going offline.
+          </div>
+        )}
+      </section>
+    </main>
+  );
 }
 
 function SessionSyncGuard() {

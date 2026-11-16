@@ -2,16 +2,8 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SyncStatus from './SyncStatus';
-import idb from '../services/offline/indexedDbService';
+import offlineQueue from '../services/offline/offlineQueueService';
 import useSyncStatus from '../services/offline/useSyncStatus';
-
-jest.mock('../services/offline/indexedDbService', () => ({
-  __esModule: true,
-  default: {
-    getFromStore: jest.fn(),
-    deleteFromStore: jest.fn(),
-  },
-}));
 
 jest.mock('../services/offline/useSyncStatus', () => ({
   __esModule: true,
@@ -20,7 +12,11 @@ jest.mock('../services/offline/useSyncStatus', () => ({
 
 jest.mock('../services/offline/offlineQueueService', () => ({
   __esModule: true,
-  default: { updateOperationStatus: jest.fn() },
+  default: {
+    deleteOperation: jest.fn(),
+    getOperation: jest.fn(),
+    updateOperationStatus: jest.fn(),
+  },
 }));
 
 jest.mock('../services/offline/syncManager', () => ({
@@ -78,7 +74,7 @@ test('synced changes cannot be discarded from Sync Status', async () => {
 
 test('a change that syncs before discard confirmation is preserved', async () => {
   const pendingItem = makeItem('PENDING');
-  idb.getFromStore.mockResolvedValue({ ...pendingItem, status: 'SYNCED' });
+  offlineQueue.getOperation.mockResolvedValue({ ...pendingItem, status: 'SYNCED' });
   renderSyncStatus(pendingItem);
 
   const drawer = await screen.findByRole('dialog', { name: 'Sync change details' });
@@ -87,6 +83,21 @@ test('a change that syncs before discard confirmation is preserved', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Discard change' }));
 
   expect(await screen.findByText(/already synced and cannot be discarded/i)).toBeInTheDocument();
-  expect(idb.deleteFromStore).not.toHaveBeenCalled();
-  await waitFor(() => expect(idb.getFromStore).toHaveBeenCalledWith('offlineQueue', 'offline-1'));
+  expect(offlineQueue.deleteOperation).not.toHaveBeenCalled();
+  await waitFor(() => expect(offlineQueue.getOperation).toHaveBeenCalledWith('offline-1'));
+});
+
+test('unknown outcomes cannot be retried or discarded as unsent changes', async () => {
+  renderSyncStatus(makeItem('CONFLICT'));
+
+  const drawer = await screen.findByRole('dialog', { name: 'Sync change details' });
+  fireEvent.click(within(drawer).getByRole('button', { name: 'Retry' }));
+  expect(offlineQueue.updateOperationStatus).not.toHaveBeenCalled();
+  expect(screen.getByText(/server outcome is unknown/i)).toBeInTheDocument();
+
+  fireEvent.click(within(drawer).getByRole('button', { name: 'Discard' }));
+  expect(screen.getByRole('dialog', { name: 'This change needs attention' })).toBeInTheDocument();
+  expect(screen.getByText(/cannot be safely retried or discarded/i)).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Discard change' })).not.toBeInTheDocument();
 });

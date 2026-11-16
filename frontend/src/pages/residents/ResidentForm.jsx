@@ -461,7 +461,8 @@ const ResidentForm = ({ onBack }) => {
           userId: user?.user_id,
           photo: photoFile,
           photoAction: removePhoto ? 'DELETE' : null,
-          request: { method: id ? 'PUT' : 'POST', url: id ? `/residents/${id}` : '/residents', data: payload }
+          request: { method: id ? 'PUT' : 'POST', url: id ? `/residents/${id}` : '/residents', data: payload },
+          localRecord: { ...payload, ...(id ? { resident_id: id, id } : {}) }
         });
         navigate('/sync-status', { state: { queuedOperationId: queued.offlineOperationId } });
         return;

@@ -1,22 +1,96 @@
 import api from './apiClient';
 import { publishNotification } from '../notifications/notificationEvents';
-import idb from '../offline/indexedDbService';
+import {
+  getOfflineRecord,
+  getOfflineRecords,
+  getUnlockedOfflineVaultRole,
+  isOfflineVaultUnlocked,
+  putOfflineRecord,
+} from '../offline/offlineVaultService';
+import { getOfflineSession } from '../offline/offlineSessionService';
+import offlineQueue from '../offline/offlineQueueService';
 import locations from '../../data/philippineLocations.json';
 import { calculateAge } from '../../utils/residentUtils';
+import { calculateAgeInMonths } from '../../utils/nutritionRecordAge';
+
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem('hs_user') || 'null');
+  } catch {
+    throw new Error('Offline resident access is unavailable for this account.');
+  }
+}
+
+function getAuthorizedOfflineAccount() {
+  const user = getStoredUser();
+  const grant = getOfflineSession();
+  if (!user?.user_id || user.must_change_password || user.role !== 'bhw' || !grant ||
+      String(grant.userId) !== String(user.user_id) || grant.role !== user.role ||
+      getUnlockedOfflineVaultRole(user.user_id) !== user.role) {
+    throw new Error('Unlock authorized BHW offline access before using resident data.');
+  }
+  return user;
+}
+
+const reportCacheFailure = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('healthsync:offline-cache-error', {
+      detail: { message: 'Resident data could not be secured for offline use.' },
+    }));
+  }
+};
+
+const getResidentCacheCollection = async (userId) => {
+  const activeSnapshot = await getOfflineRecord(userId, 'offlineMetadata', 'activeOfflineDataSnapshot');
+  if (activeSnapshot?.status === 'complete' && activeSnapshot.collections?.residents) {
+    return activeSnapshot.collections.residents;
+  }
+  const previousSnapshot = await getOfflineRecord(userId, 'offlineMetadata', 'activeResidentsSnapshot');
+  return previousSnapshot?.collection || 'residents';
+};
 
 const cacheResidents = async (items = []) => {
-  await Promise.all(items.map((resident) => idb.putToStore('cachedResidents', resident).catch(() => {})));
+  const user = getStoredUser();
+  if (!user?.user_id || user.must_change_password || user.role !== 'bhw' || !getOfflineSession() ||
+      !isOfflineVaultUnlocked(user.user_id) ||
+      getUnlockedOfflineVaultRole(user.user_id) !== user.role) return;
+  const collection = await getResidentCacheCollection(user.user_id);
+  await Promise.all(items.map((resident) => putOfflineRecord(
+    user.user_id,
+    collection,
+    resident.resident_id,
+    resident
+  )));
 };
 
-const calculateResidentAge = (resident) => {
-  if (resident.age !== undefined && resident.age !== null) return Number(resident.age);
-  return calculateAge(resident.birthdate);
+const getManilaToday = () => {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
 };
+
+const calculateResidentAge = (resident) => calculateAge(
+  resident.birthdate,
+  new Date(`${getManilaToday()}T00:00:00`)
+);
 
 const getCachedResidents = async (params = {}) => {
-  const cached = await idb.getAllFromStore('cachedResidents');
+  const user = getAuthorizedOfflineAccount();
+  const collection = await getResidentCacheCollection(user.user_id);
+  const cached = await getOfflineRecords(user.user_id, collection);
+  const queuedResidents = (await offlineQueue.getQueueItems(user.user_id))
+    .filter((item) => item.table === 'residents' && item.localRecord && item.operation !== 'DELETE')
+    .map((item) => item.localRecord);
+  const residentsById = new Map(cached.map((resident) => [String(resident.resident_id), resident]));
+  queuedResidents.forEach((resident) => residentsById.set(String(resident.resident_id), resident));
   const searchTokens = String(params.search || params.q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
-  let residents = cached.filter((resident) => {
+  const asOfDate = getManilaToday();
+  let residents = [...residentsById.values()].filter((resident) => {
     const searchText = [
       resident.first_name, resident.middle_name, resident.last_name, resident.suffix,
       resident.household_no, resident.contact_no, resident.philhealth_id_no
@@ -26,8 +100,13 @@ const getCachedResidents = async (params = {}) => {
     if (params.sex && String(resident.sex).toLowerCase() !== String(params.sex).toLowerCase()) return false;
     if (params.sitio && resident.sitio !== params.sitio) return false;
     const age = calculateResidentAge(resident);
+    const ageMonths = calculateAgeInMonths(resident.birthdate, asOfDate);
     if (params.min_age !== undefined && params.min_age !== '' && (age === null || age < Number(params.min_age))) return false;
     if (params.max_age !== undefined && params.max_age !== '' && (age === null || age > Number(params.max_age))) return false;
+    if (params.min_age_months !== undefined && params.min_age_months !== '' &&
+        (ageMonths === null || ageMonths < Number(params.min_age_months))) return false;
+    if (params.max_age_months !== undefined && params.max_age_months !== '' &&
+        (ageMonths === null || ageMonths > Number(params.max_age_months))) return false;
     const flags = Array.isArray(resident.category_flags) ? resident.category_flags : [];
     if (params.classification === 'Senior Citizen' && (age === null || age < 60)) return false;
     if (params.classification === 'PWD' && !flags.includes('PWD')) return false;
@@ -55,15 +134,38 @@ const getCachedResidents = async (params = {}) => {
   return { success: true, data: { items, total, page, limit, offline: true, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } } };
 };
 
+const getCachedResident = async (user, id) => {
+  const queueItems = await offlineQueue.getQueueItems(user.user_id);
+  const queued = queueItems.find((item) => (
+    item.table === 'residents' && item.localRecord &&
+    String(item.localRecord.offlineResidentId || item.localRecord.resident_id) === String(id) &&
+    item.operation !== 'DELETE'
+  ));
+  if (queued) return queued.localRecord;
+  const numericId = Number(id);
+  const cached = Number.isFinite(numericId) ? await getOfflineRecord(
+    user.user_id,
+    await getResidentCacheCollection(user.user_id),
+    numericId
+  ) : null;
+  return cached;
+};
+
 export async function getResidents(params = {}) {
   if (!navigator.onLine) return getCachedResidents(params);
   try {
     const resp = await api.get('/residents', { params });
-    if (resp.data?.success) await cacheResidents(resp.data.data?.items);
+    if (resp.data?.success) {
+      try {
+        await cacheResidents(resp.data.data?.items);
+      } catch {
+        reportCacheFailure();
+      }
+    }
     return resp.data;
   } catch (error) {
     if (!error.response) {
-      try { return await getCachedResidents(params); } catch (cacheError) { /* Keep the original network error. */ }
+      return getCachedResidents(params);
     }
     throw error;
   }
@@ -85,17 +187,25 @@ export async function getAllResidents(params = {}) {
 
 export async function getResident(id) {
   if (!navigator.onLine) {
-    const resident = await idb.getFromStore('cachedResidents', Number(id));
+    const user = getAuthorizedOfflineAccount();
+    const resident = await getCachedResident(user, id);
     if (resident) return { success: true, data: resident, offline: true };
     throw new Error('This resident has not been loaded on this device. Connect to the internet before editing.');
   }
   try {
     const resp = await api.get(`/residents/${id}`);
-    if (resp.data?.success) await cacheResidents([resp.data.data]);
+    if (resp.data?.success) {
+      try {
+        await cacheResidents([resp.data.data]);
+      } catch {
+        reportCacheFailure();
+      }
+    }
     return resp.data;
   } catch (error) {
     if (!error.response) {
-      const resident = await idb.getFromStore('cachedResidents', Number(id)).catch(() => null);
+      const user = getAuthorizedOfflineAccount();
+      const resident = await getCachedResident(user, id);
       if (resident) return { success: true, data: resident, offline: true };
     }
     throw error;

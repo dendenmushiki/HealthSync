@@ -1,9 +1,9 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import OperationTimbangForm, { getAgeInMonths } from './OperationTimbangForm';
-import { calculateOperationTimbang, createOperationTimbang } from '../../services/api/operationTimbangService';
+import { calculateOperationTimbang, createOperationTimbang, getPreviousOperationTimbang } from '../../services/api/operationTimbangService';
 
-jest.mock('../../components/residents/ResidentAutocomplete', () => {
+jest.mock('../../components/nutrition/ResidentPicker', () => {
   const ReactModule = require('react');
   return {
     __esModule: true,
@@ -37,6 +37,20 @@ jest.mock('../../components/residents/ResidentAutocomplete', () => {
           }),
         },
         'Select invalid-date child'
+      ),
+      ReactModule.createElement(
+        'button',
+        {
+          type: 'button',
+          onClick: () => onSelect({
+            resident_id: 'offline:resident-operation',
+            first_name: 'Offline',
+            last_name: 'Child',
+            birthdate: '2023-01-01',
+            sex: 'female',
+          }),
+        },
+        'Select offline child'
       )
     ),
   };
@@ -45,6 +59,7 @@ jest.mock('../../components/residents/ResidentAutocomplete', () => {
 jest.mock('../../services/api/operationTimbangService', () => ({
   calculateOperationTimbang: jest.fn(),
   createOperationTimbang: jest.fn(),
+  getPreviousOperationTimbang: jest.fn(async () => ({ success: true, data: [] })),
 }));
 
 const resultFor = (payload) => ({
@@ -62,6 +77,7 @@ const resultFor = (payload) => ({
 beforeEach(() => {
   calculateOperationTimbang.mockImplementation(async (payload) => ({ success: true, data: resultFor(payload) }));
   createOperationTimbang.mockImplementation(async (payload) => ({ success: true, data: resultFor(payload) }));
+  getPreviousOperationTimbang.mockResolvedValue({ success: true, data: [] });
 });
 
 afterEach(() => {
@@ -87,12 +103,12 @@ test('previews updated indicators as measurements change and saves the calculate
 
   fireEvent.click(screen.getByRole('button', { name: 'Select test child' }));
   fireEvent.change(screen.getByLabelText('Date recorded'), { target: { value: '2024-01-01' } });
-  fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '8.5' } });
-  fireEvent.change(screen.getByLabelText('Height / length (cm)'), { target: { value: '73' } });
+  fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '8.5' } });
+  fireEvent.change(screen.getByLabelText('Height / length'), { target: { value: '73' } });
   fireEvent.change(screen.getByLabelText('Measurement type'), { target: { value: 'length' } });
 
-  await screen.findByText('Nutritional assessment preview');
-  expect(screen.getByText(/Age: 12 months/)).toBeInTheDocument();
+  await screen.findByText('Overall assessment');
+  expect(screen.getByLabelText('Age at measurement')).toHaveValue('12 months');
   expect(calculateOperationTimbang).toHaveBeenLastCalledWith({
     resident_id: 42,
     date_recorded: '2024-01-01',
@@ -101,21 +117,20 @@ test('previews updated indicators as measurements change and saves the calculate
     measurement_type: 'length',
   });
   expect(screen.getByRole('button', { name: 'Save record' })).toBeEnabled();
-  expect(screen.getByText('Z-score: -0.24 SD')).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Weight-for-age: -0.24 standard deviations' })).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '9.5' } });
+  fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '9.5' } });
   await waitFor(() => expect(calculateOperationTimbang).toHaveBeenCalledTimes(2));
   expect(await screen.findByText('Moderately underweight')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
-  await screen.findByText('Saved assessment results');
-  expect(createOperationTimbang).toHaveBeenCalledWith({
+  await waitFor(() => expect(createOperationTimbang).toHaveBeenCalledWith({
     resident_id: 42,
     date_recorded: '2024-01-01',
     weight_kg: 9.5,
     measurement_cm: 73,
     measurement_type: 'length',
-  });
+  }));
   expect(onSaved).toHaveBeenCalledTimes(1);
 });
 
@@ -137,13 +152,12 @@ test('shows missing assessment values as unavailable instead of normal', async (
 
   fireEvent.click(screen.getByRole('button', { name: 'Select test child' }));
   fireEvent.change(screen.getByLabelText('Date recorded'), { target: { value: '2024-01-01' } });
-  fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '8.5' } });
-  fireEvent.change(screen.getByLabelText('Height / length (cm)'), { target: { value: '73' } });
+  fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '8.5' } });
+  fireEvent.change(screen.getByLabelText('Height / length'), { target: { value: '73' } });
   fireEvent.change(screen.getByLabelText('Measurement type'), { target: { value: 'length' } });
 
-  await screen.findByText('Nutritional assessment preview');
-  expect(screen.getAllByText('Unavailable')).toHaveLength(3);
-  expect(screen.getAllByText('Z-score: Unavailable')).toHaveLength(3);
+  await screen.findByText('Overall assessment');
+  expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(4);
 });
 
 test('does not request a preview for an impossible birthdate', async () => {
@@ -151,11 +165,25 @@ test('does not request a preview for an impossible birthdate', async () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'Select invalid-date child' }));
   fireEvent.change(screen.getByLabelText('Date recorded'), { target: { value: '2024-03-01' } });
-  fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '8.5' } });
-  fireEvent.change(screen.getByLabelText('Height / length (cm)'), { target: { value: '73' } });
+  fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '8.5' } });
+  fireEvent.change(screen.getByLabelText('Height / length'), { target: { value: '73' } });
   fireEvent.change(screen.getByLabelText('Measurement type'), { target: { value: 'length' } });
 
-  expect(await screen.findByRole('status')).toHaveTextContent('Enter a valid birthdate and measurement date');
+  await new Promise((resolve) => window.setTimeout(resolve, 350));
   expect(calculateOperationTimbang).not.toHaveBeenCalled();
-  expect(screen.queryByText('Nutritional assessment preview')).not.toBeInTheDocument();
+  expect(screen.queryByText('Overall assessment')).not.toBeInTheDocument();
+});
+
+test('preserves a locally created resident ID in offline assessment previews', async () => {
+  render(<OperationTimbangForm />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select offline child' }));
+  fireEvent.change(screen.getByLabelText('Date recorded'), { target: { value: '2024-01-01' } });
+  fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '8.5' } });
+  fireEvent.change(screen.getByLabelText('Height / length'), { target: { value: '73' } });
+  fireEvent.change(screen.getByLabelText('Measurement type'), { target: { value: 'length' } });
+
+  await waitFor(() => expect(calculateOperationTimbang).toHaveBeenCalledWith(expect.objectContaining({
+    resident_id: 'offline:resident-operation',
+  })));
 });

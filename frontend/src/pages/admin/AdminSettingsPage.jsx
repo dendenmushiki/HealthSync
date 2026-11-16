@@ -3,6 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api/apiClient';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
+import {
+  changeOfflineVaultCredential,
+  getOfflineVaultMetadata,
+  isOfflineVaultUnlocked,
+  unlockOfflineVault,
+} from '../../services/offline/offlineVaultService';
+import { createOfflineSession } from '../../services/offline/offlineSessionService';
 
 const SECTIONS = [
   { id: 'profile', label: 'Profile' },
@@ -368,8 +375,29 @@ const AdminSettingsPage = () => {
         new_password: passwords.next,
       });
       if (!response.data?.success) throw new Error(response.data?.message || 'Unable to update password.');
-      logout({ skipServer: true });
-      navigate('/login', { replace: true, state: { message: 'Password updated. Sign in with your new password.' } });
+      let offlineWarning = false;
+      try {
+        const ownerId = user?.user_id;
+        const metadata = ownerId === undefined ? null : await getOfflineVaultMetadata(ownerId);
+        if (metadata) {
+          createOfflineSession({ userId: ownerId, role: user.role });
+          if (!isOfflineVaultUnlocked(ownerId)) {
+            await unlockOfflineVault({ userId: ownerId, credential: passwords.current });
+          }
+          await changeOfflineVaultCredential({ userId: ownerId, credential: passwords.next });
+        }
+      } catch {
+        offlineWarning = true;
+      }
+      await logout({ skipServer: true });
+      navigate('/login', {
+        replace: true,
+        state: {
+          message: offlineWarning
+            ? 'Password updated. Encrypted offline data could not be updated and remains on this device.'
+            : 'Password updated. Sign in with your new password.',
+        },
+      });
     } catch (passwordError) {
       const errorMessage = passwordError.response?.data?.message || passwordError.message || 'Unable to update password.';
       setError(errorMessage);

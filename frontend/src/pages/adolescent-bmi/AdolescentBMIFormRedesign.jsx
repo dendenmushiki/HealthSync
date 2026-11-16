@@ -8,6 +8,7 @@ import TrendChart from '../../components/nutrition/TrendChart';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import { createAdolescentBMI, previewAdolescentBMI, getPreviousAdolescentBMI } from '../../services/api/adolescentBMIService';
 import { getLocalDateInputValue, formatDateLabel } from '../../utils/dateUtils';
+import { normalizeResidentId } from '../../utils/residentUtils';
 
 export const getAdolescentAgeInMonths = (birthdate, dateRecorded) => {
   const matchBirth = /^\d{4}-\d{2}-\d{2}$/.exec(String(birthdate || '').slice(0, 10));
@@ -50,7 +51,7 @@ const AdolescentBMIFormRedesign = ({ onSaved, onSwitchToAdult }) => {
   const ageRemaining = ageMonths === null ? null : ageMonths % 12;
 
   useEffect(() => {
-    if (!resident || resident.resident_id !== Number(form.resident_id)) { setHistory([]); return undefined; }
+    if (!resident || String(resident.resident_id) !== String(form.resident_id)) { setHistory([]); return undefined; }
     let active = true;
     setHistoryLoading(true);
     getPreviousAdolescentBMI(resident.resident_id, 12).then((response) => {
@@ -68,7 +69,7 @@ const AdolescentBMIFormRedesign = ({ onSaved, onSwitchToAdult }) => {
     const timer = window.setTimeout(async () => {
       setCalculating(true);
       try {
-        const response = await previewAdolescentBMI({ resident_id: Number(form.resident_id), record_date: form.record_date, height_cm: Number(form.height_cm), weight_kg: Number(form.weight_kg) });
+        const response = await previewAdolescentBMI({ resident_id: normalizeResidentId(form.resident_id), record_date: form.record_date, height_cm: Number(form.height_cm), weight_kg: Number(form.weight_kg) });
         if (active && response?.success) setPreview(response.data);
         if (active) setErrors((current) => ({ ...current, height_cm: undefined, weight_kg: undefined }));
       } catch (error) {
@@ -111,7 +112,7 @@ const AdolescentBMIFormRedesign = ({ onSaved, onSwitchToAdult }) => {
   const performSave = async (addNext = false) => {
     setSaving(true);
     try {
-      const response = await createAdolescentBMI({ resident_id: Number(form.resident_id), record_date: form.record_date, height_cm: Number(form.height_cm), weight_kg: Number(form.weight_kg) });
+      const response = await createAdolescentBMI({ resident_id: normalizeResidentId(form.resident_id), record_date: form.record_date, height_cm: Number(form.height_cm), weight_kg: Number(form.weight_kg) });
       if (!response?.success) throw new Error(response?.message || 'Unable to save BMI record.');
       const offline = response.offline || response.queued;
       const category = response.data?.bmi_for_age_category;

@@ -28,7 +28,7 @@ const isQueueableRequest = (config) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return null;
   const path = String(config.url || '').split('?')[0].replace(/\/$/, '');
   if (/\/preview$|\/calculate$/.test(path)) return null;
-  const medicalRecordMatch = path.match(/\/resident-medical-records\/(\d+)\/(clinical|child|maternal|immunization)(?:\/(\d+))?$/);
+  const medicalRecordMatch = path.match(/\/resident-medical-records\/([^/]+)\/(clinical|child|maternal|immunization)(?:\/([^/]+))?$/);
   if (medicalRecordMatch) {
     const [, residentId, recordType, recordId] = medicalRecordMatch;
     const tableByType = {
@@ -41,8 +41,8 @@ const isQueueableRequest = (config) => {
       module: `${recordType}_records`,
       table: tableByType[recordType],
       payload: {
-        resident_id: Number(residentId),
-        ...(recordId ? { id: Number(recordId) } : {}),
+        resident_id: /^\d+$/.test(residentId) ? Number(residentId) : residentId,
+        ...(recordId ? { id: /^\d+$/.test(recordId) ? Number(recordId) : recordId } : {}),
         ...(config.data?.record_data ? { record_data: config.data.record_data } : {})
       }
     };
@@ -70,6 +70,7 @@ api.interceptors.request.use(async (config) => {
     payload: route.payload || config.data || {},
     userId,
     request: { method, url: config.url, params: config.params, data: config.data },
+    localRecord: config.offlineLocalRecord || null,
   });
 
   if (typeof window !== 'undefined') {
@@ -77,6 +78,7 @@ api.interceptors.request.use(async (config) => {
   }
   const queuedError = new Error('Request saved for synchronization.');
   queuedError.offlineQueued = true;
+  queuedError.offlineOperationId = queued.offlineOperationId;
   queuedError.config = config;
   throw queuedError;
 });
@@ -87,7 +89,13 @@ api.interceptors.response.use((response) => response, (error) => {
   }
   if (error?.offlineQueued) {
     return {
-      data: { success: true, offline: true, queued: true, data: {} },
+      data: {
+        success: true,
+        offline: true,
+        queued: true,
+        offlineOperationId: error.offlineOperationId,
+        data: {},
+      },
       status: 202,
       statusText: 'Accepted',
       headers: {},

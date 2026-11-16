@@ -63,16 +63,21 @@ const ResultPanel = ({ result, calculating, emptyTitle = 'Enter weight and lengt
     </aside>;
   }
   const worst = indicators.reduce((current, indicator) => severityRank(result[indicator[1]]) > severityRank(result[current[1]]) ? indicator : current, indicators[0]);
-  const needsFollowUp = severityRank(result[worst[1]]) > 0;
+  const missingIndicator = indicators.some(([scoreKey, statusKey]) => (
+    result[scoreKey] === null || result[scoreKey] === undefined || result[scoreKey] === '' ||
+    result[statusKey] === null || result[statusKey] === undefined || result[statusKey] === ''
+  ));
+  const needsFollowUp = missingIndicator || severityRank(result[worst[1]]) > 0;
   return (
     <aside className="nutrition-assessment-card" aria-live="polite">
       <div className="nutrition-overall">
-        <div><span>Overall assessment</span><strong className={needsFollowUp ? 'warning' : 'success'}>{needsFollowUp ? 'Needs follow-up' : 'Normal'}</strong></div>
-        <ClassificationBadge status={needsFollowUp ? 'Needs follow-up' : 'Normal'} severe={needsFollowUp} />
+        <div><span>Overall assessment</span><strong className={needsFollowUp ? 'warning' : 'success'}>{missingIndicator ? 'Unavailable' : needsFollowUp ? 'Needs follow-up' : 'Normal'}</strong></div>
+        <ClassificationBadge status={missingIndicator ? 'Unavailable' : needsFollowUp ? 'Needs follow-up' : 'Normal'} severe={needsFollowUp} />
       </div>
       <div className="nutrition-indicator-list">
         {indicators.map(([scoreKey, statusKey, label, shortLabel]) => {
-          const score = Number(result[scoreKey]);
+          const value = result[scoreKey];
+          const score = value === null || value === undefined || value === '' ? Number.NaN : Number(value);
           const worstIndicator = worst[0] === scoreKey;
           return <div className={`nutrition-indicator${worstIndicator ? ' nutrition-indicator--worst' : ''}`} key={scoreKey}>
             <div className="nutrition-indicator-heading"><div><span>{shortLabel}</span><strong>{label}</strong></div><ClassificationBadge status={result[statusKey]} severe={worstIndicator} /></div>

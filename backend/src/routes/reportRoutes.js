@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/authenticate');
 const authorizeRole = require('../middleware/authorize');
+const createIdempotencyMiddleware = require('../middleware/idempotency');
 const {
   getMonthlyReport,
   getFhsisReport,
@@ -17,7 +18,13 @@ const {
 router.get('/monthly', authenticateToken, authorizeRole(['bhw', 'official']), getMonthlyReport);
 router.get('/fhsis', authenticateToken, authorizeRole(['bhw', 'official']), getFhsisReport);
 router.get('/fhsis/remarks', authenticateToken, authorizeRole(['bhw', 'official']), getFhsisRemarks);
-router.put('/fhsis/remarks', authenticateToken, authorizeRole(['bhw', 'official']), saveFhsisRemark);
+router.put(
+  '/fhsis/remarks',
+  authenticateToken,
+  authorizeRole(['bhw', 'official']),
+  createIdempotencyMiddleware('report_remarks', 'report_remarks'),
+  saveFhsisRemark
+);
 router.get('/fhsis/drilldown', authenticateToken, authorizeRole(['bhw', 'official']), getFhsisDrilldown);
 router.get('/nutrition', authenticateToken, authorizeRole(['bhw', 'official']), getNutritionReport);
 router.get('/operation-timbang', authenticateToken, authorizeRole(['bhw', 'official']), getOperationTimbangReport);

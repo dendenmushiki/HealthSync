@@ -12,6 +12,7 @@ const ForcePasswordChangePage = () => {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [offlineWarning, setOfflineWarning] = useState('');
   const [complete, setComplete] = useState(false);
   useEffect(() => {
     if (user && !user.must_change_password && !complete) {
@@ -35,7 +36,10 @@ const ForcePasswordChangePage = () => {
     try {
       const response = await api.post('/auth/change-password', { new_password: password });
       if (!response.data?.success) throw new Error(response.data?.message || 'Unable to change password.');
-      completePasswordChange(response.data.data.token, response.data.data.user);
+      const offlineReady = await completePasswordChange(response.data.data.token, response.data.data.user, password);
+      if (!offlineReady) {
+        setOfflineWarning('Offline access is unavailable on this device. You can continue online; do not rely on cached offline data.');
+      }
       setPassword('');
       setConfirmation('');
       setComplete(true);
@@ -57,6 +61,7 @@ const ForcePasswordChangePage = () => {
             <span className="hs-force-check" aria-hidden="true">✓</span>
             <h1 id="hs-force-title">Password updated</h1>
             <p>Your password is secure and your other sessions have been signed out.</p>
+            {offlineWarning && <p className="hs-force-error" role="status">{offlineWarning}</p>}
             <button type="button" className="hs-force-primary" onClick={continueToWorkspace}>Continue to HealthSync</button>
           </div>
         ) : (

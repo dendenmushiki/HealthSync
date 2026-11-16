@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/authenticate');
 const authorizeRole = require('../middleware/authorize');
+const createIdempotencyMiddleware = require('../middleware/idempotency');
 const {
   listOperationTimbang,
   getOperationTimbang,
@@ -19,8 +20,8 @@ router.get('/:id', authenticateToken, authorizeRole(['bhw']), getOperationTimban
 
 // Calculations and record changes are restricted to BHW users.
 router.post('/calculate', authenticateToken, authorizeRole(['bhw']), calculateOperationTimbang);
-router.post('/', authenticateToken, authorizeRole(['bhw']), createOperationTimbang);
-router.put('/:id', authenticateToken, authorizeRole(['bhw']), updateOperationTimbang);
-router.delete('/:id', authenticateToken, authorizeRole(['bhw']), deleteOperationTimbang);
+router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang'), createOperationTimbang);
+router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang'), updateOperationTimbang);
+router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang'), deleteOperationTimbang);
 
 module.exports = router;

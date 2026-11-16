@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import idb from './indexedDbService';
+import offlineQueue from './offlineQueueService';
 import networkService from './networkService';
 
 export default function useSyncStatus() {
@@ -7,11 +7,16 @@ export default function useSyncStatus() {
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
-      const queue = await idb.getAllFromStore('offlineQueue');
-      setItems(Array.isArray(queue) ? queue : []);
+      const queue = await offlineQueue.getQueueItems();
+      setItems(queue);
+      setError(null);
+    } catch {
+      setItems([]);
+      setError('Secure sync data is locked or unavailable for this account.');
     } finally {
       setLoaded(true);
     }
@@ -43,5 +48,5 @@ export default function useSyncStatus() {
   const waiting = pending + failed + syncingCount;
   const lastSynced = items.filter((item) => item.syncedAt).sort((a, b) => new Date(b.syncedAt) - new Date(a.syncedAt))[0]?.syncedAt || null;
 
-  return { items, online, syncing, setSyncing, loaded, refresh, pending, failed, syncingCount, syncedToday, conflicts, waiting, lastSynced };
+  return { items, online, syncing, setSyncing, loaded, refresh, pending, failed, syncingCount, syncedToday, conflicts, waiting, lastSynced, error };
 }

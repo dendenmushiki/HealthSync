@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ResidentAutocomplete from '../../components/residents/ResidentAutocomplete';
 import { createAdultBMI } from '../../services/api/adultBMIService';
-import { calculateAge } from '../../utils/residentUtils';
+import { calculateAge, normalizeResidentId } from '../../utils/residentUtils';
 import { getLocalDateInputValue } from '../../utils/dateUtils';
 
 const AdultBMIForm = ({ onSaved }) => {
@@ -46,7 +46,7 @@ const AdultBMIForm = ({ onSaved }) => {
     setLoading(true);
     try {
       const payload = {
-        resident_id: Number(form.resident_id),
+        resident_id: normalizeResidentId(form.resident_id),
         date_recorded: form.record_date,
         height_cm: Number(form.height_cm),
         weight_kg: Number(form.weight_kg),

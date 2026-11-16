@@ -418,12 +418,73 @@ async function findIdempotency(key) {
   return rows && rows.length ? rows[0] : null;
 }
 
-async function saveIdempotency({ key, module_name, table_name, operation, server_record_id = null, response = null, status = 'SUCCESS' }) {
-  const sql = `INSERT INTO sync_idempotency (idempotency_key, module_name, table_name, operation, server_record_id, response, status) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-  await pool.query(sql, [key, module_name, table_name, operation, server_record_id, response ? JSON.stringify(response) : null, status]);
+async function claimIdempotencyRecord({ key, module_name, table_name, operation, ownerId, requestFingerprint }) {
+  const metadata = {
+    ownerId: String(ownerId),
+    requestFingerprint,
+    outcome: 'PENDING',
+  };
+  try {
+    await pool.query(
+      'INSERT INTO sync_idempotency (idempotency_key, module_name, table_name, operation, response, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [key, module_name, table_name, operation, JSON.stringify(metadata), 'PENDING']
+    );
+    return null;
+  } catch (error) {
+    if (error?.code !== 'ER_DUP_ENTRY') throw error;
+    return findIdempotency(key);
+  }
 }
 
-async function processOperation({ idempotencyKey, operation, module, table, payload, userId, ip = null, userAgent = null }) {
+async function markIdempotencyRejected({ key, ownerId, requestFingerprint }) {
+  const metadata = JSON.stringify({
+    ownerId: String(ownerId),
+    requestFingerprint,
+    outcome: 'REJECTED',
+  });
+  await pool.query(
+    'UPDATE sync_idempotency SET response = ?, status = ? WHERE idempotency_key = ? AND status = ?',
+    [metadata, 'FAILED', key, 'PENDING']
+  );
+}
+
+async function saveIdempotency({
+  key,
+  module_name,
+  table_name,
+  operation,
+  server_record_id = null,
+  response = null,
+  status = 'SUCCESS',
+  ownerId = null,
+  requestFingerprint = null,
+}) {
+  const storedResponse = response && ownerId !== null && requestFingerprint
+    ? JSON.stringify({ ownerId: String(ownerId), requestFingerprint, outcome: 'SUCCESS', response })
+    : response ? JSON.stringify(response) : null;
+  if (ownerId !== null && requestFingerprint) {
+    const [result] = await pool.query(
+      'UPDATE sync_idempotency SET server_record_id = ?, response = ?, status = ? WHERE idempotency_key = ? AND status = ?',
+      [server_record_id, storedResponse, status, key, 'PENDING']
+    );
+    if (!result?.affectedRows) throw new Error('The idempotency claim could not be completed.');
+    return;
+  }
+  const sql = `INSERT INTO sync_idempotency (idempotency_key, module_name, table_name, operation, server_record_id, response, status) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+  await pool.query(sql, [key, module_name, table_name, operation, server_record_id, storedResponse, status]);
+}
+
+async function processOperation({
+  idempotencyKey,
+  operation,
+  module,
+  table,
+  payload,
+  userId,
+  ip = null,
+  userAgent = null,
+  requestFingerprint = null,
+}) {
   // ensure idempotency table exists
   await ensureIdempotencyTable();
 
@@ -444,6 +505,17 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
   const existing = await findIdempotency(idempotencyKey);
   if (existing) {
     return { fromCache: true, record: existing };
+  }
+  if (userId !== undefined && userId !== null && requestFingerprint) {
+    const claimed = await claimIdempotencyRecord({
+      key: idempotencyKey,
+      module_name: module,
+      table_name: table,
+      operation,
+      ownerId: userId,
+      requestFingerprint,
+    });
+    if (claimed) return { fromCache: true, record: claimed };
   }
 
   // validate payload fields and required fields
@@ -499,7 +571,16 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
         await writeAudit({ user_id: userId, action: 'CREATE', module: module, table_name: table, record_id: newId, new_data: payload, ip_address: ip, user_agent: userAgent });
         await conn.commit();
         const response = { success: true, serverRecordId: newId };
-        await saveIdempotency({ key: idempotencyKey, module_name: module, table_name: table, operation, server_record_id: newId, response });
+        await saveIdempotency({
+          key: idempotencyKey,
+          module_name: module,
+          table_name: table,
+          operation,
+          server_record_id: newId,
+          response,
+          ownerId: userId,
+          requestFingerprint,
+        });
         return { fromCache: false, response };
       } catch (err) {
         await conn.rollback();
@@ -546,7 +627,16 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
         await writeAudit({ user_id: userId, action: 'UPDATE', module: module, table_name: table, record_id: id, old_data: oldData, new_data: payload, ip_address: ip, user_agent: userAgent });
         await conn.commit();
         const response = { success: true, serverRecordId: id };
-        await saveIdempotency({ key: idempotencyKey, module_name: module, table_name: table, operation, server_record_id: id, response });
+        await saveIdempotency({
+          key: idempotencyKey,
+          module_name: module,
+          table_name: table,
+          operation,
+          server_record_id: id,
+          response,
+          ownerId: userId,
+          requestFingerprint,
+        });
         return { fromCache: false, response };
       } catch (err) {
         await conn.rollback();
@@ -567,7 +657,7 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
     }
     let keys = Object.keys(payload || {}).filter(k => payload[k] !== undefined);
     const primaryKey = await getPrimaryKeyColumn(table);
-    logger.info('processOperation keys', { table, keys, primaryKey, payload });
+    logger.info('processOperation keys', { table, keys, primaryKey });
     if (operation === 'CREATE') {
       // Ensure DB-required non-nullable columns without defaults are present
       const meta = TABLE_COLUMN_META[table] || {};
@@ -619,20 +709,29 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
       // exclude the table's primary key from insert if present (allow foreign keys like resident_id)
       const idKey = primaryKey && keys.includes(primaryKey) ? primaryKey : null;
       const insertKeys = keys.filter(k => k !== idKey);
-      logger.info('generic CREATE keys', { table, idKey, insertKeys, normalizedPayload });
+      logger.info('generic CREATE keys', { table, idKey, insertKeys });
       if (insertKeys.length === 0) throw new Error('No valid fields provided for CREATE');
       const cols = insertKeys.map(k => `\`${k}\``).join(', ');
       const placeholders = insertKeys.map(() => '?').join(', ');
       // use normalized payload values
       const values = insertKeys.map(k => normalizedPayload[k]);
       const insertSql = `INSERT INTO \`${table}\` (${cols}) VALUES (${placeholders})`;
-      logger.info('generic CREATE SQL', { table, sql: insertSql, values });
+      logger.info('generic CREATE SQL', { table, sql: insertSql });
       const [r] = await conn.query(insertSql, values);
       const newId = r.insertId || null;
       await writeAudit({ user_id: userId, action: 'CREATE', module: module, table_name: table, record_id: newId, new_data: payload, ip_address: ip, user_agent: userAgent });
       await conn.commit();
       const response = { success: true, serverRecordId: newId };
-      await saveIdempotency({ key: idempotencyKey, module_name: module, table_name: table, operation, server_record_id: newId, response });
+      await saveIdempotency({
+        key: idempotencyKey,
+        module_name: module,
+        table_name: table,
+        operation,
+        server_record_id: newId,
+        response,
+        ownerId: userId,
+        requestFingerprint,
+      });
       return { fromCache: false, response };
     } else if (operation === 'UPDATE') {
       // find an id key in payload: prefer primary key, else fall back to any *_id
@@ -645,12 +744,21 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
       const values = setKeys.map(k => normalizedPayload[k]);
       const updateSql = `UPDATE \`${table}\` SET ${setClause} WHERE \`${idKey}\` = ?`;
       values.push(id);
-      logger.info('generic UPDATE SQL', { table, sql: updateSql, values });
+      logger.info('generic UPDATE SQL', { table, sql: updateSql });
       await conn.query(updateSql, values);
       await writeAudit({ user_id: userId, action: 'UPDATE', module: module, table_name: table, record_id: id, old_data: null, new_data: payload, ip_address: ip, user_agent: userAgent });
       await conn.commit();
       const response = { success: true, serverRecordId: id };
-      await saveIdempotency({ key: idempotencyKey, module_name: module, table_name: table, operation, server_record_id: id, response });
+      await saveIdempotency({
+        key: idempotencyKey,
+        module_name: module,
+        table_name: table,
+        operation,
+        server_record_id: id,
+        response,
+        ownerId: userId,
+        requestFingerprint,
+      });
       return { fromCache: false, response };
     } else if (operation === 'DELETE' && ['patient_clinical_records', 'child_records', 'maternal_records', 'immunization_records'].includes(table)) {
       const id = normalizedPayload.id || payload.id;
@@ -662,7 +770,16 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
       await writeAudit({ user_id: userId, action: 'DELETE', module, table_name: table, record_id: id, old_data: existing[0].record_data, ip_address: ip, user_agent: userAgent });
       await conn.commit();
       const response = { success: true, serverRecordId: id };
-      await saveIdempotency({ key: idempotencyKey, module_name: module, table_name: table, operation, server_record_id: id, response });
+      await saveIdempotency({
+        key: idempotencyKey,
+        module_name: module,
+        table_name: table,
+        operation,
+        server_record_id: id,
+        response,
+        ownerId: userId,
+        requestFingerprint,
+      });
       return { fromCache: false, response };
     }
   } catch (err) {
@@ -676,7 +793,13 @@ async function processOperation({ idempotencyKey, operation, module, table, payl
   throw new Error('Unsupported sync operation or table');
 }
 
-module.exports = { processOperation, ensureIdempotencyTable, findIdempotency, initializeFromDatabase };
+module.exports = {
+  processOperation,
+  ensureIdempotencyTable,
+  findIdempotency,
+  markIdempotencyRejected,
+  initializeFromDatabase,
+};
 
 // exported for debugging/tests
 module.exports.getTableColumnMeta = function(table) {

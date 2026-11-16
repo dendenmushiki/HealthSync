@@ -51,6 +51,7 @@ const ChildHealthPage = () => {
   const [recordToDelete, setRecordToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -94,6 +95,7 @@ const ChildHealthPage = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+    setSuccessMessage('');
     setSaving(true);
 
     try {
@@ -110,6 +112,7 @@ const ChildHealthPage = () => {
         ? await updateChildHealthRecord(editingId, payload)
         : await createChildHealthRecord(payload);
       if (response?.success) {
+        setSuccessMessage(response.offline ? 'Saved locally. This record is waiting to synchronize.' : '');
         setForm(initialForm);
         setEditingId(null);
         if (searchParams.has('recordId')) {
@@ -155,6 +158,7 @@ const ChildHealthPage = () => {
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}
+      {successMessage && <div className="alert alert-info" role="status">{successMessage}</div>}
 
       <div className="healthsync-form-shell">
         <div className="healthsync-form-card">

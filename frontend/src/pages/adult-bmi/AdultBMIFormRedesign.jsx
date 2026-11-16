@@ -8,6 +8,7 @@ import TrendChart from '../../components/nutrition/TrendChart';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import { createAdultBMI, previewAdultBMI, getPreviousAdultBMI } from '../../services/api/adultBMIService';
 import { getLocalDateInputValue, formatDateLabel } from '../../utils/dateUtils';
+import { normalizeResidentId } from '../../utils/residentUtils';
 
 const initialForm = () => ({ resident_id: '', date_recorded: getLocalDateInputValue(), height_cm: '', weight_kg: '' });
 const ageInMonths = (birthdate, asOf) => {
@@ -101,7 +102,7 @@ const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
   const performSave = async (addNext) => {
     setSaving(true);
     try {
-      const response = await createAdultBMI({ resident_id: Number(form.resident_id), date_recorded: form.date_recorded, height_cm: Number(form.height_cm), weight_kg: Number(form.weight_kg) });
+      const response = await createAdultBMI({ resident_id: normalizeResidentId(form.resident_id), date_recorded: form.date_recorded, height_cm: Number(form.height_cm), weight_kg: Number(form.weight_kg) });
       if (!response?.success) throw new Error(response?.message || 'Unable to save adult BMI record.');
       const offline = response.offline || response.queued;
       const category = response.data?.bmi_category;

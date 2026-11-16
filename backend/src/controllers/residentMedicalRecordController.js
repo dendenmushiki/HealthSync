@@ -30,6 +30,47 @@ const validateRecordData = (value) => {
   }
 };
 
+const listAllResidentMedicalRecords = async (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const requestedLimit = Number.parseInt(req.query.limit, 10) || 100;
+  const limit = Math.min(Math.max(1, requestedLimit), 100);
+  const offset = (page - 1) * limit;
+  const unions = Object.entries(RECORD_TABLES).map(([recordType, table]) => (
+    `SELECT mr.id, mr.resident_id, mr.record_data, mr.recorded_by, mr.created_at, mr.updated_at,
+      u.full_name AS recorded_by_name, '${recordType}' AS record_type
+     FROM \`${table}\` mr
+     LEFT JOIN users u ON u.user_id = mr.recorded_by`
+  ));
+  const unionSql = unions.join(' UNION ALL ');
+  try {
+    const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM (${unionSql}) all_records`);
+    const total = Number(countRows[0]?.total || 0);
+    const [rows] = await pool.query(
+      `SELECT * FROM (${unionSql}) all_records
+       ORDER BY resident_id ASC, record_type ASC, updated_at DESC, id DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+    const items = rows.map((row) => ({
+      ...row,
+      record_data: typeof row.record_data === 'string' ? JSON.parse(row.record_data) : row.record_data,
+    }));
+    return res.json({
+      success: true,
+      data: {
+        items,
+        total,
+        page,
+        limit,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      },
+    });
+  } catch (error) {
+    logger.error('listAllResidentMedicalRecords error', error);
+    return res.status(500).json({ success: false, message: 'Unable to download medical records.' });
+  }
+};
+
 const listResidentMedicalRecords = async (req, res) => {
   const ids = parseIds(req);
   const table = tableFor(req.params.recordType);
@@ -145,4 +186,11 @@ const deleteResidentMedicalRecord = async (req, res) => {
   }
 };
 
-module.exports = { listResidentMedicalRecords, getResidentMedicalRecord, createResidentMedicalRecord, updateResidentMedicalRecord, deleteResidentMedicalRecord };
+module.exports = {
+  listAllResidentMedicalRecords,
+  listResidentMedicalRecords,
+  getResidentMedicalRecord,
+  createResidentMedicalRecord,
+  updateResidentMedicalRecord,
+  deleteResidentMedicalRecord,
+};
