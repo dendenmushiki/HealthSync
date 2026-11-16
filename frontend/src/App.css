@@ -549,11 +549,6 @@ body {
   background: transparent;
 }
 
-.healthsync-page-spacer {
-  height: 0.25rem;
-}
-
-
 /* =========================================================
    DASHBOARD
    ========================================================= */
@@ -5124,10 +5119,6 @@ textarea:focus-visible {
   overflow-y: auto;
 }
 
-.healthsync-page-spacer {
-  height: 0;
-}
-
 .healthsync-page-shell .container {
   width: 100%;
   max-width: 100%;
@@ -7414,7 +7405,6 @@ html[data-theme='dark'] .health-record-error { border-color: #70404a; background
   body, html { background: #fff !important; color: #111 !important; }
   .healthsync-sidebar,
   .healthsync-topbar,
-  .healthsync-page-spacer,
   .health-record-breadcrumb,
   .health-record-profile-actions,
   .health-record-detail-aside,

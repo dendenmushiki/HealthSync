@@ -14,8 +14,16 @@ import {
 import { createOfflineSession } from './offlineSessionService';
 import idb from './indexedDbService';
 
+jest.mock('./deviceIdentityService', () => ({
+  __esModule: true,
+  verifyDevicePossession: async () => true,
+}));
+
 const stores = new Map();
 const keyFor = (key) => JSON.stringify(key);
+const recordKey = (name, value) => (name === 'offlineVaults'
+  ? value.userId
+  : name === 'offlineSecurity' ? value.key : [value.userId, value.collection, value.recordKey]);
 const getStore = (name) => {
   if (!stores.has(name)) stores.set(name, new Map());
   return stores.get(name);
@@ -36,13 +44,13 @@ beforeEach(() => {
   localStorage.clear();
   idb.addToStore = jest.fn(async (name, value) => {
     const store = getStore(name);
-    const key = name === 'offlineVaults' ? value.userId : [value.userId, value.collection, value.recordKey];
+    const key = recordKey(name, value);
     const encodedKey = keyFor(key);
     if (store.has(encodedKey)) throw new Error('Key already exists.');
     store.set(encodedKey, value);
   });
   idb.putToStore = jest.fn(async (name, value) => {
-    const key = name === 'offlineVaults' ? value.userId : [value.userId, value.collection, value.recordKey];
+    const key = recordKey(name, value);
     getStore(name).set(keyFor(key), value);
   });
   idb.getFromStore = jest.fn(async (name, key) => getStore(name).get(keyFor(key)));
@@ -54,7 +62,7 @@ beforeEach(() => {
 
 test('encrypts account-scoped records and requires the account password to unlock them', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'Sensitive Name' });
 
   const [envelope] = Array.from(getStore('offlineData').values());
@@ -74,10 +82,10 @@ test('encrypts account-scoped records and requires the account password to unloc
 
 test('prevents reading records through another account scope', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'FirstAccountPassword9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'Account One' });
   await createOfflineVault({ userId: 8, role: 'bhw', credential: 'SecondAccountPassword9!' });
-  createOfflineSession({ userId: 8, role: 'bhw' });
+  createOfflineSession({ userId: 8, role: 'bhw', deviceId: 'device-local' });
   await putOfflineRecord(8, 'residents', 'resident-2', { first_name: 'Account Two' });
 
   await expect(getOfflineRecord(8, 'residents', 'resident-1')).resolves.toBeUndefined();
@@ -86,13 +94,14 @@ test('prevents reading records through another account scope', async () => {
     userId: '7',
     role: 'bhw',
     version: 3,
+    credentialType: 'password',
     createdAt: expect.any(String),
   });
 });
 
 test('rejects values that cannot be serialized before storing them', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   await expect(putOfflineRecord(7, 'residents', 'resident-1', undefined))
     .rejects.toThrow('JSON serializable');
   expect(getStore('offlineData').size).toBe(0);
@@ -100,7 +109,7 @@ test('rejects values that cannot be serialized before storing them', async () =>
 
 test('preserves profile photos and multipart request bodies inside encrypted records', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   const photo = new File(['private image bytes'], 'resident.png', { type: 'image/png' });
   const formData = new FormData();
   formData.append('photo', photo);
@@ -129,7 +138,7 @@ test('rejects credentials that violate password policy and refuses to replace an
 
 test('re-wraps the data key after a password change without losing encrypted records', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'Preserved Record' });
 
   await changeOfflineVaultCredential({ userId: 7, credential: 'ChangedAccountPassword8!' });
@@ -141,9 +150,52 @@ test('re-wraps the data key after a password change without losing encrypted rec
     .resolves.toEqual({ first_name: 'Preserved Record' });
 });
 
+test('supports leading-zero PINs and preserves encrypted records when changing the PIN', async () => {
+  await createOfflineVault({ userId: 7, role: 'bhw', credential: '000042', credentialType: 'pin' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'PIN Protected Record' });
+
+  lockOfflineVault(7);
+  await expect(unlockOfflineVault({ userId: 7, credential: '000000' })).rejects.toThrow('incorrect');
+  await unlockOfflineVault({ userId: 7, credential: '000042' });
+  await changeOfflineVaultCredential({ userId: 7, credential: '000043', credentialType: 'pin' });
+
+  lockOfflineVault(7);
+  await expect(unlockOfflineVault({ userId: 7, credential: '000042' })).rejects.toThrow('incorrect');
+  await unlockOfflineVault({ userId: 7, credential: '000043' });
+  await expect(getOfflineRecord(7, 'residents', 'resident-1'))
+    .resolves.toEqual({ first_name: 'PIN Protected Record' });
+});
+
+test('rejects malformed PINs and locks after five incorrect attempts', async () => {
+  await expect(createOfflineVault({ userId: 7, role: 'bhw', credential: '12345', credentialType: 'pin' }))
+    .rejects.toThrow('exactly six digits');
+  await expect(createOfflineVault({ userId: 7, role: 'bhw', credential: '12a456', credentialType: 'pin' }))
+    .rejects.toThrow('exactly six digits');
+
+  await createOfflineVault({ userId: 7, role: 'bhw', credential: '000042', credentialType: 'pin' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  lockOfflineVault(7);
+  const now = Date.now();
+  jest.spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(unlockOfflineVault({ userId: 7, credential: '000000' })).rejects.toThrow('PIN is incorrect');
+    }
+    await expect(unlockOfflineVault({ userId: 7, credential: '000042' })).rejects.toThrow('Too many incorrect PIN attempts');
+    expect(await idb.getFromStore('offlineSecurity', 'pin-attempts:7')).toEqual({
+      key: 'pin-attempts:7',
+      failures: 0,
+      lockedUntil: now + 15 * 60 * 1000,
+    });
+  } finally {
+    jest.restoreAllMocks();
+  }
+});
+
 test('requires a valid account grant and rejects role metadata tampering', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'Authorized' });
 
   localStorage.setItem('hs_offline_session', JSON.stringify({
@@ -153,12 +205,12 @@ test('requires a valid account grant and rejects role metadata tampering', async
     expiresAt: Date.now() - 1000,
   }));
   await expect(getOfflineRecord(7, 'residents', 'resident-1'))
-    .rejects.toThrow('authorization is unavailable or expired');
+    .rejects.toThrow('authorization is unavailable for this account and device');
 
   const vault = await idb.getFromStore('offlineVaults', '7');
   await idb.putToStore('offlineVaults', { ...vault, role: 'admin' });
   lockOfflineVault(7);
-  createOfflineSession({ userId: 7, role: 'admin' });
+  createOfflineSession({ userId: 7, role: 'admin', deviceId: 'device-local' });
   await expect(unlockOfflineVault({ userId: 7, credential: 'CorrectHorseBattery9!' }))
     .rejects.toThrow('offline vault is damaged');
 });

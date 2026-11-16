@@ -16,6 +16,7 @@ const {
   unlockUser,
   logoutAllUserSessions,
 } = require('../controllers/userController');
+const { adminManageDevice, getUserDevices } = require('../controllers/offlineSecurityController');
 
 const resetPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -36,5 +37,7 @@ router.post('/:id/logout-all', authenticateToken, authorizeRole(['admin']), logo
 router.put('/:id', authenticateToken, authorizeRole(['admin']), updateUser);
 router.patch('/:id/status', authenticateToken, authorizeRole(['admin']), updateUserStatus);
 router.get('/:id', authenticateToken, authorizeRole(['admin']), getUser);
+router.get('/:userId/offline-devices', authenticateToken, authorizeRole(['admin']), getUserDevices);
+router.post('/:userId/offline-devices/:deviceId/:action', authenticateToken, authorizeRole(['admin']), adminManageDevice);
 
 module.exports = router;

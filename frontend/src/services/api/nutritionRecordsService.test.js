@@ -51,7 +51,7 @@ beforeEach(async () => {
   idb.getAllByIndex = jest.fn(async (name, index, range) => Array.from(getStore(name).values())
     .filter((record) => record.userId === range[0] && record.collection === range[1]));
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   const records = [
     { id: 1, resident_id: 21, record_type: 'Adult BMI', record_date: '2026-03-10', status: 'Normal', first_name: 'Ada', last_name: 'Resident' },
     { id: 2, resident_id: 21, record_type: 'Operation Timbang', record_date: '2026-03-11', status: 'Underweight', first_name: 'Ada', last_name: 'Resident' },

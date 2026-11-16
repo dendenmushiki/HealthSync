@@ -271,8 +271,8 @@ const createUser = async (req, res) => {
     const passwordHash = await bcrypt.hash(passwordResult.password, 10);
     const [result] = await pool.query(
       `INSERT INTO users (full_name, username, password, role, is_active, must_change_password,
-        temp_password_expires_at, created_by)
-       VALUES (?, ?, ?, ?, 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${TEMP_PASSWORD_EXPIRY_HOURS} HOUR), ?)`,
+        offline_pin_setup_required, temp_password_expires_at, created_by)
+       VALUES (?, ?, ?, ?, 1, 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${TEMP_PASSWORD_EXPIRY_HOURS} HOUR), ?)`,
       [identity.name, identity.username, passwordHash, identity.role, req.user.user_id]
     );
     const [rows] = await pool.query(

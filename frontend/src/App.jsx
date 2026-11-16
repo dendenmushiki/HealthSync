@@ -4,7 +4,7 @@ import { AuthProvider, AuthContext } from './context/AuthContext';
 import LoginPage from './pages/auth/LoginPage';
 import ForcePasswordChangePage from './pages/auth/ForcePasswordChangePage';
 import ProtectedRoute from './components/layout/ProtectedRoute';
-import OfflineBanner from './components/common/OfflineBanner';
+import OfflineSyncCoordinator from './components/common/OfflineSyncCoordinator';
 import ResidentsPage from './pages/residents/ResidentsPage';
 import ResidentForm from './pages/residents/ResidentForm';
 import ResidentDetails from './pages/residents/ResidentDetails';
@@ -127,11 +127,11 @@ function ThemePreferenceManager() {
 function AppContent() {
   const location = useLocation();
   const {
-    user, token, loading, updateUser, offlineVaultReady, unlockOfflineAccess, lockOfflineAccess,
+    user, loading, updateUser, offlineVaultReady, unlockOfflineAccess,
+    sessionCleanupError,
   } = useContext(AuthContext);
   const isLoginRoute = location.pathname === '/login';
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
-  const [offlineAuthorizationCheck, setOfflineAuthorizationCheck] = useState(0);
 
   useEffect(() => {
     const updateNetworkState = () => setOnline(navigator.onLine);
@@ -143,20 +143,12 @@ function AppContent() {
     };
   }, []);
 
-  useEffect(() => {
-    if (online) return undefined;
-    const timer = window.setInterval(() => setOfflineAuthorizationCheck(Date.now()), 60000);
-    return () => window.clearInterval(timer);
-  }, [online]);
-
   const offlineGrant = getOfflineSession();
   const offlineAuthorized = Boolean(offlineGrant && user &&
     String(offlineGrant.userId) === String(user.user_id) &&
-    offlineGrant.role === user.role && !user.must_change_password);
-
-  useEffect(() => {
-    if (!online && user && !offlineAuthorized) lockOfflineAccess();
-  }, [lockOfflineAccess, offlineAuthorizationCheck, offlineAuthorized, online, user]);
+    offlineGrant.role === user.role &&
+    offlineGrant.deviceId === localStorage.getItem('hs_offline_device_id') &&
+    user.offline_pin_enrolled && !user.must_change_password && !user.offline_pin_setup_required);
 
   useEffect(() => {
     const requirePasswordChange = () => {
@@ -167,14 +159,18 @@ function AppContent() {
   }, [updateUser, user]);
 
   if (loading) return null;
-  if (!online && user && token && (!offlineVaultReady || !offlineAuthorized)) {
-    return <OfflineUnlockScreen user={user} unlockOfflineAccess={unlockOfflineAccess} />;
-  }
+  if (sessionCleanupError) return <main className="container py-5"><div className="alert alert-danger" role="alert">{sessionCleanupError}</div></main>;
   if (location.pathname === '/change-password') {
     return user ? <ForcePasswordChangePage /> : <Navigate to="/login" replace />;
   }
-  if (user?.must_change_password) {
+  if (user?.must_change_password || user?.offline_pin_setup_required) {
     return <Navigate to="/change-password" replace />;
+  }
+  if (user && offlineAuthorized && !offlineVaultReady) {
+    return <OfflineUnlockScreen user={user} unlockOfflineAccess={unlockOfflineAccess} online={online} />;
+  }
+  if (user && !online && (!offlineAuthorized || !offlineVaultReady)) {
+    return <OfflineUnlockScreen user={user} unlockOfflineAccess={unlockOfflineAccess} online={online} />;
   }
 
   if (isLoginRoute) {
@@ -186,24 +182,26 @@ function AppContent() {
     );
   }
 
-  return <AppShell />;
+  return <><InactivityLockManager /><AppShell /></>;
 }
 
-function OfflineUnlockScreen({ user, unlockOfflineAccess }) {
-  const [password, setPassword] = useState('');
+function OfflineUnlockScreen({ user, unlockOfflineAccess, online }) {
+  const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const grant = getOfflineSession();
-  const authorized = !user.must_change_password && grant &&
-    String(grant.userId) === String(user.user_id) && grant.role === user.role;
+  const authorized = user.offline_pin_enrolled && !user.must_change_password &&
+    !user.offline_pin_setup_required && grant &&
+    String(grant.userId) === String(user.user_id) && grant.role === user.role &&
+    grant.deviceId === localStorage.getItem('hs_offline_device_id');
 
   const submit = async (event) => {
     event.preventDefault();
     setError('');
     setBusy(true);
     try {
-      await unlockOfflineAccess(password);
-      setPassword('');
+      await unlockOfflineAccess(pin);
+      setPin('');
     } catch (unlockError) {
       setError(unlockError.message || 'Unable to unlock secure offline data.');
     } finally {
@@ -217,27 +215,32 @@ function OfflineUnlockScreen({ user, unlockOfflineAccess }) {
         <h1 id="offline-unlock-title" className="h3">Unlock offline access</h1>
         {authorized ? (
           <>
-            <p>Enter your HealthSync account password to unlock this account’s encrypted offline data. This does not use your offline grant as an API token.</p>
+            <p>Enter your six-digit PIN to unlock this device’s encrypted offline data. The offline authorization is device-bound and is not an API token.</p>
             {error && <div className="alert alert-danger" role="alert">{error}</div>}
             <form onSubmit={submit}>
-              <label className="form-label" htmlFor="offline-account-password">Account password</label>
+              <label className="form-label" htmlFor="offline-account-pin">Six-digit PIN</label>
               <input
-                id="offline-account-password"
+                id="offline-account-pin"
                 className="form-control mb-3"
                 type="password"
+                inputMode="numeric"
                 autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={pin}
+                onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 required
               />
               <button className="btn btn-primary" type="submit" disabled={busy}>
-                {busy ? 'Unlocking…' : 'Unlock offline data'}
+                {busy ? 'Unlocking…' : 'Unlock HealthSync'}
               </button>
             </form>
           </>
         ) : (
           <div className="alert alert-warning mb-0" role="status">
-            Offline authorization is unavailable or expired. It cannot be renewed while disconnected. Reconnect and sign in online, then use Offline data at the top of the app to download a fresh copy before going offline.
+            {online
+              ? 'Offline access is not prepared for this device. Sign in online and set up your six-digit PIN in Settings → Security.'
+              : 'Offline authorization is unavailable for this account or device. Reconnect and sign in online, then set up a PIN before using offline data.'}
           </div>
         )}
       </section>
@@ -245,8 +248,60 @@ function OfflineUnlockScreen({ user, unlockOfflineAccess }) {
   );
 }
 
+function InactivityLockManager() {
+  const { user, offlineVaultReady, lockOfflineAccess } = useContext(AuthContext);
+  const [countdown, setCountdown] = useState(null);
+  const resetTimerRef = useRef(() => {});
+
+  useEffect(() => {
+    if (!user || !offlineVaultReady) return undefined;
+    let idleTimer;
+    const resetTimer = () => {
+      window.clearTimeout(idleTimer);
+      setCountdown(null);
+      idleTimer = window.setTimeout(() => setCountdown(20), 5 * 60 * 1000);
+    };
+    resetTimerRef.current = resetTimer;
+    const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'click'];
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    window.addEventListener('pagehide', lockOfflineAccess);
+    resetTimer();
+    return () => {
+      window.clearTimeout(idleTimer);
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+      window.removeEventListener('pagehide', lockOfflineAccess);
+    };
+  }, [lockOfflineAccess, offlineVaultReady, user]);
+
+  useEffect(() => {
+    if (countdown === null) return undefined;
+    if (countdown <= 0) {
+      lockOfflineAccess();
+      setCountdown(null);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setCountdown((remaining) => remaining - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [countdown, lockOfflineAccess]);
+
+  if (countdown === null) return null;
+  return (
+    <div className="modal d-block" role="alertdialog" aria-modal="true" aria-labelledby="idle-lock-title">
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content p-4">
+          <h2 id="idle-lock-title" className="h5">HealthSync will lock soon</h2>
+          <p>For your privacy, HealthSync will lock in {countdown} seconds. Continue working to keep your session open.</p>
+          <button type="button" className="btn btn-primary" onClick={() => resetTimerRef.current()}>
+            Stay signed in
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SessionSyncGuard() {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, lockOfflineAccess, lockForAccountSwitch } = useContext(AuthContext);
   const navigate = useNavigate();
   const userId = user?.user_id;
 
@@ -255,14 +310,18 @@ function SessionSyncGuard() {
     const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('healthsync-session') : null;
     const handleStorage = (event) => {
       if (event.key === 'hs_session_ended' && event.newValue) {
-        logout({ skipServer: true });
+        lockForAccountSwitch();
         navigate('/login', { replace: true });
       }
     };
     const handleChannel = (event) => {
       if (event.data?.type === 'logout') {
-        logout({ skipServer: true });
+        lockForAccountSwitch();
         navigate('/login', { replace: true });
+      } else if (event.data?.type === 'lock') {
+        lockOfflineAccess({ broadcast: false });
+      } else if (event.data?.type === 'account-switch') {
+        lockForAccountSwitch();
       }
     };
     window.addEventListener('storage', handleStorage);
@@ -272,7 +331,7 @@ function SessionSyncGuard() {
       channel?.removeEventListener('message', handleChannel);
       channel?.close();
     };
-  }, [logout, navigate, userId]);
+  }, [lockForAccountSwitch, lockOfflineAccess, navigate, userId]);
   return null;
 }
 
@@ -481,8 +540,7 @@ function AppShell() {
         </header>
         <div className={`healthsync-page-shell ${pathname.startsWith('/health-records') ? 'health-records-scroll-shell' : ''}`}>
           <main className={`healthsync-content-panel ${pathname.startsWith('/health-records') ? 'health-records-scroll-content' : ''}`}>
-            <OfflineBanner />
-            <div className="healthsync-page-spacer" />
+            <OfflineSyncCoordinator />
             <Routes>
               <Route path="/admin-dashboard" element={<ProtectedRoute><RoleGuard allowed={['admin']}><AdminDashboardPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/admin-settings" element={<ProtectedRoute><RoleGuard allowed={['admin', 'bhw', 'official']}><AdminSettingsPage /></RoleGuard></ProtectedRoute>} />

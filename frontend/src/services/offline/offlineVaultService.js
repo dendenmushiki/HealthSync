@@ -1,5 +1,6 @@
 import idb from './indexedDbService';
 import { getOfflineSession } from './offlineSessionService';
+import { verifyDevicePossession } from './deviceIdentityService';
 
 const VAULT_VERSION = 3;
 const PBKDF2_ITERATIONS = 600000;
@@ -30,21 +31,19 @@ function normalizeUserId(userId) {
   return value;
 }
 
-function validateCredential(credential) {
+function validateCredential(credential, credentialType) {
   if (typeof credential !== 'string') {
-    throw new Error('The offline credential must meet the HealthSync password requirements.');
+    throw new Error('Enter a valid offline unlock credential.');
   }
   getCrypto();
-  const requirements = {
-    length: Array.from(credential).length >= 18,
-    uppercase: /[A-Z]/.test(credential),
-    number: /\d/.test(credential),
-    symbol: /[^A-Za-z0-9\s]/.test(credential),
-    bcryptLimit: encodeText(credential).byteLength <= 72,
-  };
-  if (!Object.values(requirements).every(Boolean)) {
-    throw new Error('The offline credential must meet the HealthSync password requirements.');
-  }
+  const valid = credentialType === 'pin'
+    ? /^\d{6}$/.test(credential)
+    : Array.from(credential).length >= 18 && /[A-Z]/.test(credential) &&
+        /\d/.test(credential) && /[^A-Za-z0-9\s]/.test(credential) &&
+        encodeText(credential).byteLength <= 72;
+  if (!valid) throw new Error(credentialType === 'pin'
+    ? 'PIN must contain exactly six digits.'
+    : 'The offline credential must meet the HealthSync password requirements.');
 }
 
 function createRandomBytes(length) {
@@ -188,7 +187,13 @@ async function decryptValue(key, envelope, additionalData) {
 }
 
 function publicVaultMetadata(vault) {
-  return vault ? { userId: vault.userId, role: vault.role, version: vault.version, createdAt: vault.createdAt } : null;
+  return vault ? {
+    userId: vault.userId,
+    role: vault.role,
+    version: vault.version,
+    credentialType: vault.credentialType || 'password',
+    createdAt: vault.createdAt,
+  } : null;
 }
 
 export async function getOfflineVaultMetadata(userId) {
@@ -221,10 +226,11 @@ async function getStorageRecordKey(indexKey, userId, collection, recordKey) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function createOfflineVault({ userId, role, credential }) {
+export async function createOfflineVault({ userId, role, credential, credentialType = 'password' }) {
   const ownerId = normalizeUserId(userId);
   const accountRole = normalizeRole(role);
-  validateCredential(credential);
+  if (!['pin', 'password'].includes(credentialType)) throw new Error('The offline credential type is not supported.');
+  validateCredential(credential, credentialType);
   if (await idb.getFromStore('offlineVaults', ownerId)) {
     throw new Error('An offline vault already exists for this account on this device.');
   }
@@ -241,6 +247,7 @@ export async function createOfflineVault({ userId, role, credential }) {
       role: accountRole,
       version: VAULT_VERSION,
       kdf: 'PBKDF2-SHA-256',
+      credentialType,
       iterations: PBKDF2_ITERATIONS,
       salt,
       wrappedKey,
@@ -257,29 +264,58 @@ export async function createOfflineVault({ userId, role, credential }) {
 
 export async function unlockOfflineVault({ userId, credential }) {
   const ownerId = normalizeUserId(userId);
-  validateCredential(credential);
   const vault = await idb.getFromStore('offlineVaults', ownerId);
   if (!vault) throw new Error('Offline access has not been set up for this account on this device.');
   if (vault.version !== VAULT_VERSION || vault.kdf !== 'PBKDF2-SHA-256' || vault.iterations !== PBKDF2_ITERATIONS) {
     throw new Error('The offline vault format is not supported.');
   }
+  const credentialType = vault.credentialType || 'password';
+  validateCredential(credential, credentialType);
+  if (credentialType === 'pin') {
+    const grant = getOfflineSession();
+    if (!grant || String(grant.userId) !== ownerId || grant.role !== vault.role ||
+        !(await verifyDevicePossession(grant.deviceId))) {
+      throw new Error('This device is not authorized to unlock offline data.');
+    }
+    const attemptKey = `pin-attempts:${ownerId}`;
+    const attempts = await idb.getFromStore('offlineSecurity', attemptKey);
+    if (attempts?.lockedUntil > Date.now()) {
+      const minutes = Math.ceil((attempts.lockedUntil - Date.now()) / 60000);
+      throw new Error(`Too many incorrect PIN attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
+    }
+  }
 
   const wrappingKey = await deriveKey(credential, vault.salt, vault.iterations);
   let rawKey;
+  const credentialLabel = credentialType === 'pin' ? 'PIN' : 'account password';
   try {
     rawKey = await decryptValue(wrappingKey, vault.wrappedKey, wrappedKeyAad(ownerId, vault.role));
   } catch (error) {
-    throw new Error('The account password is incorrect or the offline vault is damaged.');
+    if (credentialType === 'pin') {
+      const attemptKey = `pin-attempts:${ownerId}`;
+      const previous = await idb.getFromStore('offlineSecurity', attemptKey);
+      const failures = (previous?.lockedUntil > Date.now() ? 0 : previous?.failures || 0) + 1;
+      await idb.putToStore('offlineSecurity', {
+        key: attemptKey,
+        failures: failures >= 5 ? 0 : failures,
+        lockedUntil: failures >= 5 ? Date.now() + 15 * 60 * 1000 : 0,
+      });
+    }
+    throw new Error(`The ${credentialLabel} is incorrect or the offline vault is damaged.`);
   }
   if (!Array.isArray(rawKey) || rawKey.length !== 64 || !vault.role) {
-    throw new Error('The account password is incorrect or the offline vault is damaged.');
+    throw new Error(`The ${credentialLabel} is incorrect or the offline vault is damaged.`);
   }
 
   const keyBytes = new Uint8Array(rawKey);
   rawKey.fill(0);
   let retainedInMemory = false;
   try {
+    if (credentialType === 'pin') {
+      await idb.putToStore('offlineSecurity', { key: `pin-attempts:${ownerId}`, failures: 0, lockedUntil: 0 });
+    }
     const { key, indexKey } = await importDataKeys(keyBytes);
+    memoryKeys.get(ownerId)?.rawKey.fill(0);
     memoryKeys.set(ownerId, { key, indexKey, rawKey: keyBytes, role: vault.role });
     retainedInMemory = true;
     return publicVaultMetadata(vault);
@@ -288,9 +324,10 @@ export async function unlockOfflineVault({ userId, credential }) {
   }
 }
 
-export async function changeOfflineVaultCredential({ userId, credential }) {
+export async function changeOfflineVaultCredential({ userId, credential, credentialType = 'password' }) {
   const ownerId = normalizeUserId(userId);
-  validateCredential(credential);
+  if (!['pin', 'password'].includes(credentialType)) throw new Error('The offline credential type is not supported.');
+  validateCredential(credential, credentialType);
   const { rawKey, role } = getUnlockedKey(ownerId);
   const vault = await idb.getFromStore('offlineVaults', ownerId);
   if (!vault || vault.version !== VAULT_VERSION) throw new Error('The offline vault format is not supported.');
@@ -302,7 +339,7 @@ export async function changeOfflineVaultCredential({ userId, credential }) {
     Array.from(rawKey),
     wrappedKeyAad(ownerId, role)
   );
-  const updatedVault = { ...vault, salt, wrappedKey, iterations: PBKDF2_ITERATIONS };
+  const updatedVault = { ...vault, credentialType, salt, wrappedKey, iterations: PBKDF2_ITERATIONS };
   await idb.putToStore('offlineVaults', updatedVault);
   return publicVaultMetadata(updatedVault);
 }
@@ -333,8 +370,9 @@ function getUnlockedKey(userId) {
   const grant = getOfflineSession();
   const unlocked = memoryKeys.get(ownerId);
   if (!unlocked) throw new Error('Unlock offline access before using locally stored data.');
-  if (!grant || String(grant.userId) !== ownerId || grant.role !== unlocked.role) {
-    throw new Error('Offline authorization is unavailable or expired for this account.');
+  if (!grant || String(grant.userId) !== ownerId || grant.role !== unlocked.role ||
+      typeof grant.deviceId !== 'string' || localStorage.getItem('hs_offline_device_id') !== grant.deviceId) {
+    throw new Error('Offline authorization is unavailable for this account and device.');
   }
   return {
     ownerId,

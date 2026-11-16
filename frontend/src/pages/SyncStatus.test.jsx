@@ -1,9 +1,14 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
 import SyncStatus from './SyncStatus';
 import offlineQueue from '../services/offline/offlineQueueService';
 import useSyncStatus from '../services/offline/useSyncStatus';
+import {
+  downloadOfflineData,
+  getActiveResidentSnapshot,
+} from '../services/offline/offlineDataDownloadService';
 
 jest.mock('../services/offline/useSyncStatus', () => ({
   __esModule: true,
@@ -22,6 +27,12 @@ jest.mock('../services/offline/offlineQueueService', () => ({
 jest.mock('../services/offline/syncManager', () => ({
   __esModule: true,
   default: { runSync: jest.fn() },
+}));
+
+jest.mock('../services/offline/offlineDataDownloadService', () => ({
+  downloadOfflineData: jest.fn(),
+  getActiveResidentSnapshot: jest.fn(),
+  getOfflineSnapshotReadiness: jest.fn((snapshot) => snapshot ? 'complete' : 'unavailable'),
 }));
 
 const makeItem = (status) => ({
@@ -100,4 +111,49 @@ test('unknown outcomes cannot be retried or discarded as unsent changes', async 
   expect(screen.getByText(/cannot be safely retried or discarded/i)).toBeInTheDocument();
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Discard change' })).not.toBeInTheDocument();
+});
+
+test('BHWs can download offline data from Sync Status and inspect included datasets', async () => {
+  const snapshot = {
+    recordCount: 12,
+    nutritionRecordCount: 8,
+    medicalRecordCount: 4,
+    legacyClinicalRecordCount: 3,
+    legacyChildRecordCount: 2,
+    seniorCitizenRecordCount: 1,
+    downloadedAt: '2026-11-16T00:00:00.000Z',
+  };
+  useSyncStatus.mockReturnValue({
+    items: [],
+    online: true,
+    syncing: false,
+    setSyncing: jest.fn(),
+    loaded: true,
+    refresh: jest.fn().mockResolvedValue(undefined),
+    pending: 0,
+    failed: 0,
+    syncingCount: 0,
+    syncedToday: 0,
+    conflicts: 0,
+    waiting: 0,
+    lastSynced: null,
+  });
+  getActiveResidentSnapshot.mockResolvedValue(snapshot);
+  downloadOfflineData.mockResolvedValue(snapshot);
+
+  render(
+    <MemoryRouter>
+      <AuthContext.Provider value={{ user: { user_id: 7, role: 'bhw' }, offlineVaultReady: true }}>
+        <SyncStatus />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByText('Residents: 12')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('What’s included in the download'));
+  expect(screen.getByText(/Operation Timbang, Adult BMI, and Adolescent BMI/)).toBeInTheDocument();
+  expect(screen.getByText(/clinical, child, maternal, and immunization/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh offline data' }));
+  await waitFor(() => expect(downloadOfflineData).toHaveBeenCalledTimes(1));
 });

@@ -19,6 +19,7 @@ import {
 jest.mock('../services/auth/authService', () => ({
   __esModule: true,
   login: jest.fn(),
+  checkDeviceAuthorization: async () => true,
   setAuth: jest.fn((token, user) => {
     globalThis.localStorage.setItem('hs_token', token);
     globalThis.localStorage.setItem('hs_user', JSON.stringify(user));
@@ -51,17 +52,23 @@ const primaryKey = (name, value) => (
 
 function AuthControls() {
   const auth = useContext(AuthContext);
+  const [passwordChanged, setPasswordChanged] = React.useState(false);
   return (
     <div>
       <button type="button" onClick={() => auth.login('first', 'CorrectHorseBattery9!')}>Login first</button>
       <button type="button" onClick={() => auth.login('second', 'CorrectHorseBattery9!')}>Login second</button>
       <button type="button" onClick={() => auth.logout({ skipServer: true })}>Logout</button>
-      <button type="button" onClick={() => auth.completePasswordChange(
-        'server-token-first',
-        { user_id: 7, role: 'bhw' },
-        'NewCorrectHorseBattery9!'
-      )}>Complete password change</button>
+      <button type="button" onClick={async () => {
+        await auth.completePasswordChange(
+          'server-token-first',
+          { user_id: 7, role: 'bhw', device_id: 'device-local' },
+          'NewCorrectHorseBattery9!'
+        );
+        setPasswordChanged(true);
+      }}>Complete password change</button>
+      <button type="button" onClick={() => auth.unlockOfflineAccess('CorrectHorseBattery9!')}>Unlock offline vault</button>
       <output data-testid="vault-ready">{String(auth.offlineVaultReady)}</output>
+      <output data-testid="password-changed">{String(passwordChanged)}</output>
     </div>
   );
 }
@@ -94,7 +101,13 @@ beforeEach(() => {
     success: true,
     data: {
       token: `server-token-${username}`,
-      user: { user_id: username === 'first' ? 7 : 8, role: 'bhw', username },
+    user: {
+      user_id: username === 'first' ? 7 : 8,
+      role: 'bhw',
+      username,
+      device_id: 'device-local',
+      offline_pin_enrolled: true,
+    },
     },
   }));
 });
@@ -103,10 +116,14 @@ afterEach(() => {
   lockOfflineVault();
 });
 
-test('creates an encrypted account vault after online login without persisting the password', async () => {
+test('restores a persistent device-scoped grant and requires an unlock after online login', async () => {
+  await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
   render(<AuthProvider><AuthControls /></AuthProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Login first' }));
 
+  await waitFor(() => expect(getOfflineSession()).toEqual(expect.objectContaining({ userId: '7', deviceId: 'device-local' })));
+  expect(screen.getByTestId('vault-ready')).toHaveTextContent('false');
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock offline vault' }));
   await waitFor(() => expect(screen.getByTestId('vault-ready')).toHaveTextContent('true'));
   expect(isOfflineVaultUnlocked(7)).toBe(true);
   expect(getOfflineSession()).toEqual(expect.objectContaining({ userId: '7', role: 'bhw' }));
@@ -115,27 +132,33 @@ test('creates an encrypted account vault after online login without persisting t
 });
 
 test('locks the prior account on account switch and preserves stored encrypted records on logout', async () => {
+  await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
   render(<AuthProvider><AuthControls /></AuthProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Login first' }));
+  await waitFor(() => expect(getOfflineSession()).not.toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock offline vault' }));
   await waitFor(() => expect(screen.getByTestId('vault-ready')).toHaveTextContent('true'));
 
   const { putOfflineRecord } = require('../services/offline/offlineVaultService');
   await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'Preserved' });
 
   fireEvent.click(screen.getByRole('button', { name: 'Login second' }));
-  await waitFor(() => expect(isOfflineVaultUnlocked(8)).toBe(true));
+  await waitFor(() => expect(getOfflineSession()).toEqual(expect.objectContaining({ userId: '8' })));
   expect(isOfflineVaultUnlocked(7)).toBe(false);
-  expect(getOfflineSession()).toEqual(expect.objectContaining({ userId: '8', role: 'bhw' }));
+  expect(screen.getByTestId('vault-ready')).toHaveTextContent('false');
 
   fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
-  await waitFor(() => expect(screen.getByTestId('vault-ready')).toHaveTextContent('false'));
+  await waitFor(() => {
+    expect(screen.getByTestId('vault-ready')).toHaveTextContent('false');
+    expect(getOfflineSession()).toBeNull();
+  });
   expect(getStore('offlineData').size).toBe(1);
   await expect(getOfflineRecord(7, 'residents', 'resident-1')).rejects.toThrow('Unlock offline access');
 });
 
-test('rewraps an existing vault after a required password change without granting early offline access', async () => {
+test('rewraps a legacy vault after a required password change without issuing a PIN grant', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   await putOfflineRecord(7, 'residents', 'resident-1', { first_name: 'Preserved' });
   lockOfflineVault(7);
   clearOfflineSession();
@@ -143,7 +166,10 @@ test('rewraps an existing vault after a required password change without grantin
     success: true,
     data: {
       token: 'server-token-first',
-      user: { user_id: 7, role: 'bhw', username: 'first', must_change_password: true },
+      user: {
+        user_id: 7, role: 'bhw', username: 'first', must_change_password: true,
+        device_id: 'device-local', offline_pin_enrolled: false,
+      },
     },
   }));
 
@@ -154,8 +180,10 @@ test('rewraps an existing vault after a required password change without grantin
   expect(screen.getByTestId('vault-ready')).toHaveTextContent('false');
 
   fireEvent.click(screen.getByRole('button', { name: 'Complete password change' }));
-  await waitFor(() => expect(screen.getByTestId('vault-ready')).toHaveTextContent('true'));
+  await waitFor(() => expect(screen.getByTestId('password-changed')).toHaveTextContent('true'));
+  expect(screen.getByTestId('vault-ready')).toHaveTextContent('false');
   lockOfflineVault(7);
   await unlockOfflineVault({ userId: 7, credential: 'NewCorrectHorseBattery9!' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   expect(await getOfflineRecord(7, 'residents', 'resident-1')).toEqual({ first_name: 'Preserved' });
 });

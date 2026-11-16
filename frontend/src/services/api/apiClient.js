@@ -87,6 +87,12 @@ api.interceptors.response.use((response) => response, (error) => {
   if (error?.response?.data?.errorCode === 'PASSWORD_CHANGE_REQUIRED' && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('healthsync:password-change-required'));
   }
+  if (['DEVICE_REVOKED', 'ACCOUNT_DEACTIVATED'].includes(error?.response?.data?.errorCode) &&
+      typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('healthsync:offline-authorization-revoked', {
+      detail: { reason: error.response.data.errorCode },
+    }));
+  }
   if (error?.offlineQueued) {
     return {
       data: {

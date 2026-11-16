@@ -11,6 +11,7 @@
     "migrate:residents": "node src/scripts/migrateResidentSchema.js",
     "migrate:medical-records": "node src/scripts/migrateResidentMedicalRecords.js",
     "migrate:account-security": "node src/scripts/migrateAccountSecurity.js",
+    "migrate:offline-security": "node src/scripts/migrateOfflineSecurity.js",
     "test": "node --test tests/*.test.js"
   },
   "keywords": [],

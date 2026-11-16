@@ -1,5 +1,5 @@
 const DB_NAME = 'healthsync_offline_v1';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -22,6 +22,12 @@ function openDb() {
       if (!db.objectStoreNames.contains('offlineData')) {
         const store = db.createObjectStore('offlineData', { keyPath: ['userId', 'collection', 'recordKey'] });
         store.createIndex('byUserCollection', ['userId', 'collection'], { unique: false });
+      }
+      if (!db.objectStoreNames.contains('offlineDevices')) {
+        db.createObjectStore('offlineDevices', { keyPath: 'deviceId' });
+      }
+      if (!db.objectStoreNames.contains('offlineSecurity')) {
+        db.createObjectStore('offlineSecurity', { keyPath: 'key' });
       }
     };
     req.onsuccess = () => resolve(req.result);

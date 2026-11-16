@@ -53,7 +53,7 @@ beforeEach(async () => {
     .filter((record) => record.userId === range[0] && record.collection === range[1]));
   idb.deleteFromStore = jest.fn(async (name, key) => getStore(name).delete(encodeKey(key)));
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'CorrectHorseBattery9!' });
-  createOfflineSession({ userId: 7, role: 'bhw' });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
   api.get.mockResolvedValue({
     data: {
       success: true,

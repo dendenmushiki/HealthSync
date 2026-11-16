@@ -5,7 +5,7 @@ import api from '../../services/api/apiClient';
 import './ForcePasswordChangePage.css';
 
 const ForcePasswordChangePage = () => {
-  const { user, completePasswordChange, logout } = useContext(AuthContext);
+  const { user, token, completePasswordChange, logout, offlineVaultError } = useContext(AuthContext);
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -14,8 +14,13 @@ const ForcePasswordChangePage = () => {
   const [error, setError] = useState('');
   const [offlineWarning, setOfflineWarning] = useState('');
   const [complete, setComplete] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinConfirmation, setPinConfirmation] = useState('');
+  const [setupToken, setSetupToken] = useState('');
+  const [setupUser, setSetupUser] = useState(null);
   useEffect(() => {
-    if (user && !user.must_change_password && !complete) {
+    if (user && !user.must_change_password && !user.offline_pin_setup_required && !complete) {
       navigate(user.role === 'admin' ? '/admin-dashboard' : '/dashboard', { replace: true });
     }
   }, [complete, navigate, user]);
@@ -26,7 +31,11 @@ const ForcePasswordChangePage = () => {
     symbol: /[^A-Za-z0-9\s]/.test(password),
     bcryptLimit: new Blob([password]).size <= 72,
   }), [password]);
-  const valid = Object.values(requirements).every(Boolean) && password === confirmation;
+  const setupRequired = Boolean(user?.offline_pin_setup_required);
+  const pinValid = /^\d{6}$/.test(pin) && pin === pinConfirmation;
+  const valid = (passwordUpdated || !user?.must_change_password
+    ? pinValid
+    : Object.values(requirements).every(Boolean) && password === confirmation && (!setupRequired || pinValid));
 
   const submit = async (event) => {
     event.preventDefault();
@@ -34,11 +43,31 @@ const ForcePasswordChangePage = () => {
     if (!valid) return;
     setBusy(true);
     try {
+      if (passwordUpdated || !user?.must_change_password) {
+        const ready = await completePasswordChange(setupToken || token, setupUser || user, pin);
+        if (!ready) throw new Error(offlineVaultError || 'PIN setup could not be completed. Retry before continuing.');
+        setPin('');
+        setPinConfirmation('');
+        if (!setupRequired) {
+          navigate(user?.role === 'admin' ? '/admin-dashboard' : '/dashboard', { replace: true });
+          return;
+        }
+        setComplete(true);
+        return;
+      }
       const response = await api.post('/auth/change-password', { new_password: password });
       if (!response.data?.success) throw new Error(response.data?.message || 'Unable to change password.');
-      const offlineReady = await completePasswordChange(response.data.data.token, response.data.data.user, password);
-      if (!offlineReady) {
-        setOfflineWarning('Offline access is unavailable on this device. You can continue online; do not rely on cached offline data.');
+      setPasswordUpdated(true);
+      setSetupToken(response.data.data.token);
+      setSetupUser(response.data.data.user);
+      if (response.data.data.user?.offline_pin_setup_required) {
+        const offlineReady = await completePasswordChange(response.data.data.token, response.data.data.user, pin);
+        if (!offlineReady) {
+          setOfflineWarning(offlineVaultError || 'PIN setup was not completed. Retry PIN setup before continuing.');
+          return;
+        }
+      } else {
+        await completePasswordChange(response.data.data.token, response.data.data.user, password);
       }
       setPassword('');
       setConfirmation('');
@@ -59,17 +88,20 @@ const ForcePasswordChangePage = () => {
         {complete ? (
           <div className="hs-force-complete" role="status" aria-live="polite">
             <span className="hs-force-check" aria-hidden="true">✓</span>
-            <h1 id="hs-force-title">Password updated</h1>
-            <p>Your password is secure and your other sessions have been signed out.</p>
+            <h1 id="hs-force-title">{setupRequired ? 'PIN registered' : 'Password updated'}</h1>
+            <p>{setupRequired ? 'Your six-digit PIN is ready to unlock HealthSync on this device.' : 'Your password is secure and your other sessions have been signed out.'}</p>
             {offlineWarning && <p className="hs-force-error" role="status">{offlineWarning}</p>}
             <button type="button" className="hs-force-primary" onClick={continueToWorkspace}>Continue to HealthSync</button>
           </div>
         ) : (
           <>
             <p className="hs-force-eyebrow">SECURITY REQUIREMENT</p>
-            <h1 id="hs-force-title">Set your new password</h1>
-            <p className="hs-force-copy">Choose a password only you know. Your temporary password cannot be used again.</p>
+            <h1 id="hs-force-title">{passwordUpdated || !user?.must_change_password ? 'Set your offline PIN' : 'Set your new password'}</h1>
+            <p className="hs-force-copy">{passwordUpdated || !user?.must_change_password
+              ? 'Choose a six-digit PIN to unlock your encrypted offline data. Your PIN is not your account password.'
+              : 'Choose a password only you know. Your temporary password cannot be used again.'}</p>
             {error && <div className="hs-force-error" role="alert">{error}</div>}
+            {!passwordUpdated && user?.must_change_password && (
             <form onSubmit={submit} className="hs-force-form">
               <label htmlFor="hs-new-password">New password</label>
               <div className="hs-force-password">
@@ -92,10 +124,29 @@ const ForcePasswordChangePage = () => {
                 <li className={requirements.symbol ? 'valid' : ''}>One symbol</li>
                 <li className={requirements.bcryptLimit ? 'valid' : ''}>No more than 72 UTF-8 bytes</li>
               </ul>
+              {setupRequired && <>
+                <label htmlFor="hs-offline-pin">Six-digit PIN</label>
+                <input id="hs-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} required />
+                <label htmlFor="hs-confirm-offline-pin">Confirm six-digit PIN</label>
+                <input id="hs-confirm-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinConfirmation} onChange={(event) => setPinConfirmation(event.target.value)} required />
+                {pinConfirmation && pin !== pinConfirmation && <span className="hs-force-inline-error">PIN entries do not match.</span>}
+              </>}
               <button type="submit" className="hs-force-primary" disabled={!valid || busy}>
-                {busy ? <><span className="hs-force-spinner" aria-hidden="true" /> Saving...</> : 'Save new password'}
+                {busy ? <><span className="hs-force-spinner" aria-hidden="true" /> Saving...</> : setupRequired ? 'Save password and PIN' : 'Save new password'}
               </button>
             </form>
+            )}
+            {(passwordUpdated || !user?.must_change_password) && <form onSubmit={submit} className="hs-force-form">
+              <label htmlFor="hs-offline-pin">Six-digit PIN</label>
+              <input id="hs-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} required />
+              <label htmlFor="hs-confirm-offline-pin">Confirm six-digit PIN</label>
+              <input id="hs-confirm-offline-pin" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinConfirmation} onChange={(event) => setPinConfirmation(event.target.value)} required />
+              {pinConfirmation && pin !== pinConfirmation && <span className="hs-force-inline-error">PIN entries do not match.</span>}
+              {offlineWarning && <p className="hs-force-error" role="alert">{offlineWarning}</p>}
+              <button type="submit" className="hs-force-primary" disabled={!valid || busy}>
+                {busy ? <><span className="hs-force-spinner" aria-hidden="true" /> Saving...</> : 'Save PIN'}
+              </button>
+            </form>}
           </>
         )}
         {!complete && <button type="button" className="hs-force-logout" onClick={async () => { await logout(); navigate('/login', { replace: true }); }}>Sign out</button>}

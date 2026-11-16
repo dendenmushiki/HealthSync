@@ -9,6 +9,7 @@ const ensureUserManagementSchema = async () => {
         ['is_active', 'BOOLEAN NOT NULL DEFAULT TRUE'],
         ['token_version', 'INT NOT NULL DEFAULT 0'],
         ['must_change_password', 'TINYINT(1) NOT NULL DEFAULT 0'],
+        ['offline_pin_setup_required', 'TINYINT(1) NOT NULL DEFAULT 0'],
         ['password_changed_at', 'DATETIME NULL'],
         ['temp_password_expires_at', 'DATETIME NULL'],
         ['last_login_at', 'DATETIME NULL'],

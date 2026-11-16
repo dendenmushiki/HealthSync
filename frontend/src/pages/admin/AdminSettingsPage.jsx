@@ -3,8 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api/apiClient';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
+import { formatRelativeTime } from '../../utils/dateUtils';
 import {
   changeOfflineVaultCredential,
+  createOfflineVault,
   getOfflineVaultMetadata,
   isOfflineVaultUnlocked,
   unlockOfflineVault,
@@ -94,7 +96,7 @@ const userAgentLabel = (userAgent = '') => {
 };
 
 const AdminSettingsPage = () => {
-  const { user, updateUser, logout } = useContext(AuthContext);
+  const { user, updateUser, logout, unlockOfflineAccess } = useContext(AuthContext);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedSection = SECTIONS.some(({ id }) => id === searchParams.get('tab'))
@@ -117,6 +119,13 @@ const AdminSettingsPage = () => {
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [securityBusy, setSecurityBusy] = useState(false);
+  const [pinForm, setPinForm] = useState({ currentPassword: '', pin: '', confirm: '' });
+  const [pinPasswordStep, setPinPasswordStep] = useState(false);
+  const pinPasswordInputRef = useRef(null);
+  const [pinMessage, setPinMessage] = useState('');
+  const [authorizedDevices, setAuthorizedDevices] = useState([]);
+  const [devicesError, setDevicesError] = useState('');
+  const [devicePassword, setDevicePassword] = useState('');
   const [showRevokeModal, setShowRevokeModal] = useState(false);
   const [revokePassword, setRevokePassword] = useState('');
   const [toast, setToast] = useState('');
@@ -181,6 +190,24 @@ const AdminSettingsPage = () => {
     if (!photoPreview) return undefined;
     return () => URL.revokeObjectURL(photoPreview);
   }, [photoPreview]);
+
+  useEffect(() => {
+    if (pinPasswordStep) pinPasswordInputRef.current?.focus();
+  }, [pinPasswordStep]);
+
+  useEffect(() => {
+    if (selectedSection !== 'security') return undefined;
+    let active = true;
+    api.get('/auth/devices')
+      .then((response) => {
+        if (!response.data?.success) throw new Error(response.data?.message || 'Unable to load authorized devices.');
+        if (active) setAuthorizedDevices(response.data.data || []);
+      })
+      .catch((error) => {
+        if (active) setDevicesError(error.response?.data?.message || error.message || 'Unable to load authorized devices.');
+      });
+    return () => { active = false; };
+  }, [selectedSection]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -379,12 +406,16 @@ const AdminSettingsPage = () => {
       try {
         const ownerId = user?.user_id;
         const metadata = ownerId === undefined ? null : await getOfflineVaultMetadata(ownerId);
-        if (metadata) {
-          createOfflineSession({ userId: ownerId, role: user.role });
+        if (metadata?.credentialType !== 'pin' && metadata) {
+          createOfflineSession({ userId: ownerId, role: user.role, deviceId: user.device_id });
           if (!isOfflineVaultUnlocked(ownerId)) {
             await unlockOfflineVault({ userId: ownerId, credential: passwords.current });
           }
-          await changeOfflineVaultCredential({ userId: ownerId, credential: passwords.next });
+          await changeOfflineVaultCredential({
+            userId: ownerId,
+            credential: passwords.next,
+            credentialType: 'password',
+          });
         }
       } catch {
         offlineWarning = true;
@@ -402,6 +433,109 @@ const AdminSettingsPage = () => {
       const errorMessage = passwordError.response?.data?.message || passwordError.message || 'Unable to update password.';
       setError(errorMessage);
       showToast(errorMessage, 'error');
+    } finally {
+      setSecurityBusy(false);
+    }
+  };
+
+  const handlePinSave = async (event) => {
+    event.preventDefault();
+    setError('');
+    setPinMessage('');
+    if (!navigator.onLine) {
+      setError('Connect to the internet to verify your account password and save a PIN.');
+      return;
+    }
+    if (!/^\d{6}$/.test(pinForm.pin)) {
+      setError('PIN must contain exactly six digits.');
+      return;
+    }
+    if (pinForm.pin !== pinForm.confirm) {
+      setError('PIN entries do not match.');
+      return;
+    }
+    if (!user?.offline_pin_enrolled && !pinPasswordStep) {
+      setPinPasswordStep(true);
+      return;
+    }
+    if (!pinForm.currentPassword) {
+      setError('Enter your account password to save this PIN.');
+      return;
+    }
+    setSecurityBusy(true);
+    try {
+      const verified = await api.post('/auth/offline-pin/verify-password', {
+        current_password: pinForm.currentPassword,
+      });
+      if (!verified.data?.success) throw new Error(verified.data?.message || 'Current password verification failed.');
+
+      const ownerId = user?.user_id;
+      if (ownerId === undefined || ownerId === null || !user?.device_id) {
+        throw new Error('An authorized device is required to set up an offline PIN.');
+      }
+      const metadata = await getOfflineVaultMetadata(ownerId);
+      if (metadata?.credentialType === 'pin') {
+        if (!isOfflineVaultUnlocked(ownerId)) {
+          await unlockOfflineVault({ userId: ownerId, credential: pinForm.pin });
+        }
+        await changeOfflineVaultCredential({ userId: ownerId, credential: pinForm.pin, credentialType: 'pin' });
+      } else if (metadata) {
+        if (!isOfflineVaultUnlocked(ownerId)) {
+          await unlockOfflineVault({ userId: ownerId, credential: pinForm.currentPassword });
+        }
+        await changeOfflineVaultCredential({ userId: ownerId, credential: pinForm.pin, credentialType: 'pin' });
+      } else {
+        await createOfflineVault({ userId: ownerId, role: user.role, credential: pinForm.pin, credentialType: 'pin' });
+      }
+      const saved = await api.post('/auth/offline-pin', {
+        current_password: pinForm.currentPassword,
+        pin: pinForm.pin,
+      });
+      if (!saved.data?.success) throw new Error(saved.data?.message || 'Unable to save PIN.');
+      createOfflineSession({ userId: ownerId, role: user.role, deviceId: user.device_id });
+      await unlockOfflineAccess(pinForm.pin);
+      updateUser({ ...user, offline_pin_enrolled: true, offline_pin_setup_required: false });
+      setPinForm({ currentPassword: '', pin: '', confirm: '' });
+      setPinPasswordStep(false);
+      setPinMessage(user.offline_pin_enrolled ? 'PIN changed successfully.' : 'PIN set up successfully.');
+    } catch (pinError) {
+      if (!user?.offline_pin_enrolled) {
+        setPinMessage('PIN enrollment did not finish. You can retry without losing queued offline changes.');
+      }
+      const message = pinError.response?.data?.message || pinError.message || 'Unable to save PIN.';
+      setError(message);
+      showToast(message, 'error');
+    } finally {
+      setSecurityBusy(false);
+    }
+  };
+
+  const handleDeviceRevoke = async (device) => {
+    setDevicesError('');
+    if (!devicePassword) {
+      setDevicesError('Enter your current account password to revoke a device.');
+      return;
+    }
+    setSecurityBusy(true);
+    try {
+      const response = await api.post(`/auth/devices/${encodeURIComponent(device.device_id)}/revoke`, {
+        current_password: devicePassword,
+      });
+      if (!response.data?.success) throw new Error(response.data?.message || 'Unable to revoke device.');
+      if (device.device_id === user?.device_id) {
+        await logout({ skipServer: true });
+        navigate('/login', { replace: true, state: { message: 'This device was revoked and signed out.' } });
+        return;
+      }
+      const refreshed = await api.get('/auth/devices');
+      if (!refreshed.data?.success) throw new Error(refreshed.data?.message || 'Device revoked but the list could not be refreshed.');
+      setAuthorizedDevices(refreshed.data.data || []);
+      setDevicePassword('');
+      showToast('Device authorization revoked.');
+    } catch (revokeError) {
+      const message = revokeError.response?.data?.message || revokeError.message || 'Unable to revoke device.';
+      setDevicesError(message);
+      showToast(message, 'error');
     } finally {
       setSecurityBusy(false);
     }
@@ -531,6 +665,34 @@ const AdminSettingsPage = () => {
               </>}
 
               {selectedSection === 'security' && <>
+                <SettingCard
+                  title={user?.offline_pin_enrolled ? 'Change PIN' : 'Set up PIN'}
+                  description={user?.offline_pin_enrolled
+                    ? 'Your six-digit PIN unlocks encrypted offline data. Enter your account password to save a PIN change.'
+                    : 'Choose and confirm your six-digit PIN. Select Set up PIN to enter your account password and save it.'}
+                >
+                  <form className="settings-password-form" onSubmit={handlePinSave}>
+                    <div className="settings-field">
+                      <label htmlFor="settings-offline-pin">New six-digit PIN</label>
+                      <input id="settings-offline-pin" className="form-control" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinForm.pin} onChange={(event) => setPinForm((current) => ({ ...current, pin: event.target.value.replace(/\D/g, '').slice(0, 6) }))} required />
+                    </div>
+                    <div className="settings-field">
+                      <label htmlFor="settings-offline-pin-confirm">Confirm new PIN</label>
+                      <input id="settings-offline-pin-confirm" className="form-control" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" maxLength={6} value={pinForm.confirm} onChange={(event) => setPinForm((current) => ({ ...current, confirm: event.target.value.replace(/\D/g, '').slice(0, 6) }))} required />
+                    </div>
+                    {(user?.offline_pin_enrolled || pinPasswordStep) && <div className="settings-field">
+                      <label htmlFor="settings-pin-current-password">Current account password</label>
+                      <input ref={pinPasswordInputRef} id="settings-pin-current-password" className="form-control" type="password" autoComplete="current-password" value={pinForm.currentPassword} onChange={(event) => setPinForm((current) => ({ ...current, currentPassword: event.target.value }))} required />
+                    </div>}
+                    {pinMessage && <p role="status">{pinMessage}</p>}
+                    {!user?.offline_pin_enrolled && pinPasswordStep && <button className="settings-secondary-button" type="button" onClick={() => { setPinPasswordStep(false); setPinForm((current) => ({ ...current, currentPassword: '' })); }}>
+                      Back to PIN
+                    </button>}
+                    <button className="settings-primary-button" type="submit" disabled={securityBusy || (user?.offline_pin_enrolled && !pinForm.currentPassword) || !/^\d{6}$/.test(pinForm.pin) || pinForm.pin !== pinForm.confirm}>
+                      {securityBusy ? 'Saving PIN…' : user?.offline_pin_enrolled ? 'Change PIN' : pinPasswordStep ? 'Save PIN' : 'Set up PIN'}
+                    </button>
+                  </form>
+                </SettingCard>
                 <SettingCard title="Change password" description="Use a strong, unique password to protect your account.">
                   <form className="settings-password-form" onSubmit={handlePasswordChange}>
                     {renderPasswordInput('current', 'Current password', passwords.current, (value) => setPasswords((current) => ({ ...current, current: value })), 'current-password')}
@@ -548,6 +710,20 @@ const AdminSettingsPage = () => {
                 <SettingCard title="Recent sign-ins" description="Review recent account activity. Up to 20 entries are shown.">
                   {loginHistory.length ? <div className="settings-history-table-wrap"><table className="settings-history-table"><thead><tr><th>Date and time</th><th>Device</th><th>IP address</th><th>Status</th></tr></thead><tbody>{loginHistory.map((entry) => <tr key={entry.id}><td>{new Date(entry.occurred_at).toLocaleString()}</td><td>{userAgentLabel(entry.user_agent)}</td><td>{entry.ip_address || 'Unavailable'}</td><td><span className={`settings-status-badge ${entry.current ? 'current' : ''}`}>{entry.current ? 'Current session' : entry.status === 'ACTIVE' ? 'Active' : entry.status === 'FAILED' ? 'Failed' : entry.status === 'REVOKED' ? 'Signed out' : 'Ended'}</span></td></tr>)}</tbody></table></div> : <div className="settings-empty-state"><strong>No sign-in history yet</strong><span>Successful and failed sign-in activity will appear here.</span></div>}
                   <div className="settings-danger-zone"><div><strong>Log out of all devices</strong><span>This signs out every active device, including this one.</span></div><button type="button" className="settings-outline-danger" onClick={() => setShowRevokeModal(true)}>Log out all devices</button></div>
+                </SettingCard>
+                <SettingCard title="Offline devices" description="Device revocation takes effect when the device reconnects. A device that remains disconnected cannot receive revocation updates.">
+                  {devicesError && <p className="settings-inline-error" role="alert">{devicesError}</p>}
+                  {authorizedDevices.length ? <ul>
+                    {authorizedDevices.map((device) => <li key={device.device_id}>
+                      {device.device_id === user?.device_id ? 'This device' : `Device ${device.device_id.slice(0, 8)}`} · {device.status.toLowerCase()}
+                      {device.last_seen_at ? ` · Last connected ${formatRelativeTime(device.last_seen_at)}` : ''}
+                      {device.status === 'ACTIVE' && <button type="button" className="settings-text-button" disabled={securityBusy} onClick={() => handleDeviceRevoke(device)}>Revoke</button>}
+                    </li>)}
+                  </ul> : <p>No registered devices.</p>}
+                  <div className="settings-field">
+                    <label htmlFor="settings-device-revoke-password">Current account password to revoke a device</label>
+                    <input id="settings-device-revoke-password" className="form-control" type="password" autoComplete="current-password" value={devicePassword} onChange={(event) => setDevicePassword(event.target.value)} />
+                  </div>
                 </SettingCard>
               </>}
 

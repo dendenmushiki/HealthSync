@@ -93,6 +93,40 @@ minutes. Password-reset attempts are limited to five per 15 minutes per IP.
 When `must_change_password` is set, authenticated API routes return
 `PASSWORD_CHANGE_REQUIRED`; only password change and logout remain available.
 
+## Offline PIN and device authorization
+
+Prepare offline PIN and enrolled-device tracking before deploying the PIN lock
+flow:
+
+```sh
+npm run migrate:offline-security
+```
+
+The migration adds a first-login setup field to `users` and creates
+`offline_devices`, which stores a per-device PIN hash. Existing accounts are not forced to change their
+password or enroll a PIN. New accounts must set their own six-digit PIN after
+changing their temporary password. Each authorized device has its own bcrypt-protected
+PIN verifier; the PIN itself is only sent over the authenticated TLS connection
+during enrollment.
+
+The first device for an account is enrolled at password login. Additional
+devices remain pending until an administrator approves them through the
+offline-device user endpoints. Device IDs are scoped to accounts. Revoked
+device records are retained. Offline grants do not expire and are not API
+credentials; explicit signout clears the local grant. The application checks
+device status through authenticated API requests and a device-key proof when
+connectivity returns. A disconnected device cannot learn of remote revocation
+until it reconnects. A device identity stored in the browser profile is not
+hardware attestation, and PIN-only local key wrapping has lower protection
+against an attacker who can copy and inspect the browser profile. Local PIN
+attempts are rate-limited by the app but local storage can be modified by a
+sufficiently capable device owner.
+
+Existing expiring grants are not promoted to persistent grants. Users with an
+older grant must reconnect and sign in once so the device-bound authorization
+and PIN wrapper can be established. Existing encrypted offline records are
+preserved during that upgrade.
+
 ## Audit log migration and operation
 
 Apply the additive audit-log migration before deploying the redesigned Audit

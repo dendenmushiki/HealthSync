@@ -1,7 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
 import offlineQueue from '../services/offline/offlineQueueService';
 import syncManager from '../services/offline/syncManager';
+import {
+  downloadOfflineData,
+  getActiveResidentSnapshot,
+  getOfflineSnapshotReadiness,
+} from '../services/offline/offlineDataDownloadService';
 import useSyncStatus from '../services/offline/useSyncStatus';
 import { formatDateLabel } from '../utils/dateUtils';
 import './SyncStatus.css';
@@ -15,9 +21,38 @@ function relativeTime(value) { if (!value) return 'Unknown'; const minutes = Mat
 
 function friendlySummary(item) { const payload = item.payload || {}; const name = [payload.last_name, payload.first_name].filter(Boolean).join(', ') || payload.name || payload.full_name; if (item.operation === 'CREATE') return name ? `Added ${item.table === 'residents' ? 'resident: ' : ''}${name}` : `Create on ${item.table || 'records'}`; if (item.operation === 'UPDATE') return name ? `Updated ${item.table === 'residents' ? 'resident: ' : 'record for '}${name}` : `Update on ${item.table || 'records'}`; if (item.operation === 'DELETE') return name ? `Deleted ${item.table === 'residents' ? 'resident: ' : 'record for '}${name}` : `Delete on ${item.table || 'records'}`; return `${item.operation || 'Change'} on ${item.table || 'records'}`; }
 
+const offlineDatasets = [
+  'Resident records',
+  'Nutrition records: Operation Timbang, Adult BMI, and Adolescent BMI',
+  'Resident medical records: clinical, child, maternal, and immunization',
+  'Legacy clinical records',
+  'Legacy child-health records',
+  'Senior citizen records',
+];
+
+function getSnapshotStatus(readiness) {
+  return {
+    complete: 'Ready',
+    outdated: 'Needs refresh',
+    incomplete: 'Incomplete',
+    unavailable: 'Not downloaded',
+  }[readiness] || 'Unavailable';
+}
+
+function getDownloadDataset(phase) {
+  if (phase === 'nutrition' || phase === 'nutrition-starting') return 'nutrition records';
+  if (phase === 'medical-records' || phase === 'medical-records-starting') return 'resident medical records';
+  if (phase?.startsWith('legacy-clinical')) return 'legacy clinical records';
+  if (phase?.startsWith('legacy-child')) return 'legacy child-health records';
+  if (phase?.startsWith('senior-citizens')) return 'senior citizen records';
+  return 'resident records';
+}
+
 export default function SyncStatus() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const auth = useContext(AuthContext) || {};
+  const { user, offlineVaultReady } = auth;
   const syncState = useSyncStatus();
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'All');
@@ -31,15 +66,71 @@ export default function SyncStatus() {
   const [discardConfirmed, setDiscardConfirmed] = useState(false);
   const [showPayload, setShowPayload] = useState(false);
   const [toast, setToast] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
+  const [downloadProgress, setDownloadProgress] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const [offlineCacheError, setOfflineCacheError] = useState('');
+  const [autoSyncError, setAutoSyncError] = useState('');
   const drawerRef = useRef(null);
   const rowRefs = useRef({});
 
   useEffect(() => { const timer = setTimeout(() => setSearch(searchParams.get('search') || ''), 300); return () => clearTimeout(timer); }, [searchParams]);
   useEffect(() => { const next = new URLSearchParams(); if (search) next.set('search', search); if (statusFilter !== 'All') next.set('status', statusFilter); if (typeFilter !== 'All') next.set('type', typeFilter); if (operationFilter !== 'All') next.set('operation', operationFilter); if (sort !== 'newest') next.set('sort', sort); if (page !== 1) next.set('page', String(page)); if (pageSize !== 10) next.set('pageSize', String(pageSize)); if (drawerId) next.set('item', drawerId); setSearchParams(next, { replace: true }); }, [search, statusFilter, typeFilter, operationFilter, sort, page, pageSize, drawerId, setSearchParams]);
   useEffect(() => { const onComplete = (event) => { const detail = event.detail || {}; setToast(detail.synced ? `${detail.synced} change${detail.synced === 1 ? '' : 's'} synced` : 'Sync attempt finished'); }; window.addEventListener('healthsync:sync-complete', onComplete); return () => window.removeEventListener('healthsync:sync-complete', onComplete); }, []);
+  useEffect(() => {
+    if (user?.role !== 'bhw' || !offlineVaultReady) {
+      setSnapshot(null);
+      return undefined;
+    }
+    let active = true;
+    const loadSnapshot = async () => {
+      try {
+        const current = await getActiveResidentSnapshot();
+        if (active) setSnapshot(current || null);
+      } catch (error) {
+        if (active) setDownloadError(error.message || 'Offline snapshot status could not be loaded.');
+      }
+    };
+    loadSnapshot();
+    window.addEventListener('healthsync:offline-download-updated', loadSnapshot);
+    return () => {
+      active = false;
+      window.removeEventListener('healthsync:offline-download-updated', loadSnapshot);
+    };
+  }, [offlineVaultReady, user?.role, user?.user_id]);
+  useEffect(() => {
+    const onCacheError = (event) => setOfflineCacheError(event.detail?.message || 'Resident data could not be secured for offline use.');
+    const onAutoSyncError = (event) => setAutoSyncError(event.detail?.message || 'Saved changes could not be synchronized.');
+    const onSyncComplete = (event) => {
+      if (!event.detail?.failed) setAutoSyncError('');
+    };
+    window.addEventListener('healthsync:offline-cache-error', onCacheError);
+    window.addEventListener('healthsync:auto-sync-error', onAutoSyncError);
+    window.addEventListener('healthsync:sync-complete', onSyncComplete);
+    return () => {
+      window.removeEventListener('healthsync:offline-cache-error', onCacheError);
+      window.removeEventListener('healthsync:auto-sync-error', onAutoSyncError);
+      window.removeEventListener('healthsync:sync-complete', onSyncComplete);
+    };
+  }, []);
   useEffect(() => { if (!drawerId) return undefined; const frame = requestAnimationFrame(() => drawerRef.current?.focus()); const key = (event) => { if (event.key === 'Escape') { setDrawerId(null); requestAnimationFrame(() => rowRefs.current[drawerId]?.focus()); } if (event.key === 'Tab' && drawerRef.current) { const focusable = drawerRef.current.querySelectorAll('button, a[href], input:not([disabled])'); if (!focusable.length) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } }; document.addEventListener('keydown', key); return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', key); }; }, [drawerId]);
 
   function closeDrawer() { setDrawerId(null); requestAnimationFrame(() => rowRefs.current[drawerId]?.focus()); }
+  async function downloadSnapshot() {
+    setDownloading(true);
+    setDownloadError('');
+    setDownloadProgress({ phase: 'starting', recordsDownloaded: 0 });
+    try {
+      const result = await downloadOfflineData(setDownloadProgress);
+      setSnapshot(result);
+      if (result.cleanupWarning) setDownloadError('The new offline data is ready, but older encrypted cache cleanup was incomplete.');
+    } catch (error) {
+      setDownloadError(error.message || 'Offline data could not be downloaded. The previous snapshot is unchanged.');
+    } finally {
+      setDownloading(false);
+    }
+  }
   async function syncNow() { if (!syncState.online || syncState.pending === 0) return; syncState.setSyncing(true); await syncManager.runSync(); syncState.setSyncing(false); await syncState.refresh(); }
   async function retryItem(item) {
     if (item.status === 'CONFLICT') {
@@ -96,12 +187,50 @@ export default function SyncStatus() {
     offline: ['You are offline. Your work is safe on this device.', `${syncState.waiting} saved change${syncState.waiting === 1 ? '' : 's'} will sync when the connection returns.`],
     syncing: ['Sending saved changes', `${syncState.waiting} item${syncState.waiting === 1 ? '' : 's'} remaining`],
   };
+  const snapshotReadiness = getOfflineSnapshotReadiness(snapshot);
+  const downloadDataset = downloadProgress?.phase === 'nutrition'
+    ? `${downloadProgress.recordType} records`
+    : getDownloadDataset(downloadProgress?.phase);
 
   return <main className="sync-status-page">
     <header className="sync-page-header"><div><p className="sync-eyebrow">System</p><h1>Sync status</h1><p>Changes made offline are saved on this device and sent to the server when you are online.</p></div><div className={`sync-connection ${syncState.online ? 'online' : 'offline'}`}><span aria-hidden="true" />{syncState.online ? 'Online' : 'Offline'}</div></header>
     {syncState.error && <div className="sync-toast" role="alert">{syncState.error}</div>}
+    {offlineCacheError && <div className="sync-toast" role="alert">{offlineCacheError}</div>}
+    {autoSyncError && <div className="sync-toast" role="alert">{autoSyncError}</div>}
     {toast && <div className="sync-toast" role="status">{toast}<button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification">×</button></div>}
     <section className={`sync-hero sync-hero-${heroMode}`} aria-live="polite"><div className="sync-hero-icon"><Icon name={heroMode === 'synced' ? 'check' : heroMode === 'failed' ? 'warning' : 'sync'} size={26}/></div><div className="sync-hero-copy"><strong>{heroCopy[heroMode][0]}</strong><span>{heroCopy[heroMode][1]}</span>{heroMode === 'syncing' && <div className="sync-progress" aria-label="Sync in progress"><span /></div>}</div><div className="sync-hero-actions"><button type="button" className="sync-primary-button" onClick={syncNow} disabled={!syncState.online || syncState.waiting === 0 || syncState.syncing}><Icon name="sync"/> {syncState.syncing ? 'Syncing…' : 'Sync now'}</button>{syncState.failed > 0 && <button type="button" className="sync-secondary-button" onClick={async () => { for (const item of syncState.items.filter(i => i.status === 'FAILED')) await offlineQueue.updateOperationStatus(item.offlineOperationId, { status:'PENDING', lastError:null }); await syncNow(); }}>Retry failed</button>}<button type="button" className="sync-icon-button" onClick={syncState.refresh} aria-label="Refresh sync queue"><Icon name="refresh"/></button></div></section>
+    {user?.role === 'bhw' && <section className="sync-offline-card" aria-label="Offline data download">
+      <div className="sync-offline-heading">
+        <div><h2>Offline data</h2><p>Download an encrypted snapshot for this device.</p></div>
+        <span className={`sync-offline-status ${snapshotReadiness === 'complete' ? 'ready' : ''}`} aria-live="polite">Snapshot: {getSnapshotStatus(snapshotReadiness)}</span>
+      </div>
+      <details className="sync-offline-datasets">
+        <summary>What’s included in the download</summary>
+        <ul>{offlineDatasets.map((dataset) => <li key={dataset}>{dataset}</li>)}</ul>
+      </details>
+      {snapshot && <div className="sync-offline-counts">
+        <span>Residents: {snapshot.recordCount ?? '—'}</span>
+        <span>Nutrition: {snapshot.nutritionRecordCount ?? '—'}</span>
+        <span>Medical: {snapshot.medicalRecordCount ?? '—'}</span>
+        <span>Legacy clinical: {snapshot.legacyClinicalRecordCount ?? '—'}</span>
+        <span>Legacy child health: {snapshot.legacyChildRecordCount ?? '—'}</span>
+        <span>Senior citizens: {snapshot.seniorCitizenRecordCount ?? '—'}</span>
+        {snapshot.downloadedAt && <span>Updated {new Date(snapshot.downloadedAt).toLocaleString()}</span>}
+      </div>}
+      <div className="sync-offline-actions">
+        <button type="button" className="sync-primary-button" onClick={downloadSnapshot} disabled={!syncState.online || !offlineVaultReady || downloading}>
+          {downloading ? 'Downloading…' : snapshot ? 'Refresh offline data' : 'Download offline data'}
+        </button>
+        {!offlineVaultReady && <span>Unlock offline access to enable downloads.</span>}
+        {!syncState.online && <span>Reconnect to download or refresh this snapshot.</span>}
+      </div>
+      {downloading && downloadProgress && <div className="sync-offline-progress" role="status">
+        Downloading {downloadDataset}: {downloadProgress.recordsDownloaded || 0}
+        {downloadProgress.totalResidents === undefined && downloadProgress.totalRecords === undefined ? '' : ` of ${downloadProgress.totalRecords ?? downloadProgress.totalResidents}`}
+        {downloadProgress.totalPages === undefined ? '' : ` · page ${downloadProgress.pagesCompleted} of ${downloadProgress.totalPages}`}
+      </div>}
+      {downloadError && <p className="sync-offline-error" role="alert">{downloadError}</p>}
+    </section>}
     <section className="sync-stats" aria-label="Sync queue summary"><button className={statusFilter === 'Pending' ? 'selected' : ''} onClick={() => setStatusFilter(statusFilter === 'Pending' ? 'All' : 'Pending')}><span>Pending</span><strong>{syncState.pending}</strong></button><button className={statusFilter === 'Syncing' ? 'selected' : ''} onClick={() => setStatusFilter(statusFilter === 'Syncing' ? 'All' : 'Syncing')}><span>Syncing</span><strong>{syncState.syncingCount}</strong></button><button className={statusFilter === 'Failed' ? 'selected' : ''} onClick={() => setStatusFilter(statusFilter === 'Failed' ? 'All' : 'Failed')}><span>Failed</span><strong>{syncState.failed}</strong></button><button className={statusFilter === 'Synced' ? 'selected' : ''} onClick={() => setStatusFilter(statusFilter === 'Synced' ? 'All' : 'Synced')}><span>Synced today</span><strong>{syncState.syncedToday}</strong></button>{syncState.conflicts > 0 && <button><span>Conflicts</span><strong>{syncState.conflicts}</strong></button>}</section>
     {oldestWarning && <div className="sync-old-warning"><Icon name="warning"/><span><strong>Oldest waiting item: {relativeTime(oldestWaiting.createdAt)}</strong> It has been waiting longer than 2 days.</span></div>}
     <section className="sync-list-card">

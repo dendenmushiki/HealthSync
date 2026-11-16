@@ -11,6 +11,7 @@ const { ensureUserStatusColumn, normalizeRoleLabel } = require('./userController
 const { ensureUserPhotoColumn } = require('./adminSettingsController');
 const { ensureAccountSecuritySchema, readPreferences } = require('../services/accountSecurityService');
 const { ensureUserManagementSchema } = require('../services/userManagementService');
+const { ensureOfflineSecuritySchema, registerOrCheckDevice } = require('../services/offlineSecurityService');
 const { validatePassword } = require('../services/passwordPolicy');
 
 const recordLoginHistory = async ({ userId, sessionId = null, status, req, expiresAt = null }) => {
@@ -35,10 +36,12 @@ const login = async (req, res) => {
         await ensureUserPhotoColumn();
         await ensureAccountSecuritySchema();
         await ensureUserManagementSchema();
+        await ensureOfflineSecuritySchema();
 
         const [rows] = await pool.query(
             `SELECT user_id, full_name, username, password, role, is_active, profile_photo, token_version,
-                must_change_password, temp_password_expires_at, failed_login_attempts, locked_until,
+                must_change_password, offline_pin_setup_required,
+                temp_password_expires_at, failed_login_attempts, locked_until,
                 (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked,
                 (temp_password_expires_at IS NOT NULL AND temp_password_expires_at <= UTC_TIMESTAMP()) AS temp_password_expired
              FROM users WHERE username = ?`,
@@ -161,6 +164,28 @@ const login = async (req, res) => {
             });
         }
 
+        const device = await registerOrCheckDevice({
+            userId: user.user_id,
+            deviceId: req.body.device_id,
+            publicKey: req.body.device_public_key,
+            challenge: req.body.device_challenge,
+            signature: req.body.device_proof,
+        });
+        if (!device.ok) {
+            const messages = {
+                DEVICE_REVOKED: 'This device has been revoked. Contact an administrator to authorize a new device.',
+                DEVICE_ENROLLMENT_REQUIRED: 'This device requires approval by an administrator before sign-in.',
+                DEVICE_MISMATCH: 'This device identity does not match its registration.',
+                INVALID_DEVICE: 'Secure device registration could not be verified.',
+            };
+            await recordLoginHistory({ userId: user.user_id, status: 'FAILED', req });
+            return res.status(403).json({
+                success: false,
+                message: messages[device.code] || 'This device is not authorized.',
+                errorCode: device.code,
+            });
+        }
+
         await pool.query(
             'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = UTC_TIMESTAMP() WHERE user_id = ?',
             [user.user_id]
@@ -173,6 +198,7 @@ const login = async (req, res) => {
             username: user.username,
             role: normalizeRoleLabel(user.role),
             token_version: Number(user.token_version || 0),
+            device_id: device.deviceId,
             jti: sessionId
         };
 
@@ -218,6 +244,9 @@ const login = async (req, res) => {
                     role: normalizeRoleLabel(user.role),
                     profile_photo: user.profile_photo,
                     must_change_password: Boolean(user.must_change_password),
+                    offline_pin_enrolled: device.pinEnrolled,
+                    offline_pin_setup_required: Boolean(user.offline_pin_setup_required),
+                    device_id: device.deviceId,
                 },
                 preferences
             }
@@ -250,7 +279,7 @@ const changeForcedPassword = async (req, res) => {
         }
 
         const [rows] = await pool.query(
-            'SELECT user_id, full_name, username, role, profile_photo, password, must_change_password, token_version FROM users WHERE user_id = ? LIMIT 1',
+            'SELECT user_id, full_name, username, role, profile_photo, password, must_change_password, offline_pin_setup_required, token_version FROM users WHERE user_id = ? LIMIT 1',
             [req.user.user_id]
         );
         if (!rows.length) return res.status(404).json({ success: false, message: 'Account not found.' });
@@ -296,9 +325,14 @@ const changeForcedPassword = async (req, res) => {
             username: user.username,
             role: normalizeRoleLabel(user.role),
             token_version: tokenVersion,
+            device_id: req.user.device_id,
             jti: sessionId,
         }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
         const expiration = jwt.decode(token)?.exp;
+        const [deviceRows] = await pool.query(
+            "SELECT pin_hash FROM offline_devices WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE' LIMIT 1",
+            [req.user.device_id, user.user_id]
+        );
         await recordLoginHistory({
             userId: user.user_id,
             sessionId,
@@ -333,6 +367,9 @@ const changeForcedPassword = async (req, res) => {
                     role: normalizeRoleLabel(user.role),
                     profile_photo: user.profile_photo,
                     must_change_password: false,
+                    offline_pin_enrolled: Boolean(deviceRows[0]?.pin_hash),
+                    offline_pin_setup_required: Boolean(user.offline_pin_setup_required),
+                    device_id: req.user.device_id,
                 },
             },
         });

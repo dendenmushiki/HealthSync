@@ -1,8 +1,41 @@
 import api from '../api/apiClient';
+import { getDeviceIdentity, signDeviceMessage } from '../offline/deviceIdentityService';
 
 export async function login(username, password) {
-  const resp = await api.post('/auth/login', { username, password });
+  const identity = await getDeviceIdentity();
+  const challenge = Array.from(window.crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const deviceProof = await signDeviceMessage(identity, challenge);
+  const resp = await api.post('/auth/login', {
+    username,
+    password,
+    device_id: identity.deviceId,
+    device_public_key: identity.publicKey,
+    device_challenge: challenge,
+    device_proof: deviceProof,
+  });
   return resp.data;
+}
+
+export async function checkDeviceAuthorization(user) {
+  if (!user?.user_id || !user?.device_id) {
+    throw new Error('The active account and device are required to verify offline authorization.');
+  }
+  const identity = await getDeviceIdentity();
+  if (identity.deviceId !== user.device_id) {
+    throw new Error('The registered device identity does not match this account session.');
+  }
+  const challenge = Array.from(window.crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const signature = await signDeviceMessage(identity, challenge);
+  const response = await api.post('/auth/offline-status', {
+    user_id: user.user_id,
+    device_id: identity.deviceId,
+    challenge,
+    signature,
+  });
+  if (!response.data?.success || response.data.data?.authorized !== true) {
+    throw new Error(response.data?.message || 'This device is not authorized.');
+  }
+  return true;
 }
 
 export async function logout() {

@@ -323,6 +323,9 @@ const UserManagementPage = () => {
   const [detailError, setDetailError] = useState('');
   const [detailReload, setDetailReload] = useState(0);
   const [detailTab, setDetailTab] = useState('profile');
+  const [offlineDevices, setOfflineDevices] = useState([]);
+  const [offlineDevicesError, setOfflineDevicesError] = useState('');
+  const [offlineDevicesLoading, setOfflineDevicesLoading] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', username: '', role: 'bhw' });
   const [savedEditForm, setSavedEditForm] = useState({ full_name: '', username: '', role: 'bhw' });
@@ -448,6 +451,23 @@ const UserManagementPage = () => {
     setEditForm(next);
     setSavedEditForm(next);
   }, [detail]);
+
+  useEffect(() => {
+    if (drawerMode !== 'user' || detailTab !== 'security' || !detail?.user_id) return undefined;
+    let active = true;
+    setOfflineDevicesLoading(true);
+    setOfflineDevicesError('');
+    api.get(`/users/${encodeURIComponent(detail.user_id)}/offline-devices`)
+      .then((response) => {
+        if (!response.data?.success) throw new Error(response.data?.message || 'Unable to load authorized devices.');
+        if (active) setOfflineDevices(response.data.data || []);
+      })
+      .catch((error) => {
+        if (active) setOfflineDevicesError(error.response?.data?.message || error.message || 'Unable to load authorized devices.');
+      })
+      .finally(() => { if (active) setOfflineDevicesLoading(false); });
+    return () => { active = false; };
+  }, [detail?.user_id, detailReload, detailTab, drawerMode]);
 
   useEffect(() => {
     if (drawerMode !== 'new' || !newForm.username.trim()) {
@@ -587,6 +607,25 @@ const UserManagementPage = () => {
       return;
     }
     setConfirmAction({ type: action, user: selected });
+  };
+
+  const handleOfflineDeviceAction = async (device, action) => {
+    setOfflineDevicesError('');
+    setSaving(true);
+    try {
+      const response = await api.post(
+        `/users/${encodeURIComponent(detail.user_id)}/offline-devices/${encodeURIComponent(device.device_id)}/${action}`
+      );
+      if (!response.data?.success) throw new Error(response.data?.message || 'Unable to update device authorization.');
+      const refreshed = await api.get(`/users/${encodeURIComponent(detail.user_id)}/offline-devices`);
+      if (!refreshed.data?.success) throw new Error(refreshed.data?.message || 'Device updated but the list could not be refreshed.');
+      setOfflineDevices(refreshed.data.data || []);
+      setToast(response.data.message || (action === 'approve' ? 'Device approved.' : 'Device revoked.'));
+    } catch (error) {
+      setOfflineDevicesError(error.response?.data?.message || error.message || 'Unable to update device authorization.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openResetPassword = (target) => {
@@ -885,6 +924,29 @@ const UserManagementPage = () => {
               <button type="button" className="users-button users-button-outline" onClick={() => openResetPassword(detail)} disabled={detail.protected || Number(detail.user_id) === Number(currentUser?.user_id)}>Reset password</button>
               <button type="button" className="users-button users-button-outline" onClick={() => setConfirmAction({ type: 'logout-all', user: detail })}>Log out of all devices</button>
             </div>
+            <section className="users-offline-devices" aria-label="Offline authorized devices">
+              <h3>Offline authorized devices</h3>
+              <p>Revoked devices lose access when they reconnect. A disconnected device may remain usable until then.</p>
+              {offlineDevicesError && <div className="users-inline-alert" role="alert">{offlineDevicesError}</div>}
+              {offlineDevicesLoading ? <p>Loading devices…</p> : offlineDevices.length ? (
+                <ul>
+                  {offlineDevices.map((device) => (
+                    <li key={device.device_id}>
+                      <span>
+                        <strong>{device.status === 'PENDING' ? 'Approval required' : device.status === 'REVOKED' ? 'Revoked' : 'Authorized'}</strong>
+                        {' · '}
+                        {device.last_seen_at ? `Last connected ${formatRelativeTime(device.last_seen_at)}` : `Added ${formatDateTime(device.created_at)}`}
+                        {device.device_id === currentUser?.device_id && ' · Current device'}
+                      </span>
+                      <span>
+                        {device.status === 'PENDING' && <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => handleOfflineDeviceAction(device, 'approve')}>Approve</button>}
+                        {device.status === 'ACTIVE' && device.device_id !== currentUser?.device_id && <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => handleOfflineDeviceAction(device, 'revoke')}>Revoke</button>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p>No device registrations.</p>}
+            </section>
           </>}
           {!detailLoading && detail && detailTab === 'activity' && <>
             {detail.activity?.length ? <ul className="users-activity-list">{detail.activity.map((item) => (
