@@ -8,6 +8,8 @@ const ensureOfflineSecuritySchema = async () => {
     schemaPromise = (async () => {
       const additions = [
         ['offline_pin_setup_required', 'TINYINT(1) NOT NULL DEFAULT 0'],
+        ['offline_pin_hash', 'VARCHAR(100) NULL'],
+        ['offline_pin_version', 'INT NOT NULL DEFAULT 0'],
       ];
       for (const [name, definition] of additions) {
         const [columns] = await pool.query('SHOW COLUMNS FROM users LIKE ?', [name]);
@@ -21,6 +23,7 @@ const ensureOfflineSecuritySchema = async () => {
           public_key TEXT NOT NULL,
           status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
           pin_hash VARCHAR(100) NULL,
+          pin_version INT NOT NULL DEFAULT 0,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           last_seen_at DATETIME NULL,
           revoked_at DATETIME NULL,
@@ -40,6 +43,10 @@ const ensureOfflineSecuritySchema = async () => {
       if (!devicePinColumns.length) {
         await pool.query('ALTER TABLE offline_devices ADD COLUMN pin_hash VARCHAR(100) NULL');
       }
+      const [devicePinVersionColumns] = await pool.query("SHOW COLUMNS FROM offline_devices LIKE 'pin_version'");
+      if (!devicePinVersionColumns.length) {
+        await pool.query('ALTER TABLE offline_devices ADD COLUMN pin_version INT NOT NULL DEFAULT 0');
+      }
     })().catch((error) => {
       schemaPromise = null;
       throw error;
@@ -51,6 +58,12 @@ const ensureOfflineSecuritySchema = async () => {
 const isValidDeviceId = (deviceId) => (
   typeof deviceId === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)
+);
+
+const isDevicePinEnrolled = ({ pinHash, pinVersion, accountPinHash, accountPinVersion }) => (
+  accountPinHash
+    ? Number(pinVersion) > 0 && Number(pinVersion) === Number(accountPinVersion)
+    : Boolean(pinHash)
 );
 
 const verifyDeviceSignature = (publicKey, message, signature) => {
@@ -77,9 +90,20 @@ const registerOrCheckDevice = async ({ userId, deviceId, publicKey, challenge, s
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.query('SELECT user_id FROM users WHERE user_id = ? FOR UPDATE', [userId]);
+    const [lockedUsers] = await connection.query(
+      'SELECT user_id, offline_pin_hash FROM users WHERE user_id = ? FOR UPDATE',
+      [userId]
+    );
+    if (!lockedUsers.length) {
+      await connection.rollback();
+      return { ok: false, code: 'INVALID_DEVICE' };
+    }
+    const accountPinEnrolled = Boolean(lockedUsers[0].offline_pin_hash);
     const [existing] = await connection.query(
-      'SELECT user_id, public_key, status, pin_hash FROM offline_devices WHERE user_id = ? AND device_id = ? LIMIT 1',
+      `SELECT d.user_id, d.public_key, d.status, d.pin_hash, d.pin_version,
+          u.offline_pin_hash, u.offline_pin_version
+       FROM offline_devices d JOIN users u ON u.user_id = d.user_id
+       WHERE d.user_id = ? AND d.device_id = ? LIMIT 1`,
       [userId, deviceId]
     );
     if (existing.length) {
@@ -94,7 +118,18 @@ const registerOrCheckDevice = async ({ userId, deviceId, publicKey, challenge, s
       }
       await connection.query('UPDATE offline_devices SET last_seen_at = UTC_TIMESTAMP() WHERE user_id = ? AND device_id = ?', [userId, deviceId]);
       await connection.commit();
-      return { ok: true, deviceId, pinEnrolled: Boolean(device.pin_hash) };
+      const hasAccountPin = Boolean(device.offline_pin_hash);
+      return {
+        ok: true,
+        deviceId,
+        pinEnrolled: isDevicePinEnrolled({
+          pinHash: device.pin_hash,
+          pinVersion: device.pin_version,
+          accountPinHash: device.offline_pin_hash,
+          accountPinVersion: device.offline_pin_version,
+        }),
+        accountPinEnrolled: hasAccountPin,
+      };
     }
 
     const [devices] = await connection.query('SELECT device_id FROM offline_devices WHERE user_id = ? LIMIT 1', [userId]);
@@ -109,6 +144,7 @@ const registerOrCheckDevice = async ({ userId, deviceId, publicKey, challenge, s
       code: status === 'PENDING' ? 'DEVICE_ENROLLMENT_REQUIRED' : null,
       deviceId,
       pinEnrolled: false,
+      accountPinEnrolled,
     };
   } catch (error) {
     await connection.rollback();
@@ -135,7 +171,8 @@ const checkDeviceAuthorization = async ({ userId, deviceId, message, signature }
     return { ok: false, code: 'DEVICE_REVOKED' };
   }
   const [rows] = await pool.query(
-    `SELECT d.public_key, d.status, u.is_active
+    `SELECT d.public_key, d.status, d.pin_hash, d.pin_version,
+        u.is_active, u.offline_pin_hash, u.offline_pin_version
      FROM offline_devices d
      JOIN users u ON u.user_id = d.user_id
      WHERE d.device_id = ? AND d.user_id = ? LIMIT 1`,
@@ -152,7 +189,16 @@ const checkDeviceAuthorization = async ({ userId, deviceId, message, signature }
     'UPDATE offline_devices SET last_seen_at = UTC_TIMESTAMP() WHERE user_id = ? AND device_id = ?',
     [userId, deviceId]
   );
-  return { ok: true };
+  return {
+    ok: true,
+    pinEnrolled: isDevicePinEnrolled({
+      pinHash: rows[0].pin_hash,
+      pinVersion: rows[0].pin_version,
+      accountPinHash: rows[0].offline_pin_hash,
+      accountPinVersion: rows[0].offline_pin_version,
+    }),
+    accountPinEnrolled: Boolean(rows[0].offline_pin_hash),
+  };
 };
 
 const listUserDevices = async (userId) => {
@@ -184,6 +230,7 @@ const approveUserDevice = async ({ userId, deviceId }) => {
 
 module.exports = {
   ensureOfflineSecuritySchema,
+  isDevicePinEnrolled,
   isValidDeviceId,
   registerOrCheckDevice,
   verifyDeviceProof,

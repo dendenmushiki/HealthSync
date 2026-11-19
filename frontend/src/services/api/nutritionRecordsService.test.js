@@ -8,6 +8,7 @@ import {
   putOfflineRecord,
 } from '../offline/offlineVaultService';
 import { createOfflineSession } from '../offline/offlineSessionService';
+import { enqueueOperation } from '../offline/offlineQueueService';
 import { getNutritionRecord, listNutritionRecords } from './nutritionRecordsService';
 
 jest.mock('./apiClient', () => ({
@@ -36,6 +37,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   stores.clear();
+  api.get.mockReset();
   localStorage.clear();
   localStorage.setItem('hs_user', JSON.stringify({ user_id: 7, role: 'bhw' }));
   Object.defineProperty(global.navigator, 'onLine', { configurable: true, value: false });
@@ -91,6 +93,59 @@ test('returns the cached nutrition record and its local history offline', async 
   expect(response.data.history).toHaveLength(2);
   expect(response.data.nextId).toEqual({ type: 'Operation Timbang', id: 2 });
   expect(response.data.offline).toBe(true);
+});
+
+test('includes an Account A pending Adult BMI entry in private offline recent records', async () => {
+  const queued = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'adult_bmi',
+    table: 'adult_bmi_records',
+    payload: { resident_id: 21, weight_kg: 62, height_cm: 165 },
+    userId: 7,
+    localRecord: {
+      record_type: 'Adult BMI',
+      resident_id: 21,
+      record_date: '2026-03-12',
+      first_name: 'Ada',
+      last_name: 'Resident',
+      weight_kg: 62,
+      height_cm: 165,
+      bmi: 22.77,
+      status: 'Normal',
+      sync_status: 'PENDING',
+    },
+  });
+
+  const response = await listNutritionRecords({ type: 'Adult BMI', pageSize: 10 });
+  const queuedRecord = response.data.items.find((record) => record.id === `offline:${queued.offlineOperationId}`);
+
+  expect(queuedRecord).toEqual(expect.objectContaining({
+    record_type: 'Adult BMI',
+    resident_id: 21,
+    bmi: 22.77,
+    sync_status: 'PENDING',
+  }));
+  expect(response.data.offline).toBe(true);
+});
+
+test('loads synchronized Adult BMI records from the authenticated backend when online', async () => {
+  Object.defineProperty(global.navigator, 'onLine', { configurable: true, value: true });
+  api.get.mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        items: [{ id: 91, record_type: 'Adult BMI', resident_id: 21, bmi: 22.77, status: 'Normal' }],
+        total: 1,
+      },
+    },
+  });
+
+  const response = await listNutritionRecords({ type: 'Adult BMI' });
+
+  expect(api.get).toHaveBeenCalledWith('/nutrition/records', { params: { type: 'Adult BMI' } });
+  expect(response.data.items).toEqual([
+    expect.objectContaining({ id: 91, record_type: 'Adult BMI', bmi: 22.77 }),
+  ]);
 });
 
 test('does not expose offline nutrition data after account switching', async () => {

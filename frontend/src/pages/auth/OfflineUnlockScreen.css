@@ -1,11 +1,11 @@
 .hs-lock-screen {
-  --lock-muted: #566a78;
-  --lock-danger: var(--hs-danger, #a83232);
-  --lock-danger-bg: #fff0ef;
-  --lock-warning: #78500d;
-  --lock-warning-bg: #fff6df;
-  --lock-success: #247a50;
-  --lock-success-bg: #e8f5ed;
+  --lock-muted: var(--hs-muted);
+  --lock-danger: var(--danger);
+  --lock-danger-bg: var(--danger-soft);
+  --lock-warning: var(--warn);
+  --lock-warning-bg: var(--warn-soft);
+  --lock-success: var(--ok);
+  --lock-success-bg: var(--ok-soft);
   box-sizing: border-box;
   display: grid;
   min-height: 100vh;

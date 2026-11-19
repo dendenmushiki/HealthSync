@@ -11,6 +11,8 @@ import {
 } from './offlineVaultService';
 import { getOfflineSession } from './offlineSessionService';
 
+const STALE_SYNC_MS = 2 * 60 * 1000;
+
 function getStoredUser() {
   try {
     return JSON.parse(localStorage.getItem('hs_user') || 'null');
@@ -105,6 +107,17 @@ export async function enqueueOperation({
 export async function getQueueItems(userId = getStoredUserId()) {
   const ownerId = requireOwner(userId);
   const items = await getOfflineRecords(ownerId, 'offlineQueue');
+  for (const item of items) {
+    if (item.status !== 'SYNCING') continue;
+    const startedAt = Date.parse(item.syncStartedAt || item.createdAt || '');
+    if (!Number.isFinite(startedAt) || Date.now() - startedAt < STALE_SYNC_MS) continue;
+    const recovered = await updateOperationStatus(item.offlineOperationId, {
+      status: 'PENDING',
+      syncStartedAt: null,
+      lastError: 'A previous sync attempt was interrupted. The next attempt will reuse the same idempotency key.',
+    }, ownerId);
+    if (recovered) Object.assign(item, recovered);
+  }
   return items.filter((item) => String(item.userId) === ownerId);
 }
 

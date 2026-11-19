@@ -7,24 +7,43 @@ const originalLoad = Module._load;
 let existingRecord;
 let processOperation;
 let handleSync;
+let listSyncActivity;
 
 function installController() {
   processOperation = async () => ({ fromCache: false, response: { serverRecordId: 91 } });
+  const activityRows = [{
+    table_name: 'adult_bmi_records',
+    operation: 'POST',
+    server_record_id: 91,
+    created_at: '2026-11-16T00:01:00.000Z',
+    actor_name: 'BHW Account A',
+  }];
+  const pool = {
+    async query(sql) {
+      pool.lastQuery = sql;
+      return [activityRows];
+    },
+  };
   Module._load = function load(request, parent, isMain) {
     if (request === '../services/syncService' && parent?.filename?.endsWith('\\controllers\\syncController.js')) {
       return {
         processOperation: (...args) => processOperation(...args),
         findIdempotency: async () => existingRecord,
+        ensureIdempotencyTable: async () => {},
       };
     }
+    if (request === '../config/database' && parent?.filename?.endsWith('\\controllers\\syncController.js')) return pool;
     if (request === '../services/logger' && parent?.filename?.endsWith('\\controllers\\syncController.js')) {
       return { error: () => {} };
     }
     return originalLoad.call(this, request, parent, isMain);
   };
   delete require.cache[require.resolve('../src/controllers/syncController')];
-  handleSync = require('../src/controllers/syncController').handleSync;
+  const controller = require('../src/controllers/syncController');
+  handleSync = controller.handleSync;
+  listSyncActivity = controller.listSyncActivity;
   Module._load = originalLoad;
+  return pool;
 }
 
 function createRequestResponse() {
@@ -107,4 +126,34 @@ test('binds new generic sync results to the authenticated account and request', 
   assert.equal(operationArgs.userId, 7);
   assert.equal(operationArgs.requestFingerprint, requestFingerprint(req));
   assert.deepEqual(res.body, { success: true, data: { serverRecordId: 91 } });
+});
+
+test('returns only bounded server-confirmed activity metadata without queued payloads or keys', async () => {
+  const pool = installController();
+  const res = {
+    statusCode: 200,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+  };
+
+  await listSyncActivity({}, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.data.items[0], {
+    table_name: 'adult_bmi_records',
+    operation: 'POST',
+    server_record_id: 91,
+    created_at: '2026-11-16T00:01:00.000Z',
+    actor_name: 'BHW Account A',
+  });
+  assert.doesNotMatch(pool.lastQuery, /idempotency_key|payload|response AS/i);
+  assert.match(pool.lastQuery, /status = 'SUCCESS'/);
+  assert.match(pool.lastQuery, /JSON_EXTRACT\(idempotency\.response, '\$\.outcome'\)\) = 'SUCCESS'/);
+  assert.match(pool.lastQuery, /LIMIT 50/);
 });

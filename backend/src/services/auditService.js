@@ -61,6 +61,7 @@ const logAudit = async ({
   severity,
   status = 'SUCCESS',
   req,
+  connection,
 }) => {
   const context = req
     ? { ip_address: req.ip || req.socket?.remoteAddress || null, user_agent: String(req.get?.('user-agent') || '').slice(0, 255) || null }
@@ -102,7 +103,7 @@ const logAudit = async ({
   ];
 
   try {
-    await pool.query(
+    await (connection || pool).query(
       `INSERT INTO audit_logs
        (user_id, action, module, description, table_name, record_id, old_data, new_data, ip_address, user_agent, status,
         actor_id, target_type, target_id, target_label, result, severity, metadata)

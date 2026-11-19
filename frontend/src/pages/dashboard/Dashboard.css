@@ -1272,3 +1272,86 @@ html[data-theme='dark'] .dashboard-page {
     transition-duration: 0.01ms !important;
   }
 }
+
+html:not([data-theme='dark']) .dashboard-page {
+  --dash-chart-clinical: var(--chart-1);
+  --dash-chart-child: var(--chart-2);
+  --dash-chart-maternal: var(--chart-5);
+  --dash-chart-immunization: var(--chart-3);
+  --dash-good: var(--ok);
+  --dash-watch: var(--warn);
+  --dash-high: var(--danger);
+  --dash-other: var(--chart-6);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-header {
+  background: linear-gradient(110deg, color-mix(in srgb, var(--primary-soft) 64%, var(--card)), var(--card));
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi,
+html:not([data-theme='dark']) .dashboard-page .dashboard-chart-card {
+  box-shadow: var(--shadow-sm);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-blue) {
+  box-shadow: inset 0 3px 0 var(--chart-1), var(--shadow-sm);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-teal) {
+  box-shadow: inset 0 3px 0 var(--chart-3), var(--shadow-sm);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-green) {
+  box-shadow: inset 0 3px 0 var(--chart-2), var(--shadow-sm);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-violet) {
+  box-shadow: inset 0 3px 0 var(--chart-5), var(--shadow-sm);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-amber) {
+  box-shadow: inset 0 3px 0 var(--chart-4), var(--shadow-sm);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-blue):hover,
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-teal):hover,
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-green):hover,
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-violet):hover,
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi:has(.dashboard-tone-amber):hover {
+  box-shadow: inset 0 3px 0 var(--primary), 0 4px 12px rgba(15, 42, 61, 0.08);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-kpi-icon {
+  border-radius: 50%;
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-tone-blue {
+  background: color-mix(in srgb, var(--chart-1) 12%, var(--card));
+  color: var(--chart-1);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-tone-teal {
+  background: color-mix(in srgb, var(--chart-3) 12%, var(--card));
+  color: var(--chart-3);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-tone-green {
+  background: color-mix(in srgb, var(--chart-2) 12%, var(--card));
+  color: #000000;
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-tone-violet {
+  background: color-mix(in srgb, var(--chart-5) 12%, var(--card));
+  color: var(--chart-5);
+}
+
+html:not([data-theme='dark']) .dashboard-page .dashboard-tone-amber {
+  background: color-mix(in srgb, var(--chart-4) 12%, var(--card));
+  color: var(--chart-4);
+}
+
+html:not([data-theme='dark']) .dashboard-page .legend-female,
+html:not([data-theme='dark']) .dashboard-page .dashboard-trend-legend .chart-child,
+html:not([data-theme='dark']) .dashboard-page .activity-child {
+  color: #000000;
+}

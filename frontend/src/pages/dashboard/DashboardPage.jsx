@@ -860,10 +860,7 @@ const DashboardPage = () => {
               <Link className="dashboard-action" to="/nutrition"><DashboardIcon name="child" size={16} />Operation Timbang</Link>
             </>
           ) : (
-            <>
-              <Link className="dashboard-action dashboard-action-primary" to="/reports"><DashboardIcon name="records" size={16} />View reports</Link>
-              <Link className="dashboard-action" to="/nutrition"><DashboardIcon name="nutrition" size={16} />Nutrition</Link>
-            </>
+            <Link className="dashboard-action dashboard-action-primary" to="/reports"><DashboardIcon name="records" size={16} />View reports</Link>
           )}
         </nav>
       </header>
@@ -959,7 +956,7 @@ const DashboardPage = () => {
               context="Residents with a recorded nutrition risk"
               icon="nutrition"
               tone="amber"
-              to="/nutrition"
+              to={isBhw ? '/nutrition' : undefined}
               index={4}
             />
           </section>

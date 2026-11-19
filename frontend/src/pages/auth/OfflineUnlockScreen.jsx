@@ -56,6 +56,7 @@ export default function OfflineUnlockScreen({
   logout,
   online,
   authorized,
+  migrationRequired = false,
   offlineVaultError,
   onUnlockTransition = NOOP,
 }) {
@@ -307,7 +308,9 @@ export default function OfflineUnlockScreen({
         <p className="hs-lock-copy">
           {success
             ? 'Unlocked. Returning you to HealthSync…'
-            : 'Enter your 6-digit PIN to continue. Your health data is encrypted on this device.'}
+            : migrationRequired
+              ? 'Enter your current 6-digit PIN once to migrate this older offline queue. Afterward, signing in online will unlock it automatically.'
+              : 'Enter your 6-digit PIN to unlock HealthSync on this device.'}
         </p>
 
         {!success && (
@@ -350,10 +353,10 @@ export default function OfflineUnlockScreen({
                 disabled={busy || isLockedOut || pinLength !== 6}
               >
                 {busy ? <><span className="hs-lock-spinner" aria-hidden="true" /> Unlocking…</>
-                  : success ? 'Unlocked' : 'Unlock HealthSync'}
+                  : success ? 'Ready' : 'Unlock HealthSync'}
               </button>
               <p className="hs-lock-supporting-copy">
-                Your PIN works offline to unlock data stored on this device.
+                Your PIN protects access to HealthSync when this device is offline.
               </p>
             </form> : <div className="hs-lock-feedback is-general" role="status">
               {online
@@ -419,7 +422,7 @@ export default function OfflineUnlockScreen({
           </> : <>
             <h2 id="hs-lock-modal-title">{signInAfterLogout ? 'Sign out to continue?' : 'Sign out or switch user?'}</h2>
             <p>Signing out clears this device’s offline authorization but keeps encrypted queued changes on this device. Their count can’t be checked while HealthSync is locked, and they won’t sync until you sign in as the same account and unlock it.</p>
-            {signInAfterLogout && <p>Signing in again as this account will still require its PIN. Use this option to sign in as another account or to return to the normal sign-in page.</p>}
+            {signInAfterLogout && <p>Signing out keeps encrypted queued changes on this device. On the sign-in page, use your normal account password. A legacy PIN-only vault may still require its existing PIN once.</p>}
             {modalError && <p className="hs-lock-feedback is-general" role="alert">{modalError}</p>}
             <div className="hs-lock-modal-actions">
               <button type="button" className="hs-lock-secondary" onClick={closeModal} disabled={modalBusy}>Cancel</button>

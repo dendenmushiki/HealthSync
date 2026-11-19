@@ -125,16 +125,17 @@ function ThemePreferenceManager() {
   return null;
 }
 
-function AppContent() {
+export function AppContent() {
   const location = useLocation();
   const {
-    user, loading, updateUser, offlineVaultReady, unlockOfflineAccess,
+    user, loading, updateUser, offlineVaultReady, offlineVaultNeedsUnlock,
+    offlineVaultMigrationRequired,
+    unlockOfflineAccess,
     offlineVaultError, logout,
     sessionCleanupError,
   } = useContext(AuthContext);
   const isLoginRoute = location.pathname === '/login';
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
-  const [unlockTransition, setUnlockTransition] = useState(false);
 
   useEffect(() => {
     const updateNetworkState = () => setOnline(navigator.onLine);
@@ -169,7 +170,7 @@ function AppContent() {
   if (user?.must_change_password || user?.offline_pin_setup_required) {
     return <Navigate to="/change-password" replace />;
   }
-  if (user && offlineAuthorized && (!offlineVaultReady || unlockTransition)) {
+  if (user && !offlineVaultReady && offlineVaultNeedsUnlock && (online || offlineAuthorized)) {
     return (
       <OfflineUnlockScreen
         user={user}
@@ -177,8 +178,8 @@ function AppContent() {
         logout={logout}
         online={online}
         authorized
+        migrationRequired={offlineVaultMigrationRequired}
         offlineVaultError={offlineVaultError}
-        onUnlockTransition={setUnlockTransition}
       />
     );
   }
@@ -190,8 +191,8 @@ function AppContent() {
         logout={logout}
         online={online}
         authorized={false}
+        migrationRequired={false}
         offlineVaultError={offlineVaultError}
-        onUnlockTransition={setUnlockTransition}
       />
     );
   }
@@ -236,7 +237,7 @@ function InactivityLockManager() {
   useEffect(() => {
     if (countdown === null) return undefined;
     if (countdown <= 0) {
-      lockOfflineAccess();
+      lockOfflineAccess({ requirePin: true });
       setCountdown(null);
       return undefined;
     }
@@ -277,7 +278,7 @@ function InactivityLockManager() {
 }
 
 function SessionSyncGuard() {
-  const { user, logout, lockOfflineAccess, lockForAccountSwitch } = useContext(AuthContext);
+  const { user, lockOfflineAccess, lockForAccountSwitch } = useContext(AuthContext);
   const navigate = useNavigate();
   const userId = user?.user_id;
 
@@ -295,7 +296,7 @@ function SessionSyncGuard() {
         lockForAccountSwitch();
         navigate('/login', { replace: true });
       } else if (event.data?.type === 'lock') {
-        lockOfflineAccess({ broadcast: false });
+        lockOfflineAccess({ broadcast: false, requirePin: Boolean(event.data.requirePin) });
       } else if (event.data?.type === 'account-switch') {
         lockForAccountSwitch();
       }
@@ -451,7 +452,6 @@ function AppShell() {
       ? [
           { title: null, items: [{ to: '/dashboard', label: 'Dashboard', icon: 'dashboard' }] },
           { title: 'Monitoring', items: [
-            { to: '/nutrition', label: 'Nutritional Monitoring', icon: 'nutrition' },
             { to: '/reports', label: 'Reports', icon: 'reports' }
           ] },
           { title: 'System', items: [{ to: '/admin-settings', label: 'Settings', icon: 'settings' }] }
@@ -500,7 +500,7 @@ function AppShell() {
             <div className="healthsync-topbar-title"><span>Barangay Health Monitoring</span></div>
           </div>
           <div className="healthsync-topbar-user" aria-label={user ? `Signed in as ${user.username || user.name || 'User'}, ${user.role || 'User'}` : 'Account'}>
-            {!isAdmin && <NavLink className={`healthsync-sync-chip ${syncHeaderState.online ? 'online' : 'offline'}`} to="/sync-status" title="Open sync status"><span aria-hidden="true" />{syncHeaderState.syncing ? 'Syncing' : syncHeaderState.waiting ? `${syncHeaderState.waiting} waiting` : 'Synced'}</NavLink>}
+            {!isAdmin && !isOfficial && <NavLink className={`healthsync-sync-chip ${syncHeaderState.online ? 'online' : 'offline'}`} to="/sync-status" title="Open sync status"><span aria-hidden="true" />{syncHeaderState.syncing ? 'Syncing' : syncHeaderState.waiting ? `${syncHeaderState.waiting} waiting` : 'Synced'}</NavLink>}
             {user && <div className="healthsync-notification-wrap">
               <button type="button" className="healthsync-notification-button" aria-label={`Notifications${notifications.some((item) => !item.read) ? `, ${notifications.filter((item) => !item.read).length} unread` : ''}`} aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen((open) => !open); if (!notificationsOpen) setNotifications((items) => items.map((item) => ({ ...item, read: true }))); }}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
@@ -535,7 +535,7 @@ function AppShell() {
               <Route path="/health-records/:sourceTable/:residentId/:recordId" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><LegacyHealthRecordDetailRedirect /></RoleGuard></ProtectedRoute>} />
               <Route path="/health-records/:type/:recordKey" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><HealthRecordDetailPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><RoleGuard allowed={['bhw', 'official']} denied={['admin']}><ReportsPage /></RoleGuard></ProtectedRoute>} />
-              <Route path="/nutrition" element={<ProtectedRoute><RoleGuard allowed={['bhw', 'official']}><NutritionPage /></RoleGuard></ProtectedRoute>} />
+              <Route path="/nutrition" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><NutritionPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/operation-timbang" element={<Navigate to="/nutrition" replace />} />
               <Route path="/adolescent-bmi" element={<Navigate to="/nutrition" replace />} />
               <Route path="/adult-bmi" element={<Navigate to="/nutrition" replace />} />

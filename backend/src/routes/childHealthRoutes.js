@@ -11,8 +11,8 @@ const {
   deleteChildHealthRecord
 } = require('../controllers/childHealthController');
 
-router.get('/', authenticateToken, authorizeRole(['bhw', 'official']), listChildHealthRecords);
-router.get('/:id', authenticateToken, authorizeRole(['bhw', 'official']), getChildHealthRecord);
+router.get('/', authenticateToken, authorizeRole(['bhw']), listChildHealthRecords);
+router.get('/:id', authenticateToken, authorizeRole(['bhw']), getChildHealthRecord);
 router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records'), createChildHealthRecord);
 router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records'), updateChildHealthRecord);
 router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records'), deleteChildHealthRecord);

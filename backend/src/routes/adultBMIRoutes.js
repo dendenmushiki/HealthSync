@@ -20,7 +20,7 @@ router.get('/:id', authenticateToken, authorizeRole(['bhw']), getAdultBMI);
 router.post('/preview', authenticateToken, authorizeRole(['bhw']), previewAdultBMI);
 
 // Create and update - BHW and Admin only
-router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adult_bmi', 'adult_bmi_records'), createAdultBMI);
+router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adult_bmi', 'adult_bmi_records', { atomic: true }), createAdultBMI);
 router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adult_bmi', 'adult_bmi_records'), updateAdultBMI);
 router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('adult_bmi', 'adult_bmi_records'), deleteAdultBMI);
 

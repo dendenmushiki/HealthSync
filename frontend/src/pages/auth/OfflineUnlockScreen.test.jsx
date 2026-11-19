@@ -13,7 +13,12 @@ function CurrentPath() {
   return <output data-testid="current-path">{location.pathname}</output>;
 }
 
-function renderScreen({ authorized = true, unlockOfflineAccess = jest.fn().mockResolvedValue(true) } = {}) {
+function renderScreen({
+  authorized = true,
+  online = false,
+  unlockOfflineAccess = jest.fn().mockResolvedValue(true),
+  logout = jest.fn().mockResolvedValue(undefined),
+} = {}) {
   getPinAttemptStatus.mockResolvedValue({ attemptsRemaining: 3, lockedUntil: 0 });
   const onUnlockTransition = jest.fn();
   render(
@@ -29,8 +34,8 @@ function renderScreen({ authorized = true, unlockOfflineAccess = jest.fn().mockR
               <OfflineUnlockScreen
                 user={{ user_id: 7, full_name: 'Juan Dela Cruz', role: 'bhw' }}
                 unlockOfflineAccess={unlockOfflineAccess}
-                logout={jest.fn()}
-                online={false}
+                logout={logout}
+                online={online}
                 authorized={authorized}
                 onUnlockTransition={onUnlockTransition}
               />
@@ -41,7 +46,7 @@ function renderScreen({ authorized = true, unlockOfflineAccess = jest.fn().mockR
       </Routes>
     </MemoryRouter>
   );
-  return { onUnlockTransition, unlockOfflineAccess };
+  return { logout, onUnlockTransition, unlockOfflineAccess };
 }
 
 beforeEach(() => {
@@ -87,4 +92,20 @@ test('clears a rejected PIN, shows the remaining attempts, and offers a retry', 
   expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   expect(Array.from({ length: 6 }, (_, index) => screen.getByLabelText(`PIN digit ${index + 1} of 6`))
     .map((input) => input.value).join('')).toBe('');
+});
+
+test('explains that online password sign-in preserves queued changes after a password-vault mismatch', async () => {
+  const { logout } = renderScreen({ online: true });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in with password instead' }));
+
+  expect(screen.getByRole('dialog')).toHaveTextContent(
+    'On the sign-in page, use your normal account password.'
+  );
+  expect(screen.getByRole('dialog')).toHaveTextContent(
+    'Signing out keeps encrypted queued changes on this device.'
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out and continue' }));
+  await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
 });

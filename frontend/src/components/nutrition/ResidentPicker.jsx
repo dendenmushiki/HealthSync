@@ -16,7 +16,7 @@ const ageLabel = (birthdate, asOf = new Date()) => {
   return years ? `${years} yr${years === 1 ? '' : 's'} ${remaining} mos` : `${remaining} mos`;
 };
 
-const ResidentPicker = ({ inputId, selectedResident, value, onSelect, outOfRange, onBMI, minAgeMonths = 0, maxAgeMonths = 59, onBMILabel = 'Use BMI computation', label = minAgeMonths >= 240 ? 'Resident' : 'Child', placeholder = 'Search name or household number' }) => {
+const ResidentPicker = ({ inputId, selectedResident, value, onSelect, outOfRange, onBMI, minAgeMonths = 0, maxAgeMonths = 59, onBMILabel = 'Use BMI computation', label = maxAgeMonths <= 59 ? 'Child' : 'Resident', placeholder = 'Search name or household number' }) => {
   const [query, setQuery] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -24,6 +24,7 @@ const ResidentPicker = ({ inputId, selectedResident, value, onSelect, outOfRange
   const [activeIndex, setActiveIndex] = useState(-1);
   const [rangeMessage, setRangeMessage] = useState('');
   const inputRef = useRef(null);
+  const searchEntity = maxAgeMonths <= 59 ? 'children' : 'residents';
 
   useEffect(() => {
     if (selectedResident) { setQuery(nameFor(selectedResident)); setOpen(false); }
@@ -82,8 +83,8 @@ const ResidentPicker = ({ inputId, selectedResident, value, onSelect, outOfRange
       />
       {!selectedResident && open && query.trim().length >= 2 && (
         <div id={`${inputId}-listbox`} className="nutrition-combobox-menu" role="listbox">
-          {loading && <div className="nutrition-combobox-message">Searching children...</div>}
-          {!loading && items.length === 0 && <div className="nutrition-combobox-message">No eligible children found.</div>}
+          {loading && <div className="nutrition-combobox-message">Searching {searchEntity}...</div>}
+          {!loading && items.length === 0 && <div className="nutrition-combobox-message">No eligible {searchEntity} found.</div>}
           {!loading && items.map((resident, index) => (
             <button id={`${inputId}-option-${index}`} type="button" role="option" aria-selected={activeIndex === index}
               className={`nutrition-combobox-option${activeIndex === index ? ' active' : ''}`} key={resident.resident_id}

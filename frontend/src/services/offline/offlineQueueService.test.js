@@ -4,6 +4,7 @@ import idb from './indexedDbService';
 import {
   createOfflineVault,
   lockOfflineVault,
+  unlockOfflineVault,
 } from './offlineVaultService';
 import {
   enqueueOperation,
@@ -12,7 +13,7 @@ import {
   migrateLegacyQueue,
   updateOperationStatus,
 } from './offlineQueueService';
-import { createOfflineSession } from './offlineSessionService';
+import { clearOfflineSession, createOfflineSession } from './offlineSessionService';
 
 const stores = new Map();
 const encodeKey = (key) => JSON.stringify(key);
@@ -141,6 +142,87 @@ test('does not automatically include failed or outcome-unknown records in synchr
   await expect(getPendingOperations()).resolves.toEqual([
     expect.objectContaining({ offlineOperationId: pending.offlineOperationId, status: 'PENDING' }),
   ]);
+});
+
+test('preserves Account A queued changes across logout and account switching', async () => {
+  const accountAChange = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'adult_bmi',
+    table: 'adult_bmi_records',
+    payload: { resident_id: 15, weight_kg: 62, height_cm: 165 },
+    request: { method: 'POST', url: '/adult-bmi', data: { resident_id: 15, weight_kg: 62, height_cm: 165 } },
+    userId: 7,
+  });
+
+  lockOfflineVault(7);
+  clearOfflineSession();
+  localStorage.setItem('hs_user', JSON.stringify({ user_id: 8, role: 'bhw' }));
+  await createOfflineVault({ userId: 8, role: 'bhw', credential: 'AnotherBatteryPassword9!' });
+  createOfflineSession({ userId: 8, role: 'bhw', deviceId: 'device-local' });
+  await expect(getQueueItems()).resolves.toEqual([]);
+  await expect(getQueueItems(7)).rejects.toThrow('active account');
+
+  lockOfflineVault(8);
+  clearOfflineSession();
+  localStorage.setItem('hs_user', JSON.stringify({ user_id: 7, role: 'bhw' }));
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await unlockOfflineVault({ userId: 7, credential: 'CorrectHorseBattery9!' });
+
+  await expect(getQueueItems()).resolves.toEqual([
+    expect.objectContaining({
+      offlineOperationId: accountAChange.offlineOperationId,
+      userId: '7',
+      status: 'PENDING',
+      request: accountAChange.request,
+    }),
+  ]);
+});
+
+test('recovers stale Adult BMI processing state without changing the operation key or payload', async () => {
+  const item = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'adult_bmi',
+    table: 'adult_bmi_records',
+    payload: { resident_id: 15, weight_kg: 62, height_cm: 165 },
+    userId: 7,
+  });
+  await updateOperationStatus(item.offlineOperationId, {
+    status: 'SYNCING',
+    syncStartedAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+  });
+
+  const [recovered] = await getQueueItems();
+
+  expect(recovered).toEqual(expect.objectContaining({
+    offlineOperationId: item.offlineOperationId,
+    payload: item.payload,
+    status: 'PENDING',
+    syncStartedAt: null,
+    lastError: expect.stringContaining('same idempotency key'),
+  }));
+});
+
+test('recovers interrupted non-BMI operations so the coordinator can retry them', async () => {
+  const item = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'health_records',
+    table: 'health_records',
+    payload: { resident_id: 15, diagnosis: 'Test' },
+    userId: 7,
+  });
+  await updateOperationStatus(item.offlineOperationId, {
+    status: 'SYNCING',
+    syncStartedAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+  });
+
+  const [recovered] = await getQueueItems();
+
+  expect(recovered).toEqual(expect.objectContaining({
+    offlineOperationId: item.offlineOperationId,
+    payload: item.payload,
+    status: 'PENDING',
+    syncStartedAt: null,
+  }));
 });
 
 test('migrates only owned legacy queue items and preserves entries without an owner', async () => {

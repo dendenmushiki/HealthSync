@@ -1004,6 +1004,10 @@
 }
 
 @media (max-width: 767px) {
+  .fhsis-report-page {
+    padding-bottom: 5rem;
+  }
+
   .fhsis-report-header {
     align-items: flex-start;
     flex-direction: column;
@@ -1205,12 +1209,19 @@
   }
 }
 
-@media (max-width: 380px) {
-  .fhsis-report-actions .fhsis-button-primary,
-  .fhsis-report-actions .fhsis-button-secondary {
-    flex: 1;
+@media (max-width: 460px) {
+  .fhsis-report-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .fhsis-report-actions .fhsis-button-primary,
+  .fhsis-report-actions .fhsis-button-secondary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
   .fhsis-summary-card {
     min-height: 108px;
   }

@@ -36,12 +36,15 @@ test('generated temporary passwords meet policy and avoid look-alike characters'
   assert.doesNotMatch(password, /[O0l1]/);
 });
 
-test('official accounts are restricted to dashboard and report access only', () => {
+test('official accounts are restricted to dashboard, report, and settings access', () => {
   const residentRoutes = readRouteFile('residentRoutes.js');
   const healthRecordRoutes = readRouteFile('healthRecordRoutes.js');
   const seniorCitizenRoutes = readRouteFile('seniorCitizenRoutes.js');
+  const childHealthRoutes = readRouteFile('childHealthRoutes.js');
+  const nutritionRecordRoutes = readRouteFile('nutritionRecordRoutes.js');
   const dashboardRoutes = readRouteFile('dashboardRoutes.js');
   const reportRoutes = readRouteFile('reportRoutes.js');
+  const settingsRoutes = readRouteFile('adminSettingsRoutes.js');
   const appRoutes = fs.readFileSync(path.join(__dirname, '..', '..', 'frontend', 'src', 'App.jsx'), 'utf8');
 
   assert.match(residentRoutes, /authorizeRole\(\['bhw'\]\)/);
@@ -50,12 +53,20 @@ test('official accounts are restricted to dashboard and report access only', () 
   assert.doesNotMatch(healthRecordRoutes, /official/);
   assert.match(seniorCitizenRoutes, /authorizeRole\(\['bhw'\]\)/);
   assert.doesNotMatch(seniorCitizenRoutes, /official/);
+  assert.match(childHealthRoutes, /authorizeRole\(\['bhw'\]\)/);
+  assert.doesNotMatch(childHealthRoutes, /official/);
+  assert.match(nutritionRecordRoutes, /authorizeRole\(\['bhw', 'admin'\]\)/);
+  assert.doesNotMatch(nutritionRecordRoutes, /official/);
 
   assert.match(dashboardRoutes, /authorizeRole\(\['bhw', 'official'\]\)/);
+  assert.match(dashboardRoutes, /authorizeRole\(\['bhw'\]\)/);
   assert.match(reportRoutes, /authorizeRole\(\['bhw', 'official'\]\)/);
+  assert.match(settingsRoutes, /authorizeRole\(\['admin', 'bhw', 'official'\]\)/);
 
   assert.match(appRoutes, /allowed=\{\['bhw', 'official'\]\}/);
   assert.match(appRoutes, /RoleGuard allowed=\{\['bhw'\]\}/);
+  assert.match(appRoutes, /path="\/admin-settings"/);
+  assert.match(appRoutes, /path="\/nutrition" element=\{<ProtectedRoute><RoleGuard allowed=\{\['bhw'\]\}/);
   assert.match(appRoutes, /path="\/reports"/);
   assert.doesNotMatch(appRoutes, /RoleGuard allowed=\{\['bhw', 'official'\]\}>\s*<ResidentsPage|RoleGuard allowed=\{\['bhw', 'official'\]\}>\s*<HealthRecordsPage|RoleGuard allowed=\{\['bhw', 'official'\]\}>\s*<SeniorCitizenPage|RoleGuard allowed=\{\['bhw', 'official'\]\}>\s*<SyncStatus/);
 });

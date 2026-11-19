@@ -122,6 +122,7 @@ const getAdultBMI = async (req, res) => {
  */
 const createAdultBMI = async (req, res) => {
   try {
+    const connection = req.idempotencyConnection || pool;
     const { resident_id, height_cm, weight_kg, date_recorded } = req.body;
     const userId = req.user.user_id;
 
@@ -148,7 +149,7 @@ const createAdultBMI = async (req, res) => {
     }
 
     // Verify resident exists
-    const [residentCheck] = await pool.query(
+    const [residentCheck] = await connection.query(
       'SELECT resident_id, birthdate FROM residents WHERE resident_id = ?',
       [resident_id]
     );
@@ -183,7 +184,7 @@ const createAdultBMI = async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `;
 
-    const [result] = await pool.query(sql, [
+    const [result] = await connection.query(sql, [
       resident_id,
       weight_kg,
       height_cm,
@@ -202,11 +203,12 @@ const createAdultBMI = async (req, res) => {
       module: 'adult_bmi',
       table_name: 'adult_bmi_records',
       record_id: newId,
-      new_data: { resident_id, weight_kg, height_cm, bmi, bmi_category: category, date_recorded }
+      new_data: { resident_id, weight_kg, height_cm, bmi, bmi_category: category, date_recorded },
+      connection: req.idempotencyConnection,
     });
 
     // Get full record
-    const [rows] = await pool.query(
+    const [rows] = await connection.query(
       'SELECT * FROM adult_bmi_records WHERE bmi_id = ?',
       [newId]
     );

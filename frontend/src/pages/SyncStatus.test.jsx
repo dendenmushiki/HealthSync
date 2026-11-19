@@ -5,6 +5,7 @@ import { AuthContext } from '../context/AuthContext';
 import SyncStatus from './SyncStatus';
 import offlineQueue from '../services/offline/offlineQueueService';
 import useSyncStatus from '../services/offline/useSyncStatus';
+import api from '../services/api/apiClient';
 import {
   downloadOfflineData,
   getActiveResidentSnapshot,
@@ -33,6 +34,11 @@ jest.mock('../services/offline/offlineDataDownloadService', () => ({
   downloadOfflineData: jest.fn(),
   getActiveResidentSnapshot: jest.fn(),
   getOfflineSnapshotReadiness: jest.fn((snapshot) => snapshot ? 'complete' : 'unavailable'),
+}));
+
+jest.mock('../services/api/apiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
 }));
 
 const makeItem = (status) => ({
@@ -73,6 +79,7 @@ function renderSyncStatus(item) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  api.get.mockResolvedValue({ data: { success: true, data: { items: [] } } });
 });
 
 test('synced changes cannot be discarded from Sync Status', async () => {
@@ -156,4 +163,84 @@ test('BHWs can download offline data from Sync Status and inspect included datas
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh offline data' }));
   await waitFor(() => expect(downloadOfflineData).toHaveBeenCalledTimes(1));
+});
+
+test('BHWs see server-confirmed activity separately from their private local queue', async () => {
+  useSyncStatus.mockReturnValue({
+    items: [],
+    online: true,
+    syncing: false,
+    setSyncing: jest.fn(),
+    loaded: true,
+    refresh: jest.fn().mockResolvedValue(undefined),
+    pending: 0,
+    failed: 0,
+    syncingCount: 0,
+    syncedToday: 0,
+    conflicts: 0,
+    waiting: 0,
+    lastSynced: null,
+  });
+  api.get.mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        items: [{
+          table_name: 'adult_bmi_records',
+          operation: 'POST',
+          server_record_id: 91,
+          actor_name: 'BHW Account A',
+          created_at: '2026-11-16T00:01:00.000Z',
+        }],
+      },
+    },
+  });
+
+  render(
+    <MemoryRouter>
+      <AuthContext.Provider value={{ user: { user_id: 8, role: 'bhw' }, offlineVaultReady: true }}>
+        <SyncStatus />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByText(/Synced by BHW Account A/)).toBeInTheDocument();
+  expect(screen.getByText('Adult BMI record')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Open nutrition records' })).toHaveAttribute('href', '/nutrition?type=Adult%20BMI');
+  expect(api.get).toHaveBeenCalledWith('/sync/activity');
+});
+
+test('locked local queue is not described as fully synchronized', async () => {
+  useSyncStatus.mockReturnValue({
+    items: [],
+    online: true,
+    syncing: false,
+    setSyncing: jest.fn(),
+    loaded: true,
+    refresh: jest.fn().mockResolvedValue(undefined),
+    pending: 0,
+    failed: 0,
+    syncingCount: 0,
+    syncedToday: 0,
+    conflicts: 0,
+    waiting: 0,
+    lastSynced: null,
+    error: 'Secure sync data is locked or unavailable for this account.',
+  });
+
+  render(
+    <MemoryRouter>
+      <AuthContext.Provider value={{
+        user: { user_id: 7, role: 'bhw', offline_pin_enrolled: true },
+        offlineVaultReady: false,
+      }}>
+        <SyncStatus />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+
+  expect(screen.getAllByText('Offline queue unavailable').length).toBeGreaterThan(0);
+  expect(screen.queryByText('Everything is synced')).not.toBeInTheDocument();
+  expect(screen.getByText(/has not been counted as synchronized/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Unlock offline queue' })).not.toBeInTheDocument();
 });

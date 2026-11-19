@@ -35,7 +35,7 @@ export async function checkDeviceAuthorization(user) {
   if (!response.data?.success || response.data.data?.authorized !== true) {
     throw new Error(response.data?.message || 'This device is not authorized.');
   }
-  return true;
+  return response.data.data;
 }
 
 export async function logout() {

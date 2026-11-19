@@ -1,4 +1,11 @@
 const KEY = 'hs_offline_session';
+const PIN_LOCK_PREFIX = 'hs_offline_pin_required:';
+
+function pinLockKey(userId) {
+  const ownerId = String(userId ?? '').trim();
+  if (!ownerId) throw new Error('A valid account is required for offline PIN locking.');
+  return `${PIN_LOCK_PREFIX}${ownerId}`;
+}
 
 export function createOfflineSession({ userId, role, deviceId }) {
   const ownerId = String(userId ?? '').trim();
@@ -34,6 +41,22 @@ export function clearOfflineSession() {
   localStorage.removeItem(KEY);
 }
 
-const offlineSessionService = { createOfflineSession, getOfflineSession, clearOfflineSession };
+export function isOfflinePinRequired(userId) {
+  return localStorage.getItem(pinLockKey(userId)) === 'true';
+}
+
+export function setOfflinePinRequired(userId, required) {
+  const key = pinLockKey(userId);
+  if (required) localStorage.setItem(key, 'true');
+  else localStorage.removeItem(key);
+}
+
+const offlineSessionService = {
+  createOfflineSession,
+  getOfflineSession,
+  clearOfflineSession,
+  isOfflinePinRequired,
+  setOfflinePinRequired,
+};
 
 export default offlineSessionService;

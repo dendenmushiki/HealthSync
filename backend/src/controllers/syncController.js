@@ -3,7 +3,9 @@ const {
   processOperation,
   findIdempotency,
   markIdempotencyRejected,
+  ensureIdempotencyTable,
 } = require('../services/syncService');
+const pool = require('../config/database');
 const logger = require('../services/logger');
 
 function getRequestFingerprint({ operation, module, table, payload }) {
@@ -114,4 +116,31 @@ const handleSync = async (req, res) => {
   }
 };
 
-module.exports = { handleSync };
+const listSyncActivity = async (req, res) => {
+  try {
+    await ensureIdempotencyTable();
+    const [items] = await pool.query(`
+      SELECT idempotency.table_name, idempotency.operation,
+        idempotency.server_record_id, idempotency.created_at,
+        users.full_name AS actor_name
+      FROM sync_idempotency AS idempotency
+      JOIN users ON users.user_id = CAST(
+        JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.ownerId')) AS UNSIGNED
+      )
+      WHERE idempotency.status = 'SUCCESS'
+        AND JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.outcome')) = 'SUCCESS'
+        AND idempotency.server_record_id IS NOT NULL
+        AND LOWER(users.role) = 'bhw'
+      ORDER BY idempotency.created_at DESC
+      LIMIT 50
+    `);
+    return res.json({ success: true, data: { items } });
+  } catch (error) {
+    logger.error('Could not load shared sync activity', {
+      errorCode: error?.code || 'SYNC_ACTIVITY_LOAD_FAILED',
+    });
+    return res.status(500).json({ success: false, message: 'Shared sync activity is unavailable.' });
+  }
+};
+
+module.exports = { handleSync, listSyncActivity };

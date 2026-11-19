@@ -627,6 +627,12 @@
 .admin-dashboard-page .role-badge-bhw { border-color: color-mix(in srgb, var(--dash-chart-child) 30%, var(--dash-border)); background: color-mix(in srgb, var(--dash-chart-child) 10%, var(--dash-surface)); color: var(--dash-chart-child); }
 .admin-dashboard-page .role-badge-official { border-color: color-mix(in srgb, var(--dash-good) 28%, var(--dash-border)); background: color-mix(in srgb, var(--dash-good) 10%, var(--dash-surface)); color: var(--dash-good); }
 
+html:not([data-theme='dark']) .admin-kpi-icon.tone-green,
+html:not([data-theme='dark']) .admin-quick-icon.tone-green,
+html:not([data-theme='dark']) .admin-dashboard-page .role-badge-bhw {
+  color: #000000;
+}
+
 .admin-recent-user time {
   color: var(--dash-muted);
   font-size: 0.6rem;

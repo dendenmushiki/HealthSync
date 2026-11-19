@@ -14,9 +14,11 @@ export default function useSyncStatus() {
       const queue = await offlineQueue.getQueueItems();
       setItems(queue);
       setError(null);
-    } catch {
+    } catch (error) {
       setItems([]);
-      setError('Secure sync data is locked or unavailable for this account.');
+      setError(error instanceof Error && error.message
+        ? error.message
+        : 'Secure sync data is locked or unavailable for this account.');
     } finally {
       setLoaded(true);
     }

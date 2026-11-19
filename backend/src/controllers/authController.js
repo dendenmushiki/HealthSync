@@ -11,7 +11,11 @@ const { ensureUserStatusColumn, normalizeRoleLabel } = require('./userController
 const { ensureUserPhotoColumn } = require('./adminSettingsController');
 const { ensureAccountSecuritySchema, readPreferences } = require('../services/accountSecurityService');
 const { ensureUserManagementSchema } = require('../services/userManagementService');
-const { ensureOfflineSecuritySchema, registerOrCheckDevice } = require('../services/offlineSecurityService');
+const {
+    ensureOfflineSecuritySchema,
+    isDevicePinEnrolled,
+    registerOrCheckDevice,
+} = require('../services/offlineSecurityService');
 const { validatePassword } = require('../services/passwordPolicy');
 
 const recordLoginHistory = async ({ userId, sessionId = null, status, req, expiresAt = null }) => {
@@ -40,7 +44,7 @@ const login = async (req, res) => {
 
         const [rows] = await pool.query(
             `SELECT user_id, full_name, username, password, role, is_active, profile_photo, token_version,
-                must_change_password, offline_pin_setup_required,
+                must_change_password, offline_pin_setup_required, offline_pin_hash, offline_pin_version,
                 temp_password_expires_at, failed_login_attempts, locked_until,
                 (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked,
                 (temp_password_expires_at IS NOT NULL AND temp_password_expires_at <= UTC_TIMESTAMP()) AS temp_password_expired
@@ -245,6 +249,7 @@ const login = async (req, res) => {
                     profile_photo: user.profile_photo,
                     must_change_password: Boolean(user.must_change_password),
                     offline_pin_enrolled: device.pinEnrolled,
+                    offline_account_pin_enrolled: device.accountPinEnrolled,
                     offline_pin_setup_required: Boolean(user.offline_pin_setup_required),
                     device_id: device.deviceId,
                 },
@@ -279,7 +284,7 @@ const changeForcedPassword = async (req, res) => {
         }
 
         const [rows] = await pool.query(
-            'SELECT user_id, full_name, username, role, profile_photo, password, must_change_password, offline_pin_setup_required, token_version FROM users WHERE user_id = ? LIMIT 1',
+            'SELECT user_id, full_name, username, role, profile_photo, password, must_change_password, offline_pin_setup_required, offline_pin_hash, offline_pin_version, token_version FROM users WHERE user_id = ? LIMIT 1',
             [req.user.user_id]
         );
         if (!rows.length) return res.status(404).json({ success: false, message: 'Account not found.' });
@@ -330,7 +335,7 @@ const changeForcedPassword = async (req, res) => {
         }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
         const expiration = jwt.decode(token)?.exp;
         const [deviceRows] = await pool.query(
-            "SELECT pin_hash FROM offline_devices WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE' LIMIT 1",
+            "SELECT pin_hash, pin_version FROM offline_devices WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE' LIMIT 1",
             [req.user.device_id, user.user_id]
         );
         await recordLoginHistory({
@@ -367,7 +372,13 @@ const changeForcedPassword = async (req, res) => {
                     role: normalizeRoleLabel(user.role),
                     profile_photo: user.profile_photo,
                     must_change_password: false,
-                    offline_pin_enrolled: Boolean(deviceRows[0]?.pin_hash),
+                    offline_pin_enrolled: isDevicePinEnrolled({
+                        pinHash: deviceRows[0]?.pin_hash,
+                        pinVersion: deviceRows[0]?.pin_version,
+                        accountPinHash: user.offline_pin_hash,
+                        accountPinVersion: user.offline_pin_version,
+                    }),
+                    offline_account_pin_enrolled: Boolean(user.offline_pin_hash),
                     offline_pin_setup_required: Boolean(user.offline_pin_setup_required),
                     device_id: req.user.device_id,
                 },
@@ -433,9 +444,15 @@ const me = async (req, res) => {
     try {
         await ensureUserPhotoColumn();
         await ensureAccountSecuritySchema();
+        await ensureOfflineSecuritySchema();
         const [rows] = await pool.query(
-            'SELECT user_id, full_name, username, role, profile_photo, created_at FROM users WHERE user_id = ?',
-            [req.user.user_id]
+            `SELECT u.user_id, u.full_name, u.username, u.role, u.profile_photo, u.created_at,
+                u.offline_pin_setup_required, u.offline_pin_hash, u.offline_pin_version,
+                d.pin_hash, d.pin_version
+             FROM users u LEFT JOIN offline_devices d
+               ON d.user_id = u.user_id AND d.device_id = ? AND d.status = 'ACTIVE'
+             WHERE u.user_id = ?`,
+            [req.user.device_id, req.user.user_id]
         );
 
         if (!rows || rows.length === 0) {
@@ -454,6 +471,14 @@ const me = async (req, res) => {
                     ...user,
                     role: normalizeRoleLabel(user.role),
                     is_active: user.is_active !== false,
+                    offline_pin_enrolled: isDevicePinEnrolled({
+                        pinHash: user.pin_hash,
+                        pinVersion: user.pin_version,
+                        accountPinHash: user.offline_pin_hash,
+                        accountPinVersion: user.offline_pin_version,
+                    }),
+                    offline_account_pin_enrolled: Boolean(user.offline_pin_hash),
+                    offline_pin_setup_required: Boolean(user.offline_pin_setup_required),
                 }
             }
         });

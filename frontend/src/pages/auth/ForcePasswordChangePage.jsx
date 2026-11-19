@@ -47,7 +47,7 @@ const ForcePasswordChangePage = () => {
     setBusy(true);
     try {
       if (passwordUpdated || !user?.must_change_password) {
-        const ready = await completePasswordChange(setupToken || token, setupUser || user, pin);
+        const ready = await completePasswordChange(setupToken || token, setupUser || user, pin, password || undefined);
         if (!ready) throw new Error(offlineVaultError || 'PIN setup could not be completed. Retry before continuing.');
         setPin('');
         setPinConfirmation('');
@@ -66,13 +66,23 @@ const ForcePasswordChangePage = () => {
       setSetupToken(response.data.data.token);
       setSetupUser(response.data.data.user);
       if (response.data.data.user?.offline_pin_setup_required) {
-        const offlineReady = await completePasswordChange(response.data.data.token, response.data.data.user, pin);
+        const offlineReady = await completePasswordChange(
+          response.data.data.token,
+          response.data.data.user,
+          pin,
+          password
+        );
         if (!offlineReady) {
           setOfflineWarning(offlineVaultError || 'PIN setup was not completed. Retry PIN setup before continuing.');
           return;
         }
       } else {
-        await completePasswordChange(response.data.data.token, response.data.data.user, password);
+        await completePasswordChange(
+          response.data.data.token,
+          response.data.data.user,
+          password,
+          password
+        );
       }
       setPassword('');
       setConfirmation('');
@@ -94,7 +104,7 @@ const ForcePasswordChangePage = () => {
           <div className="hs-force-complete" role="status" aria-live="polite">
             <span className="hs-force-check" aria-hidden="true">✓</span>
             <h1 id="hs-force-title">{setupRequired ? 'PIN registered' : 'Password updated'}</h1>
-            <p>{setupRequired ? 'Your six-digit PIN is ready to unlock HealthSync on this device.' : 'Your password is secure and your other sessions have been signed out.'}</p>
+            <p>{setupRequired ? 'Your shared six-digit PIN is ready to use on your approved devices. Each device keeps its own offline records.' : 'Your password is secure and your other sessions have been signed out.'}</p>
             {offlineWarning && <p className="hs-force-error" role="status">{offlineWarning}</p>}
             <button type="button" className="hs-force-primary" onClick={continueToWorkspace}>Continue to HealthSync</button>
           </div>
@@ -103,7 +113,7 @@ const ForcePasswordChangePage = () => {
             <p className="hs-force-eyebrow">SECURITY REQUIREMENT</p>
             <h1 id="hs-force-title">{passwordUpdated || !user?.must_change_password ? 'Set your offline PIN' : 'Set your new password'}</h1>
             <p className="hs-force-copy">{passwordUpdated || !user?.must_change_password
-              ? 'Choose a six-digit PIN to unlock your encrypted offline data. Your PIN is not your account password.'
+              ? 'Choose one six-digit PIN for your account. Use the same PIN on your other approved devices; each device stores its offline data separately.'
               : 'Choose a password only you know. Your temporary password cannot be used again.'}</p>
             {error && <div className="hs-force-error" role="alert">{error}</div>}
             {!passwordUpdated && user?.must_change_password && (

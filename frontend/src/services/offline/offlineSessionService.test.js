@@ -2,6 +2,8 @@ import {
   clearOfflineSession,
   createOfflineSession,
   getOfflineSession,
+  isOfflinePinRequired,
+  setOfflinePinRequired,
 } from './offlineSessionService';
 
 beforeEach(() => {
@@ -53,4 +55,17 @@ test('clears only offline authorization metadata', () => {
 
   expect(getOfflineSession()).toBeNull();
   expect(localStorage.getItem('hs_token')).toBe('server-token');
+});
+
+test('stores inactivity PIN requirements per account and clears only the requested account', () => {
+  setOfflinePinRequired(7, true);
+  setOfflinePinRequired(8, true);
+
+  expect(isOfflinePinRequired(7)).toBe(true);
+  expect(isOfflinePinRequired(8)).toBe(true);
+
+  setOfflinePinRequired(7, false);
+
+  expect(isOfflinePinRequired(7)).toBe(false);
+  expect(isOfflinePinRequired(8)).toBe(true);
 });

@@ -69,7 +69,8 @@ app.use(cors({
   ],
   allowedHeaders: [
     'Content-Type',
-    'Authorization'
+    'Authorization',
+    'X-Idempotency-Key'
   ]
 }));
 

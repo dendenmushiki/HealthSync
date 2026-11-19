@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const { login, me, logout, changeForcedPassword } = require('../controllers/authController');
 const {
   completePinSetup,
+  verifyPin,
   savePin,
   verifyCurrentPassword,
   getDevices,
@@ -38,6 +39,7 @@ router.post('/offline-status', deviceStatusLimiter, checkDeviceStatus);
 router.post('/logout', authenticateToken, logout);
 router.post('/change-password', authenticateToken, changeForcedPassword);
 router.post('/complete-offline-setup', authenticateToken, pinLimiter, completePinSetup);
+router.post('/offline-pin/verify', authenticateToken, pinLimiter, verifyPin);
 router.post('/offline-pin', authenticateToken, pinLimiter, savePin);
 router.post('/offline-pin/verify-password', authenticateToken, pinLimiter, verifyCurrentPassword);
 router.get('/devices', authenticateToken, getDevices);

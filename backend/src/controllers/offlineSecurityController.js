@@ -11,6 +11,33 @@ const {
 
 const isPin = (pin) => typeof pin === 'string' && /^\d{6}$/.test(pin);
 
+const setCurrentDevicePinVersion = async ({
+  connection,
+  userId,
+  currentDeviceId,
+  pinVersion,
+  invalidateOtherDevices,
+}) => {
+  const [devices] = await connection.query(
+    'SELECT device_id, status FROM offline_devices WHERE user_id = ? FOR UPDATE',
+    [userId]
+  );
+  const currentDevice = devices.find((device) => device.device_id === currentDeviceId);
+  if (!currentDevice || currentDevice.status !== 'ACTIVE') {
+    throw new Error('The active device registration could not be updated.');
+  }
+  if (invalidateOtherDevices) {
+    await connection.query(
+      'UPDATE offline_devices SET pin_version = 0 WHERE user_id = ? AND device_id <> ?',
+      [userId, currentDeviceId]
+    );
+  }
+  await connection.query(
+    "UPDATE offline_devices SET pin_version = ? WHERE user_id = ? AND device_id = ? AND status = 'ACTIVE'",
+    [pinVersion, userId, currentDeviceId]
+  );
+};
+
 const checkDeviceStatus = async (req, res) => {
   try {
     const userId = req.body?.user_id;
@@ -26,7 +53,14 @@ const checkDeviceStatus = async (req, res) => {
         : 'This device is not authorized.';
       return res.status(403).json({ success: false, message, errorCode: result.code });
     }
-    return res.json({ success: true, data: { authorized: true } });
+    return res.json({
+      success: true,
+      data: {
+        authorized: true,
+        pinEnrolled: result.pinEnrolled,
+        accountPinEnrolled: result.accountPinEnrolled,
+      },
+    });
   } catch (error) {
     const logger = require('../services/logger');
     logger.error('checkDeviceStatus error', error);
@@ -40,29 +74,68 @@ const completePinSetup = async (req, res) => {
     const pin = req.body?.pin;
     if (!isPin(pin)) return res.status(400).json({ success: false, message: 'PIN must contain exactly six digits.' });
     if (!req.user.offline_pin_setup_required) {
-      const [rows] = await pool.query('SELECT pin_hash FROM offline_devices WHERE device_id = ? AND user_id = ? LIMIT 1', [req.user.device_id, req.user.user_id]);
-      if (rows[0]?.pin_hash && await bcrypt.compare(pin, rows[0].pin_hash)) {
+      const [rows] = await pool.query(
+        `SELECT u.offline_pin_hash, u.offline_pin_version, d.status
+         FROM users u JOIN offline_devices d ON d.user_id = u.user_id
+         WHERE d.device_id = ? AND u.user_id = ? LIMIT 1`,
+        [req.user.device_id, req.user.user_id]
+      );
+      if (rows[0]?.status === 'ACTIVE' && rows[0].offline_pin_hash &&
+          await bcrypt.compare(pin, rows[0].offline_pin_hash)) {
+        await pool.query(
+          "UPDATE offline_devices SET pin_version = ? WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE'",
+          [rows[0].offline_pin_version, req.user.device_id, req.user.user_id]
+        );
         return res.json({ success: true, message: 'PIN setup completed.' });
       }
       return res.status(409).json({ success: false, message: 'PIN setup is not pending for this account.' });
     }
-    const hash = await bcrypt.hash(pin, 12);
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const [result] = await connection.query(
-        'UPDATE users SET offline_pin_setup_required = 0 WHERE user_id = ? AND offline_pin_setup_required = 1',
+      const [accountRows] = await connection.query(
+        'SELECT offline_pin_hash, offline_pin_version FROM users WHERE user_id = ? FOR UPDATE',
         [req.user.user_id]
+      );
+      if (!accountRows.length) throw new Error('The account could not be found while setting up its PIN.');
+      const accountPinMatches = Boolean(accountRows[0].offline_pin_hash) &&
+        await bcrypt.compare(pin, accountRows[0].offline_pin_hash);
+      if (accountRows[0].offline_pin_hash && !accountPinMatches) {
+        await connection.rollback();
+        return res.status(409).json({ success: false, message: 'Use the existing account PIN on this device.' });
+      }
+      const [deviceRows] = await connection.query(
+        'SELECT pin_hash, status FROM offline_devices WHERE device_id = ? AND user_id = ? LIMIT 1',
+        [req.user.device_id, req.user.user_id]
+      );
+      if (!deviceRows.length || deviceRows[0].status !== 'ACTIVE') {
+        await connection.rollback();
+        return res.status(403).json({ success: false, message: 'This device is not authorized.' });
+      }
+      if (!accountRows[0].offline_pin_hash && deviceRows[0].pin_hash &&
+          !await bcrypt.compare(pin, deviceRows[0].pin_hash)) {
+        await connection.rollback();
+        return res.status(409).json({ success: false, message: 'Use this device’s existing PIN to preserve its offline data.' });
+      }
+      const currentVersion = Number(accountRows[0].offline_pin_version || 0);
+      const pinVersion = accountPinMatches ? Math.max(1, currentVersion) : Math.max(1, currentVersion + 1);
+      const accountPinHash = accountPinMatches ? accountRows[0].offline_pin_hash : await bcrypt.hash(pin, 12);
+      const [result] = await connection.query(
+        `UPDATE users SET offline_pin_setup_required = 0, offline_pin_hash = ?, offline_pin_version = ?
+         WHERE user_id = ? AND offline_pin_setup_required = 1`,
+        [accountPinHash, pinVersion, req.user.user_id]
       );
       if (!result.affectedRows) {
         await connection.rollback();
         return res.status(409).json({ success: false, message: 'PIN setup has already been completed.' });
       }
-      const [deviceResult] = await connection.query(
-        "UPDATE offline_devices SET pin_hash = ? WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE'",
-        [hash, req.user.device_id, req.user.user_id]
-      );
-      if (!deviceResult.affectedRows) throw new Error('The active device registration could not be updated.');
+      await setCurrentDevicePinVersion({
+        connection,
+        userId: req.user.user_id,
+        currentDeviceId: req.user.device_id,
+        pinVersion,
+        invalidateOtherDevices: !accountPinMatches || currentVersion === 0,
+      });
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -88,40 +161,166 @@ const completePinSetup = async (req, res) => {
   }
 };
 
+const verifyPin = async (req, res) => {
+  try {
+    await ensureOfflineSecuritySchema();
+    const { current_password: password, pin, scope } = req.body || {};
+    if (!password || !isPin(pin) || !['account', 'device', 'promote'].includes(scope)) {
+      return res.status(400).json({ success: false, message: 'Enter your account password, six-digit PIN, and a valid PIN action.' });
+    }
+    const [users] = await pool.query(
+      'SELECT password, offline_pin_hash FROM users WHERE user_id = ? LIMIT 1',
+      [req.user.user_id]
+    );
+    if (!users.length || !(await bcrypt.compare(password, users[0].password))) {
+      return res.status(401).json({ success: false, message: 'The current account password is incorrect.' });
+    }
+    if (scope === 'device') {
+      if (!users[0].offline_pin_hash || !(await bcrypt.compare(pin, users[0].offline_pin_hash))) {
+        return res.status(401).json({ success: false, message: 'Enter the account’s current shared PIN to set up this device.' });
+      }
+    } else if (scope === 'promote') {
+      if (users[0].offline_pin_hash) {
+        return res.status(409).json({ success: false, message: 'A shared account PIN already exists. Use that PIN on this device.' });
+      }
+      const [devices] = await pool.query(
+        "SELECT pin_hash FROM offline_devices WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE' LIMIT 1",
+        [req.user.device_id, req.user.user_id]
+      );
+      if (!devices.length || !devices[0].pin_hash || !(await bcrypt.compare(pin, devices[0].pin_hash))) {
+        return res.status(401).json({ success: false, message: 'Enter this device’s existing PIN to make it the shared account PIN.' });
+      }
+    }
+    return res.json({ success: true, message: 'PIN verified.' });
+  } catch (error) {
+    const logger = require('../services/logger');
+    logger.error('verifyPin error', error);
+    return res.status(500).json({ success: false, message: 'Unable to verify the PIN.' });
+  }
+};
+
 const savePin = async (req, res) => {
   try {
     await ensureOfflineSecuritySchema();
-    const { current_password: password, pin } = req.body || {};
+    const { current_password: password, pin, scope = 'account' } = req.body || {};
     if (!password || !isPin(pin)) {
       return res.status(400).json({ success: false, message: 'Enter your current password and a six-digit PIN.' });
+    }
+    if (!['account', 'device'].includes(scope)) {
+      return res.status(400).json({ success: false, message: 'Choose whether to set the account PIN or enroll this device.' });
     }
     if (req.user.must_change_password || req.user.offline_pin_setup_required) {
       return res.status(403).json({ success: false, message: 'Complete required account setup before changing the PIN.' });
     }
     const [rows] = await pool.query(
-      'SELECT password FROM users WHERE user_id = ? LIMIT 1',
+      'SELECT password, offline_pin_hash, offline_pin_version FROM users WHERE user_id = ? LIMIT 1',
       [req.user.user_id]
     );
     if (!rows.length || !(await bcrypt.compare(password, rows[0].password))) {
       return res.status(401).json({ success: false, message: 'The current account password is incorrect.' });
     }
-    const hash = await bcrypt.hash(pin, 12);
-    const [result] = await pool.query(
-      "UPDATE offline_devices SET pin_hash = ? WHERE device_id = ? AND user_id = ? AND status = 'ACTIVE'",
-      [hash, req.user.device_id, req.user.user_id]
-    );
-    if (!result.affectedRows) return res.status(403).json({ success: false, message: 'This device is not authorized.' });
+    if (scope === 'device') {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [accountRows] = await connection.query(
+          'SELECT offline_pin_hash, offline_pin_version FROM users WHERE user_id = ? FOR UPDATE',
+          [req.user.user_id]
+        );
+        if (!accountRows.length || !accountRows[0].offline_pin_hash ||
+            !(await bcrypt.compare(pin, accountRows[0].offline_pin_hash))) {
+          await connection.rollback();
+          return res.status(401).json({ success: false, message: 'Enter the account’s current shared PIN to set up this device.' });
+        }
+        const currentVersion = Number(accountRows[0].offline_pin_version || 0);
+        const pinVersion = Math.max(1, currentVersion);
+        if (currentVersion === 0) {
+          await connection.query(
+            'UPDATE users SET offline_pin_version = ? WHERE user_id = ?',
+            [pinVersion, req.user.user_id]
+          );
+        }
+        await setCurrentDevicePinVersion({
+          connection,
+          userId: req.user.user_id,
+          currentDeviceId: req.user.device_id,
+          pinVersion,
+          invalidateOtherDevices: currentVersion === 0,
+        });
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+    } else {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [accountRows] = await connection.query(
+          'SELECT offline_pin_hash, offline_pin_version FROM users WHERE user_id = ? FOR UPDATE',
+          [req.user.user_id]
+        );
+        if (!accountRows.length) throw new Error('The account could not be found while updating its PIN.');
+        const [currentDevices] = await connection.query(
+          'SELECT pin_hash, status FROM offline_devices WHERE device_id = ? AND user_id = ? LIMIT 1',
+          [req.user.device_id, req.user.user_id]
+        );
+        if (!currentDevices.length || currentDevices[0].status !== 'ACTIVE') {
+          await connection.rollback();
+          return res.status(403).json({ success: false, message: 'This device is not authorized.' });
+        }
+        if (!accountRows[0].offline_pin_hash && currentDevices[0].pin_hash &&
+            !await bcrypt.compare(pin, currentDevices[0].pin_hash)) {
+          await connection.rollback();
+          return res.status(409).json({ success: false, message: 'Use this device’s current PIN to make it the shared account PIN.' });
+        }
+        const currentVersion = Number(accountRows[0].offline_pin_version || 0);
+        const accountPinMatches = Boolean(accountRows[0].offline_pin_hash) &&
+          await bcrypt.compare(pin, accountRows[0].offline_pin_hash);
+        const pinVersion = accountPinMatches
+          ? Math.max(1, currentVersion)
+          : Math.max(1, currentVersion + 1);
+        const invalidateOtherDevices = !accountPinMatches || currentVersion === 0;
+        if (invalidateOtherDevices) {
+          const hash = await bcrypt.hash(pin, 12);
+          await connection.query(
+            'UPDATE users SET offline_pin_hash = ?, offline_pin_version = ? WHERE user_id = ?',
+            [hash, pinVersion, req.user.user_id]
+          );
+        }
+        await setCurrentDevicePinVersion({
+          connection,
+          userId: req.user.user_id,
+          currentDeviceId: req.user.device_id,
+          pinVersion,
+          invalidateOtherDevices,
+        });
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
     await writeAudit({
       user_id: req.user.user_id,
-      action: 'OFFLINE_PIN_CHANGED',
+      action: scope === 'device' ? 'OFFLINE_PIN_DEVICE_ENROLLED' : 'OFFLINE_PIN_CHANGED',
       module: 'auth',
-      description: 'Offline PIN enrolled or changed.',
+      description: scope === 'device'
+        ? 'This device was enrolled with the shared account PIN.'
+        : 'The shared account PIN was enrolled or changed.',
       targetType: 'user',
       targetId: req.user.user_id,
       result: 'success',
       req,
     });
-    return res.json({ success: true, message: 'PIN saved successfully.' });
+    return res.json({
+      success: true,
+      message: scope === 'device' ? 'This device now uses the shared account PIN.' : 'Shared account PIN saved successfully.',
+    });
   } catch (error) {
     const logger = require('../services/logger');
     logger.error('savePin error', error);
@@ -220,6 +419,7 @@ const adminManageDevice = async (req, res) => {
 module.exports = {
   checkDeviceStatus,
   completePinSetup,
+  verifyPin,
   savePin,
   verifyCurrentPassword,
   getDevices,

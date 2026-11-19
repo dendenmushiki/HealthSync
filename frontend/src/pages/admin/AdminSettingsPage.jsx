@@ -126,6 +126,23 @@ const AdminSettingsPage = () => {
   const pinInputRef = useRef(null);
   const pinConfirmInputRef = useRef(null);
   const [pinMessage, setPinMessage] = useState('');
+  const hasAccountPin = Boolean(user?.offline_account_pin_enrolled);
+  const hasDevicePin = Boolean(user?.offline_pin_enrolled);
+  const pinAction = !hasAccountPin
+    ? hasDevicePin ? 'promote' : 'set-account'
+    : hasDevicePin ? 'change-account' : 'enroll-device';
+  const pinTitle = {
+    promote: 'Make this your shared account PIN',
+    'set-account': 'Set up shared account PIN',
+    'change-account': 'Change shared account PIN',
+    'enroll-device': 'Use account PIN on this device',
+  }[pinAction];
+  const pinDescription = {
+    promote: 'Use the PIN already protecting this device’s offline data as the shared PIN for your account.',
+    'set-account': 'Set one PIN for your account. Use the same PIN on your other approved devices.',
+    'change-account': 'Changing this PIN affects the whole account. Devices with a different old PIN must be enrolled again while online.',
+    'enroll-device': 'Enter your existing account PIN to prepare this device’s local offline vault. Do not create a different PIN.',
+  }[pinAction];
   const [authorizedDevices, setAuthorizedDevices] = useState([]);
   const [devicesError, setDevicesError] = useState('');
   const [devicePassword, setDevicePassword] = useState('');
@@ -457,7 +474,7 @@ const AdminSettingsPage = () => {
       setError('PIN entries do not match.');
       return;
     }
-    if (!user?.offline_pin_enrolled && !pinPasswordStep) {
+    if (!hasDevicePin && !pinPasswordStep) {
       setPinPasswordStep(true);
       return;
     }
@@ -467,44 +484,69 @@ const AdminSettingsPage = () => {
     }
     setSecurityBusy(true);
     try {
-      const verified = await api.post('/auth/offline-pin/verify-password', {
+      const scope = pinAction === 'enroll-device' ? 'device' : 'account';
+      const verificationScope = pinAction === 'promote' ? 'promote' : scope;
+      const verified = await api.post('/auth/offline-pin/verify', {
         current_password: pinForm.currentPassword,
+        pin: pinForm.pin,
+        scope: verificationScope,
       });
-      if (!verified.data?.success) throw new Error(verified.data?.message || 'Current password verification failed.');
+      if (!verified.data?.success) throw new Error(verified.data?.message || 'PIN verification failed.');
 
       const ownerId = user?.user_id;
       if (ownerId === undefined || ownerId === null || !user?.device_id) {
         throw new Error('An authorized device is required to set up an offline PIN.');
       }
       const metadata = await getOfflineVaultMetadata(ownerId);
-      if (metadata?.credentialType === 'pin') {
+      if (metadata) {
         if (!isOfflineVaultUnlocked(ownerId)) {
-          await unlockOfflineVault({ userId: ownerId, credential: pinForm.pin });
-        }
-        await changeOfflineVaultCredential({ userId: ownerId, credential: pinForm.pin, credentialType: 'pin' });
-      } else if (metadata) {
-        if (!isOfflineVaultUnlocked(ownerId)) {
-          await unlockOfflineVault({ userId: ownerId, credential: pinForm.currentPassword });
+          if (metadata.credentialType === 'pin' && metadata.hasOnlinePasswordWrapper) {
+            await unlockOfflineVault({
+              userId: ownerId,
+              credential: pinForm.currentPassword,
+              credentialType: 'online-password',
+            });
+          } else {
+            await unlockOfflineVault({ userId: ownerId, credential: pinForm.currentPassword });
+          }
         }
         await changeOfflineVaultCredential({ userId: ownerId, credential: pinForm.pin, credentialType: 'pin' });
       } else {
-        await createOfflineVault({ userId: ownerId, role: user.role, credential: pinForm.pin, credentialType: 'pin' });
+        await createOfflineVault({
+          userId: ownerId,
+          role: user.role,
+          credential: pinForm.pin,
+          credentialType: 'pin',
+          onlinePassword: pinForm.currentPassword,
+        });
       }
       const saved = await api.post('/auth/offline-pin', {
         current_password: pinForm.currentPassword,
         pin: pinForm.pin,
+        scope,
       });
       if (!saved.data?.success) throw new Error(saved.data?.message || 'Unable to save PIN.');
       createOfflineSession({ userId: ownerId, role: user.role, deviceId: user.device_id });
-      await unlockOfflineAccess(pinForm.pin);
-      updateUser({ ...user, offline_pin_enrolled: true, offline_pin_setup_required: false });
+      await unlockOfflineAccess(pinForm.pin, metadata ? pinForm.currentPassword : undefined);
+      updateUser({
+        ...user,
+        offline_pin_enrolled: true,
+        offline_account_pin_enrolled: true,
+        offline_pin_setup_required: false,
+      });
       setPinForm({ currentPassword: '', pin: '', confirm: '' });
       pinInputRef.current?.clear();
       pinConfirmInputRef.current?.clear();
       setPinPasswordStep(false);
-      setPinMessage(user.offline_pin_enrolled ? 'PIN changed successfully.' : 'PIN set up successfully.');
+      setPinMessage(pinAction === 'enroll-device'
+        ? 'This device now uses your shared account PIN.'
+        : pinAction === 'promote'
+          ? 'Your current device PIN is now the shared account PIN.'
+          : pinAction === 'change-account'
+            ? 'The shared account PIN was changed.'
+            : 'Your shared account PIN was set up.');
     } catch (pinError) {
-      if (!user?.offline_pin_enrolled) {
+      if (!hasDevicePin) {
         setPinMessage('PIN enrollment did not finish. You can retry without losing queued offline changes.');
       }
       const message = pinError.response?.data?.message || pinError.message || 'Unable to save PIN.';
@@ -578,8 +620,8 @@ const AdminSettingsPage = () => {
           onChange={(event) => onChange(event.target.value)}
           required
         />
-        <button type="button" aria-label={`${visiblePasswords[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`} onClick={() => togglePassword(key)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+        <button className="settings-password-toggle" type="button" aria-label={`${visiblePasswords[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`} onClick={() => togglePassword(key)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" /><circle cx="12" cy="12" r="2.5" />{visiblePasswords[key] && <path d="m3 3 18 18" />}</svg>
         </button>
       </div>
     </div>
@@ -671,15 +713,13 @@ const AdminSettingsPage = () => {
 
               {selectedSection === 'security' && <>
                 <SettingCard
-                  title={user?.offline_pin_enrolled ? 'Change PIN' : 'Set up PIN'}
-                  description={user?.offline_pin_enrolled
-                    ? 'Your six-digit PIN unlocks encrypted offline data. Enter your account password to save a PIN change.'
-                    : 'Choose and confirm your six-digit PIN. Select Set up PIN to enter your account password and save it.'}
+                  title={pinTitle}
+                  description={pinDescription}
                 >
                   <form className="settings-password-form" onSubmit={handlePinSave}>
                     <div className="settings-field">
                       <fieldset className="settings-pin-group">
-                        <legend>New six-digit PIN</legend>
+                        <legend>{pinAction === 'promote' ? 'Current device PIN' : pinAction === 'enroll-device' ? 'Shared account PIN' : 'New account PIN'}</legend>
                         <PinDigitInput
                           ref={pinInputRef}
                           onChange={(pin) => setPinForm((current) => ({ ...current, pin }))}
@@ -689,7 +729,7 @@ const AdminSettingsPage = () => {
                     </div>
                     <div className="settings-field">
                       <fieldset className="settings-pin-group">
-                        <legend>Confirm new PIN</legend>
+                        <legend>{pinAction === 'promote' ? 'Confirm current PIN' : pinAction === 'enroll-device' ? 'Confirm account PIN' : 'Confirm new account PIN'}</legend>
                         <PinDigitInput
                           ref={pinConfirmInputRef}
                           invalid={Boolean(pinForm.confirm && pinForm.pin !== pinForm.confirm)}
@@ -702,16 +742,16 @@ const AdminSettingsPage = () => {
                     {pinForm.confirm && pinForm.pin !== pinForm.confirm && (
                       <p id="settings-pin-mismatch" className="settings-inline-error" role="status">PIN entries do not match.</p>
                     )}
-                    {(user?.offline_pin_enrolled || pinPasswordStep) && <div className="settings-field">
+                    {(hasDevicePin || pinPasswordStep) && <div className="settings-field">
                       <label htmlFor="settings-pin-current-password">Current account password</label>
                       <input ref={pinPasswordInputRef} id="settings-pin-current-password" className="form-control" type="password" autoComplete="current-password" value={pinForm.currentPassword} onChange={(event) => setPinForm((current) => ({ ...current, currentPassword: event.target.value }))} required />
                     </div>}
                     {pinMessage && <p role="status">{pinMessage}</p>}
-                    {!user?.offline_pin_enrolled && pinPasswordStep && <button className="settings-secondary-button" type="button" onClick={() => { setPinPasswordStep(false); setPinForm((current) => ({ ...current, currentPassword: '' })); }}>
+                    {!hasDevicePin && pinPasswordStep && <button className="settings-secondary-button" type="button" onClick={() => { setPinPasswordStep(false); setPinForm((current) => ({ ...current, currentPassword: '' })); }}>
                       Back to PIN
                     </button>}
-                    <button className="settings-primary-button" type="submit" disabled={securityBusy || (user?.offline_pin_enrolled && !pinForm.currentPassword) || !/^\d{6}$/.test(pinForm.pin) || pinForm.pin !== pinForm.confirm}>
-                      {securityBusy ? 'Saving PIN…' : user?.offline_pin_enrolled ? 'Change PIN' : pinPasswordStep ? 'Save PIN' : 'Set up PIN'}
+                    <button className="settings-primary-button" type="submit" disabled={securityBusy || (hasDevicePin && !pinForm.currentPassword) || !/^\d{6}$/.test(pinForm.pin) || pinForm.pin !== pinForm.confirm}>
+                      {securityBusy ? 'Saving PIN…' : pinPasswordStep ? 'Save PIN' : pinAction === 'promote' ? 'Share this PIN' : pinAction === 'set-account' ? 'Set up account PIN' : pinAction === 'change-account' ? 'Change account PIN' : 'Use account PIN'}
                     </button>
                   </form>
                 </SettingCard>

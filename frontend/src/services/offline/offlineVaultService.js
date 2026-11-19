@@ -46,6 +46,20 @@ function validateCredential(credential, credentialType) {
     : 'The offline credential must meet the HealthSync password requirements.');
 }
 
+function validateUnlockCredential(credential, credentialType) {
+  if (credentialType === 'pin') {
+    validateCredential(credential, 'pin');
+    return;
+  }
+  if (typeof credential !== 'string' || !credential) {
+    throw new Error('Enter a valid offline unlock credential.');
+  }
+  getCrypto();
+  if (encodeText(credential).byteLength > 72) {
+    throw new Error('The offline unlock credential is too long.');
+  }
+}
+
 function createRandomBytes(length) {
   return getCrypto().getRandomValues(new Uint8Array(length));
 }
@@ -70,6 +84,10 @@ async function deriveKey(credential, salt, iterations) {
 
 function wrappedKeyAad(userId, role) {
   return encodeText(JSON.stringify(['healthsync-offline-vault', VAULT_VERSION, userId, role, 'wrapped-key']));
+}
+
+function onlinePasswordWrappedKeyAad(userId, role) {
+  return encodeText(JSON.stringify(['healthsync-offline-vault', VAULT_VERSION, userId, role, 'online-password-wrapped-key']));
 }
 
 function recordAad(userId, collection, recordKey) {
@@ -192,6 +210,7 @@ function publicVaultMetadata(vault) {
     role: vault.role,
     version: vault.version,
     credentialType: vault.credentialType || 'password',
+    hasOnlinePasswordWrapper: Boolean(vault.onlinePasswordWrappedKey),
     createdAt: vault.createdAt,
   } : null;
 }
@@ -238,11 +257,18 @@ async function getStorageRecordKey(indexKey, userId, collection, recordKey) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function createOfflineVault({ userId, role, credential, credentialType = 'password' }) {
+export async function createOfflineVault({
+  userId,
+  role,
+  credential,
+  credentialType = 'password',
+  onlinePassword,
+}) {
   const ownerId = normalizeUserId(userId);
   const accountRole = normalizeRole(role);
   if (!['pin', 'password'].includes(credentialType)) throw new Error('The offline credential type is not supported.');
   validateCredential(credential, credentialType);
+  if (onlinePassword !== undefined) validateUnlockCredential(onlinePassword, 'password');
   if (await idb.getFromStore('offlineVaults', ownerId)) {
     throw new Error('An offline vault already exists for this account on this device.');
   }
@@ -263,8 +289,24 @@ export async function createOfflineVault({ userId, role, credential, credentialT
       iterations: PBKDF2_ITERATIONS,
       salt,
       wrappedKey,
+      ...(onlinePassword !== undefined ? {
+        onlinePasswordSalt: createRandomBytes(16),
+        onlinePasswordIterations: PBKDF2_ITERATIONS,
+      } : {}),
       createdAt: new Date().toISOString(),
     };
+    if (onlinePassword !== undefined) {
+      const onlinePasswordKey = await deriveKey(
+        onlinePassword,
+        vault.onlinePasswordSalt,
+        vault.onlinePasswordIterations
+      );
+      vault.onlinePasswordWrappedKey = await encryptValue(
+        onlinePasswordKey,
+        Array.from(rawKey),
+        onlinePasswordWrappedKeyAad(ownerId, accountRole)
+      );
+    }
     await idb.addToStore('offlineVaults', vault);
     memoryKeys.set(ownerId, { key, indexKey, rawKey, role: accountRole });
     retainedInMemory = true;
@@ -274,15 +316,22 @@ export async function createOfflineVault({ userId, role, credential, credentialT
   }
 }
 
-export async function unlockOfflineVault({ userId, credential }) {
+export async function unlockOfflineVault({ userId, credential, credentialType: requestedCredentialType }) {
   const ownerId = normalizeUserId(userId);
   const vault = await idb.getFromStore('offlineVaults', ownerId);
   if (!vault) throw new Error('Offline access has not been set up for this account on this device.');
   if (vault.version !== VAULT_VERSION || vault.kdf !== 'PBKDF2-SHA-256' || vault.iterations !== PBKDF2_ITERATIONS) {
     throw new Error('The offline vault format is not supported.');
   }
-  const credentialType = vault.credentialType || 'password';
-  validateCredential(credential, credentialType);
+  const credentialType = requestedCredentialType || vault.credentialType || 'password';
+  if (!['pin', 'password', 'online-password'].includes(credentialType)) {
+    throw new Error('The offline credential type is not supported.');
+  }
+  const isOnlinePassword = credentialType === 'online-password';
+  if (isOnlinePassword && (!vault.onlinePasswordWrappedKey || !vault.onlinePasswordSalt)) {
+    throw new Error('This offline vault has not been prepared for automatic online restoration.');
+  }
+  validateUnlockCredential(credential, credentialType);
   if (credentialType === 'pin') {
     const grant = getOfflineSession();
     if (!grant || String(grant.userId) !== ownerId || grant.role !== vault.role ||
@@ -297,11 +346,17 @@ export async function unlockOfflineVault({ userId, credential }) {
     }
   }
 
-  const wrappingKey = await deriveKey(credential, vault.salt, vault.iterations);
+  const wrappingKey = isOnlinePassword
+    ? await deriveKey(credential, vault.onlinePasswordSalt, vault.onlinePasswordIterations)
+    : await deriveKey(credential, vault.salt, vault.iterations);
   let rawKey;
   const credentialLabel = credentialType === 'pin' ? 'PIN' : 'account password';
   try {
-    rawKey = await decryptValue(wrappingKey, vault.wrappedKey, wrappedKeyAad(ownerId, vault.role));
+    rawKey = await decryptValue(
+      wrappingKey,
+      isOnlinePassword ? vault.onlinePasswordWrappedKey : vault.wrappedKey,
+      isOnlinePassword ? onlinePasswordWrappedKeyAad(ownerId, vault.role) : wrappedKeyAad(ownerId, vault.role)
+    );
   } catch (error) {
     if (credentialType === 'pin') {
       const attemptKey = `pin-attempts:${ownerId}`;
@@ -336,6 +391,31 @@ export async function unlockOfflineVault({ userId, credential }) {
   }
 }
 
+export async function addOfflineVaultPasswordWrapper({ userId, credential }) {
+  const ownerId = normalizeUserId(userId);
+  validateUnlockCredential(credential, 'password');
+  const { rawKey, role } = getUnlockedKey(ownerId);
+  const vault = await idb.getFromStore('offlineVaults', ownerId);
+  if (!vault || vault.version !== VAULT_VERSION) throw new Error('The offline vault format is not supported.');
+
+  const onlinePasswordSalt = createRandomBytes(16);
+  const onlinePasswordIterations = PBKDF2_ITERATIONS;
+  const onlinePasswordKey = await deriveKey(credential, onlinePasswordSalt, onlinePasswordIterations);
+  const onlinePasswordWrappedKey = await encryptValue(
+    onlinePasswordKey,
+    Array.from(rawKey),
+    onlinePasswordWrappedKeyAad(ownerId, role)
+  );
+  const updatedVault = {
+    ...vault,
+    onlinePasswordSalt,
+    onlinePasswordIterations,
+    onlinePasswordWrappedKey,
+  };
+  await idb.putToStore('offlineVaults', updatedVault);
+  return publicVaultMetadata(updatedVault);
+}
+
 export async function changeOfflineVaultCredential({ userId, credential, credentialType = 'password' }) {
   const ownerId = normalizeUserId(userId);
   if (!['pin', 'password'].includes(credentialType)) throw new Error('The offline credential type is not supported.');
@@ -352,6 +432,17 @@ export async function changeOfflineVaultCredential({ userId, credential, credent
     wrappedKeyAad(ownerId, role)
   );
   const updatedVault = { ...vault, credentialType, salt, wrappedKey, iterations: PBKDF2_ITERATIONS };
+  if (credentialType === 'password') {
+    const onlinePasswordSalt = createRandomBytes(16);
+    const onlinePasswordKey = await deriveKey(credential, onlinePasswordSalt, PBKDF2_ITERATIONS);
+    updatedVault.onlinePasswordSalt = onlinePasswordSalt;
+    updatedVault.onlinePasswordIterations = PBKDF2_ITERATIONS;
+    updatedVault.onlinePasswordWrappedKey = await encryptValue(
+      onlinePasswordKey,
+      Array.from(rawKey),
+      onlinePasswordWrappedKeyAad(ownerId, role)
+    );
+  }
   await idb.putToStore('offlineVaults', updatedVault);
   return publicVaultMetadata(updatedVault);
 }
@@ -479,6 +570,7 @@ export async function deleteOfflineRecord(userId, collection, recordKey) {
 }
 
 const offlineVaultService = {
+  addOfflineVaultPasswordWrapper,
   changeOfflineVaultCredential,
   createOfflineVault,
   deleteOfflineRecords,

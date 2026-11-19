@@ -10,8 +10,8 @@ const {
 } = require('../controllers/dashboardController');
 
 router.get('/summary', authenticateToken, authorizeRole(['bhw', 'official']), getSummary);
-router.get('/nutrition', authenticateToken, authorizeRole(['bhw', 'official']), getNutritionStats);
-router.get('/bmi', authenticateToken, authorizeRole(['bhw', 'official']), getBMIStats);
+router.get('/nutrition', authenticateToken, authorizeRole(['bhw']), getNutritionStats);
+router.get('/bmi', authenticateToken, authorizeRole(['bhw']), getBMIStats);
 router.get('/admin-summary', authenticateToken, authorizeRole(['admin']), getAdminSummary);
 
 module.exports = router;

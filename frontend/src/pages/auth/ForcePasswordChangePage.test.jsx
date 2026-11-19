@@ -61,5 +61,10 @@ test('preserves leading zeroes while completing first-login password and PIN set
   fireEvent.click(screen.getByRole('button', { name: 'Save password and PIN' }));
 
   expect(await screen.findByText('PIN registered')).toBeInTheDocument();
-  expect(completePasswordChange).toHaveBeenCalledWith('new-token', user, '000042');
+  expect(completePasswordChange).toHaveBeenCalledWith(
+    'new-token',
+    user,
+    '000042',
+    'HealthSyncStrongPassword9!'
+  );
 });

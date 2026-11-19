@@ -84,6 +84,19 @@ html[data-theme='dark'] .senior-highlight {
 html[data-theme='dark'] .senior-danger-icon { color: #ffadb4 !important; }
 html[data-theme='dark'] .senior-field-error { color: #ffadb4; }
 
+html:not([data-theme='dark']) .senior-registry-page .senior-primary {
+  border-color: var(--primary) !important;
+  background: var(--primary) !important;
+}
+html:not([data-theme='dark']) .senior-registry-page .senior-primary:hover:not(:disabled) {
+  border-color: var(--primary-hover) !important;
+  background: var(--primary-hover) !important;
+}
+html:not([data-theme='dark']) .senior-registry-page .senior-primary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .senior-registry-page .senior-form {
   width: min(100%, 58rem);
   margin: 0 auto;

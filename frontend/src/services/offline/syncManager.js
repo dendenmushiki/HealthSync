@@ -30,6 +30,34 @@ function getServerRecord(responseData) {
   return data?.record || data || null;
 }
 
+function getActiveSession() {
+  let user;
+  try {
+    user = JSON.parse(localStorage.getItem('hs_user') || 'null');
+  } catch {
+    user = null;
+  }
+  const token = localStorage.getItem('hs_token');
+  if (!user?.user_id || !token) {
+    throw new Error('Sign in online with the account that owns these changes before synchronizing.');
+  }
+  return { userId: String(user.user_id), token };
+}
+
+function assertActiveSession(session) {
+  let user;
+  try {
+    user = JSON.parse(localStorage.getItem('hs_user') || 'null');
+  } catch {
+    user = null;
+  }
+  if (String(user?.user_id ?? '') !== session.userId || localStorage.getItem('hs_token') !== session.token) {
+    const error = new Error('The active account changed during synchronization. The queued change was preserved.');
+    error.code = 'SYNC_ACCOUNT_CHANGED';
+    throw error;
+  }
+}
+
 async function resolveResidentDependency(item) {
   const residentId = item.payload?.resident_id || item.request?.data?.resident_id;
   if (typeof residentId !== 'string' || !residentId.startsWith('offline:')) return item;
@@ -61,46 +89,79 @@ async function resolveResidentDependency(item) {
   });
 }
 
+function isNetworkFailure(error) {
+  if (error?.response) return false;
+  return (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+    ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(error?.code) ||
+    error?.message === 'Network Error';
+}
+
 export function runSync() {
   if (runningPromise) return runningPromise;
-  runningPromise = (async () => {
+  const syncWork = async () => {
   const result = { synced: 0, failed: 0 };
   if (typeof navigator !== 'undefined' && !navigator.onLine) return result;
   try {
-    const pending = (await offlineQueue.getPendingOperations()).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const session = getActiveSession();
+    const pending = (await offlineQueue.getPendingOperations(session.userId))
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    if (pending.some((item) => String(item.userId) !== session.userId)) {
+      throw new Error('A queued change is not owned by the active account and was not synchronized.');
+    }
     for (let item of pending) {
       try {
+        assertActiveSession(session);
         item = await resolveResidentDependency(item);
-        await offlineQueue.updateOperationStatus(item.offlineOperationId, { status: 'SYNCING', lastError: null });
+        assertActiveSession(session);
+        await offlineQueue.updateOperationStatus(item.offlineOperationId, {
+          status: 'SYNCING',
+          syncStartedAt: new Date().toISOString(),
+          lastError: null,
+        }, session.userId);
         window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));
         let syncResponse = item.serverResponse;
         let serverRecordId = item.serverRecordId;
         if (!item.syncComplete) {
+          assertActiveSession(session);
           const response = item.request
             ? await api.request({
               ...item.request,
               headers: {
                 ...(item.request.headers || {}),
+                Authorization: `Bearer ${session.token}`,
                 'X-Idempotency-Key': item.offlineOperationId,
               },
             })
-            : await api.post('/sync', { operation: item.operation, module: item.module, table: item.table, payload: item.payload }, { headers: { 'X-Idempotency-Key': item.offlineOperationId } });
+            : await api.post('/sync', { operation: item.operation, module: item.module, table: item.table, payload: item.payload }, {
+              headers: { Authorization: `Bearer ${session.token}`, 'X-Idempotency-Key': item.offlineOperationId },
+            });
+          assertActiveSession(session);
           if (!response?.data?.success) throw new Error(response?.data?.message || 'Server did not accept this change.');
           syncResponse = response.data;
           serverRecordId = getServerRecordId(response.data);
-          await offlineQueue.updateOperationStatus(item.offlineOperationId, { syncComplete: true, serverResponse: syncResponse, serverRecordId });
+          await offlineQueue.updateOperationStatus(item.offlineOperationId, {
+            syncComplete: true,
+            serverResponse: syncResponse,
+            serverRecordId,
+          }, session.userId);
         }
 
+        assertActiveSession(session);
         if (item.table === 'residents' && (item.photo || item.photoAction)) {
           const residentId = serverRecordId || item.payload.resident_id;
           if (!residentId) throw new Error('Resident was synced, but its photo could not be linked.');
           if (item.photo) {
             const formData = new FormData();
             formData.append('photo', item.photo);
-            await api.post(`/residents/${residentId}/photo`, formData);
+            await api.post(`/residents/${residentId}/photo`, formData, {
+              headers: { Authorization: `Bearer ${session.token}` },
+            });
           } else if (item.photoAction === 'DELETE') {
-            await api.delete(`/residents/${residentId}/photo`);
+            await api.delete(`/residents/${residentId}/photo`, {
+              headers: { Authorization: `Bearer ${session.token}` },
+            });
           }
+          assertActiveSession(session);
         }
 
         const updates = {
@@ -109,6 +170,7 @@ export function runSync() {
           serverRecordId,
           syncedAt: new Date().toISOString(),
           lastError: null,
+          syncStartedAt: null,
         };
         if (item.localRecord) {
           const serverRecord = getServerRecord(syncResponse);
@@ -123,19 +185,26 @@ export function runSync() {
             sync_status: 'SYNCED',
           };
         }
-        await offlineQueue.updateOperationStatus(item.offlineOperationId, updates);
+        await offlineQueue.updateOperationStatus(item.offlineOperationId, updates, session.userId);
         result.synced += 1;
         window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));
       } catch (err) {
+        if (err?.code === 'SYNC_ACCOUNT_CHANGED') break;
+        try {
+          assertActiveSession(session);
+        } catch {
+          break;
+        }
         result.failed += 1;
         const errorCode = err?.response?.data?.errorCode;
-        const canSafelyRetry = Boolean(item.request) && IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
-          !err?.response && !err?.code?.startsWith('IDEMPOTENCY_');
+        const canSafelyRetry = IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
+          (isNetworkFailure(err) || errorCode === 'IDEMPOTENCY_RETRY_SAFE');
         const requiresReview = ['IDEMPOTENCY_OUTCOME_UNKNOWN', 'IDEMPOTENCY_KEY_CONFLICT', 'IDEMPOTENCY_KEY_REUSE']
-          .includes(errorCode) || (Boolean(item.request) && !canSafelyRetry &&
-            (!err?.response || Number(err.response.status) >= 500));
+          .includes(errorCode) || (!canSafelyRetry && Number(err?.response?.status) >= 500);
         const friendly = canSafelyRetry
-          ? 'The connection was interrupted. The next sync attempt will reuse the same idempotency key.'
+          ? errorCode === 'IDEMPOTENCY_RETRY_SAFE'
+            ? err.response.data.message
+            : 'The connection was interrupted. The next sync attempt will reuse the same idempotency key.'
           : requiresReview
             ? 'The server outcome is unknown. This change will not be retried automatically; verify whether it was saved before taking further action.'
           : err?.response?.data?.message || (err?.message === 'Network Error' ? 'No connection to the server' : err?.message || 'The server could not accept this change');
@@ -145,11 +214,13 @@ export function runSync() {
         });
         const current = await offlineQueue.getOperation(item.offlineOperationId);
         const retryCount = (current && current.retryCount) ? current.retryCount + 1 : 1;
+        assertActiveSession(session);
         await offlineQueue.updateOperationStatus(item.offlineOperationId, {
           status: canSafelyRetry ? 'PENDING' : requiresReview ? 'CONFLICT' : 'FAILED',
           retryCount,
           lastError: friendly,
-        });
+          syncStartedAt: null,
+        }, session.userId);
         window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));
         window.dispatchEvent(new CustomEvent('healthsync:notification', {
           detail: {
@@ -166,8 +237,14 @@ export function runSync() {
     window.dispatchEvent(new CustomEvent('healthsync:sync-complete', { detail: result }));
   }
   return result;
-  })();
-  runningPromise.finally(() => { runningPromise = null; });
+  };
+  const lockManager = typeof navigator !== 'undefined' ? navigator.locks : null;
+  const request = lockManager?.request
+    ? lockManager.request('healthsync-offline-sync', { mode: 'exclusive', ifAvailable: true }, (lock) => (
+      lock ? syncWork() : { synced: 0, failed: 0 }
+    ))
+    : syncWork();
+  runningPromise = request.finally(() => { runningPromise = null; });
   return runningPromise;
 }
 

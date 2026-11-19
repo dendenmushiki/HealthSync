@@ -38,3 +38,26 @@ test('reconnect coordinator renders no banner and still synchronizes authorized 
   await waitFor(() => expect(api.get).toHaveBeenCalledWith('/auth/me'));
   await waitFor(() => expect(syncManager.runSync).toHaveBeenCalledTimes(1));
 });
+
+test('automatically starts sync when the signed-in owner vault becomes ready while online', async () => {
+  localStorage.setItem('hs_token', 'test-token');
+  api.get.mockResolvedValue({ data: { success: true } });
+  syncManager.runSync.mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+
+  const { rerender } = render(
+    <AuthContext.Provider value={{ offlineVaultReady: false }}>
+      <OfflineSyncCoordinator />
+    </AuthContext.Provider>
+  );
+  expect(syncManager.runSync).not.toHaveBeenCalled();
+
+  rerender(
+    <AuthContext.Provider value={{ offlineVaultReady: true }}>
+      <OfflineSyncCoordinator />
+    </AuthContext.Provider>
+  );
+
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith('/auth/me'));
+  await waitFor(() => expect(syncManager.runSync).toHaveBeenCalledTimes(1));
+});

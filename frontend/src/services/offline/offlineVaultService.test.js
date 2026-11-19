@@ -3,6 +3,7 @@ import { webcrypto } from 'crypto';
 import {
   createOfflineVault,
   changeOfflineVaultCredential,
+  addOfflineVaultPasswordWrapper,
   getOfflineRecord,
   getOfflineRecords,
   getOfflineVaultMetadata,
@@ -29,6 +30,51 @@ const getStore = (name) => {
   if (!stores.has(name)) stores.set(name, new Map());
   return stores.get(name);
 };
+
+async function storePasswordWrappedVault({ userId, role, credential }) {
+  const version = 3;
+  const iterations = 600000;
+  const salt = webcrypto.getRandomValues(new Uint8Array(16));
+  const material = await webcrypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(credential),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  const wrappingKey = await webcrypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+  const rawKey = webcrypto.getRandomValues(new Uint8Array(64));
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const additionalData = new TextEncoder().encode(JSON.stringify([
+    'healthsync-offline-vault',
+    version,
+    String(userId),
+    role,
+    'wrapped-key',
+  ]));
+  const ciphertext = await webcrypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData, tagLength: 128 },
+    wrappingKey,
+    new TextEncoder().encode(JSON.stringify(Array.from(rawKey)))
+  );
+  await idb.addToStore('offlineVaults', {
+    userId: String(userId),
+    role,
+    version,
+    kdf: 'PBKDF2-SHA-256',
+    credentialType: 'password',
+    iterations,
+    salt,
+    wrappedKey: { iv, ciphertext },
+    createdAt: new Date().toISOString(),
+  });
+}
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
@@ -81,6 +127,18 @@ test('encrypts account-scoped records and requires the account password to unloc
     .resolves.toEqual({ first_name: 'Sensitive Name' });
 });
 
+test('unlocks an existing password vault with an account password below the current creation policy', async () => {
+  await storePasswordWrappedVault({
+    userId: 7,
+    role: 'bhw',
+    credential: 'Legacy9!',
+  });
+
+  await unlockOfflineVault({ userId: 7, credential: 'Legacy9!' });
+
+  expect(isOfflineVaultUnlocked(7)).toBe(true);
+});
+
 test('prevents reading records through another account scope', async () => {
   await createOfflineVault({ userId: 7, role: 'bhw', credential: 'FirstAccountPassword9!' });
   createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
@@ -96,6 +154,7 @@ test('prevents reading records through another account scope', async () => {
     role: 'bhw',
     version: 3,
     credentialType: 'password',
+    hasOnlinePasswordWrapper: false,
     createdAt: expect.any(String),
   });
 });
@@ -166,6 +225,83 @@ test('supports leading-zero PINs and preserves encrypted records when changing t
   await unlockOfflineVault({ userId: 7, credential: '000043' });
   await expect(getOfflineRecord(7, 'residents', 'resident-1'))
     .resolves.toEqual({ first_name: 'PIN Protected Record' });
+});
+
+test('adds an online password wrapper without replacing the offline PIN wrapper', async () => {
+  await createOfflineVault({
+    userId: 7,
+    role: 'bhw',
+    credential: '000042',
+    credentialType: 'pin',
+  });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await putOfflineRecord(7, 'offlineQueue', 'queued-operation', { table: 'adult_bmi_records' });
+
+  lockOfflineVault(7);
+  await unlockOfflineVault({ userId: 7, credential: '000042' });
+  await addOfflineVaultPasswordWrapper({ userId: 7, credential: 'CorrectHorseBattery9!' });
+  expect(await getOfflineVaultMetadata(7)).toEqual(expect.objectContaining({
+    credentialType: 'pin',
+    hasOnlinePasswordWrapper: true,
+  }));
+
+  lockOfflineVault(7);
+  await unlockOfflineVault({
+    userId: 7,
+    credential: 'CorrectHorseBattery9!',
+    credentialType: 'online-password',
+  });
+  await expect(getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .resolves.toEqual({ table: 'adult_bmi_records' });
+
+  lockOfflineVault(7);
+  await unlockOfflineVault({ userId: 7, credential: '000042' });
+  await expect(getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .resolves.toEqual({ table: 'adult_bmi_records' });
+});
+
+test('preserves PIN-vault access when wrapping an existing account password below current policy', async () => {
+  await createOfflineVault({
+    userId: 7,
+    role: 'bhw',
+    credential: '000042',
+    credentialType: 'pin',
+  });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await putOfflineRecord(7, 'offlineQueue', 'queued-operation', { table: 'adult_bmi_records' });
+
+  lockOfflineVault(7);
+  await unlockOfflineVault({ userId: 7, credential: '000042' });
+  await addOfflineVaultPasswordWrapper({ userId: 7, credential: 'Legacy9!' });
+
+  lockOfflineVault(7);
+  await unlockOfflineVault({
+    userId: 7,
+    credential: 'Legacy9!',
+    credentialType: 'online-password',
+  });
+  await expect(getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .resolves.toEqual({ table: 'adult_bmi_records' });
+});
+
+test('creates an online password wrapper from an existing account password below current policy', async () => {
+  await createOfflineVault({
+    userId: 7,
+    role: 'bhw',
+    credential: '000042',
+    credentialType: 'pin',
+    onlinePassword: 'Legacy9!',
+  });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+
+  lockOfflineVault(7);
+  await unlockOfflineVault({
+    userId: 7,
+    credential: 'Legacy9!',
+    credentialType: 'online-password',
+  });
+
+  expect(isOfflineVaultUnlocked(7)).toBe(true);
 });
 
 test('rejects malformed PINs and locks after five incorrect attempts', async () => {

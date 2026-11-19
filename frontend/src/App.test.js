@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
+import { AppContent } from './App.jsx';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import api from './services/api/apiClient';
 import { AuthContext } from './context/AuthContext';
@@ -104,7 +105,89 @@ const officialUser = {
 test('renders the HealthSync login screen by default', () => {
   render(<App />);
   expect(screen.getAllByAltText(/HealthSync logo/i).length).toBeGreaterThan(0);
-  expect(screen.getByText(/Welcome back/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Welcome back/i).length).toBeGreaterThan(0);
+});
+
+test('does not require the offline PIN after an online sign-in', async () => {
+  localStorage.clear();
+  localStorage.setItem('hs_offline_device_id', 'device-local');
+  localStorage.setItem('hs_offline_session', JSON.stringify({
+    version: 2,
+    userId: '8',
+    role: 'official',
+    deviceId: 'device-local',
+    createdAt: Date.now(),
+  }));
+
+  render(
+    <AuthContext.Provider value={{
+      user: {
+        user_id: 8,
+        role: 'official',
+        username: 'lina',
+        device_id: 'device-local',
+        offline_pin_enrolled: true,
+      },
+      loading: false,
+      token: 'server-token',
+      offlineVaultReady: false,
+      offlineVaultError: null,
+      sessionCleanupError: null,
+      updateUser: jest.fn(),
+      unlockOfflineAccess: jest.fn(),
+      logout: jest.fn(),
+      lockOfflineAccess: jest.fn(),
+      lockForAccountSwitch: jest.fn(),
+    }}>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <AppContent />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  expect(await screen.findByRole('link', { name: 'Settings' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('PIN digit 1 of 6')).not.toBeInTheDocument();
+  localStorage.clear();
+});
+
+test('uses the existing unlock screen for a legacy PIN-only vault without a prepare workflow', async () => {
+  localStorage.clear();
+  localStorage.setItem('hs_offline_device_id', 'device-local');
+  localStorage.setItem('hs_offline_session', JSON.stringify({
+    version: 2,
+    userId: '7',
+    role: 'bhw',
+    deviceId: 'device-local',
+    createdAt: Date.now(),
+  }));
+  render(
+    <AuthContext.Provider value={{
+      user: { ...bhwUser, device_id: 'device-local', offline_pin_enrolled: true },
+      loading: false,
+      token: 'server-token',
+      offlineVaultReady: false,
+      offlineVaultNeedsUnlock: true,
+      offlineVaultMigrationRequired: true,
+      offlineVaultError: null,
+      sessionCleanupError: null,
+      updateUser: jest.fn(),
+      unlockOfflineAccess: jest.fn(),
+      logout: jest.fn(),
+      lockOfflineAccess: jest.fn(),
+      lockForAccountSwitch: jest.fn(),
+    }}>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <AppContent />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  expect(await screen.findByLabelText('PIN digit 1 of 6')).toBeInTheDocument();
+  expect(screen.getByText(/Enter your current 6-digit PIN once to migrate this older offline queue/)).toBeInTheDocument();
+  expect(screen.queryByText(/Prepare automatic sync/i)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Prepare automatic sync/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Unlock offline queue' })).not.toBeInTheDocument();
+  localStorage.clear();
 });
 
 test('renders actual dashboard summary metrics and method-specific charts', async () => {
@@ -145,7 +228,9 @@ test('keeps official dashboard actions within the official role permissions', as
 
   expect(await screen.findByRole('heading', { name: /population distribution/i })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /view reports/i })).toHaveAttribute('href', '/reports');
-  expect(screen.getByRole('link', { name: /^nutrition$/i })).toHaveAttribute('href', '/nutrition');
+  expect(screen.queryByRole('link', { name: /^nutrition$/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /operation timbang/i })).not.toBeInTheDocument();
+  expect(screen.getByText('Nutrition follow-up').closest('a')).toBeNull();
   expect(screen.queryByRole('link', { name: /add resident/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /health records/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /resident name/i })).not.toBeInTheDocument();
