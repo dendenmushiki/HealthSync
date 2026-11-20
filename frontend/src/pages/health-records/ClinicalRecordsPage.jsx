@@ -107,7 +107,9 @@ const ClinicalRecordsPage = () => {
         ? await updateHealthRecord(editingId, payload)
         : await createHealthRecord(payload);
       if (response?.success) {
-        setSuccessMessage(response.offline ? 'Saved locally. This record is waiting to synchronize.' : '');
+        setSuccessMessage(response.offline || response.queued
+          ? 'Record saved on this device. It will synchronize when the connection is restored.'
+          : editingId ? 'Clinical record updated successfully.' : 'Clinical record saved successfully.');
         setForm(initialForm);
         setEditingId(null);
         if (searchParams.has('recordId')) {

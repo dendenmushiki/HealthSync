@@ -472,11 +472,12 @@ const ClinicalRecordForm = ({ resident }) => {
       setFieldErrors({});
       setTouched({});
       if (response.offline) {
-        setMessage('Saved offline. This record will sync when you are back online.');
-        showToast('Clinical record saved offline.');
+        setMessage('Record saved on this device. It will synchronize when the connection is restored.');
+        showToast('Clinical record saved on this device and waiting to synchronize.');
       } else {
-        setMessage('Clinical record saved.');
-        showToast('Clinical record saved.');
+        const message = editingId ? 'Clinical record updated successfully.' : 'Clinical record saved successfully.';
+        setMessage(message);
+        showToast(message);
         await refreshRecords();
       }
     } catch (saveError) {

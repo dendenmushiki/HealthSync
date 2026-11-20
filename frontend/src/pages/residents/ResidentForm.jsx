@@ -12,7 +12,7 @@ import {
   uploadResidentPhoto
 } from '../../services/api/residentService';
 import { AuthContext } from '../../context/AuthContext';
-import { enqueueOperation } from '../../services/offline/offlineQueueService';
+import { enqueueOperation, updateOperationStatus } from '../../services/offline/offlineQueueService';
 import { calculateAge, formatResidentName, isSeniorCitizen } from '../../utils/residentUtils';
 import { toDateInputValue } from '../../utils/dateUtils';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
@@ -472,10 +472,22 @@ const ResidentForm = ({ onBack }) => {
 
       const response = id ? await updateResident(id, payload) : await createResident(payload);
       if (!response?.success) throw new Error(response?.message || 'Unable to save resident.');
+      if (response.offline || response.queued) {
+        if ((photoFile || removePhoto) && response.offlineOperationId) {
+          await updateOperationStatus(response.offlineOperationId, {
+            photo: photoFile,
+            photoAction: removePhoto ? 'DELETE' : null,
+          }, String(user?.user_id));
+        }
+        navigate('/sync-status', {
+          state: { queuedOperationId: response.offlineOperationId },
+        });
+        return;
+      }
       savedResidentId = response.data.resident_id || id;
       if (photoFile) await uploadResidentPhoto(savedResidentId, photoFile);
       else if (removePhoto) await deleteResidentPhoto(savedResidentId);
-      showToast('Resident saved.');
+      showToast(id ? 'Resident updated successfully.' : 'Resident saved successfully.');
       setSuccessRedirect(id ? `/residents/${id}` : `/residents/${savedResidentId}`);
     } catch (saveError) {
       const serverErrors = saveError.response?.data?.errors;

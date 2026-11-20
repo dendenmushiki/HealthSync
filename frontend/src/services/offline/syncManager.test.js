@@ -97,6 +97,7 @@ test('retries interrupted direct requests with the same idempotency key', async 
 
   await runSync();
   expect(item.status).toBe('PENDING');
+  expect(item.savedOffline).toBe(true);
   expect(item.lastError).toContain('same idempotency key');
 
   await runSync();

@@ -117,7 +117,9 @@ const AdolescentBMIFormRedesign = ({ onSaved, onSwitchToAdult }) => {
       if (!response?.success) throw new Error(response?.message || 'Unable to save BMI record.');
       const offline = response.offline || response.queued;
       const category = response.data?.bmi_for_age_category;
-      publishToast(offline ? 'Saved offline, will sync' : `Measurement saved - Classification: ${category || 'Assessment complete'}`);
+      publishToast(offline
+        ? 'Record saved on this device. It will synchronize when the connection is restored.'
+        : `Adolescent BMI record saved successfully. Classification: ${category || 'Assessment complete'}`);
       if (offline) {
         if (addNext) { setForm({ ...initialForm(), record_date: form.record_date }); setResident(null); setPreview(null); }
         return;

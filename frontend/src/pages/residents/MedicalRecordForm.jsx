@@ -153,8 +153,8 @@ const MedicalRecordForm = ({ recordType, resident }) => {
         setSearchParams(next, { replace: true });
       }
       setMessage(result.offline
-        ? 'Saved locally. This record is waiting to synchronize.'
-        : 'Record saved successfully.');
+        ? 'Record saved on this device. It will synchronize when the connection is restored.'
+        : editingId ? 'Record updated successfully.' : 'Record saved successfully.');
       setCollapsed(Object.fromEntries(config.sections.map((section, index) => [section.title, index > 0])));
       await refresh();
     } catch (saveError) {

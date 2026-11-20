@@ -150,6 +150,15 @@ export async function createSeniorCitizen(payload) {
     sync_status: 'PENDING',
   };
   const response = await api.post('/senior-citizens', requestPayload, { offlineLocalRecord });
+  if (response.data?.offline || response.data?.queued) {
+    const localId = `offline:${response.data.offlineOperationId}`;
+    return {
+      ...response.data,
+      data: { ...offlineLocalRecord, id: localId, record_id: localId },
+      offline: true,
+      queued: true,
+    };
+  }
   if (response.data?.success && !response.data?.queued) {
     publishNotification('seniorFollowUpAlerts', 'Senior registry updated', 'A senior citizen record was registered.');
   }
@@ -157,7 +166,17 @@ export async function createSeniorCitizen(payload) {
 }
 
 export async function updateSeniorCitizen(id, payload) {
-  const response = await api.put(`/senior-citizens/${id}`, payload);
+  const response = await api.put(`/senior-citizens/${id}`, payload, {
+    offlineLocalRecord: { ...payload, id, senior_id: id, record_id: id },
+  });
+  if (response.data?.offline || response.data?.queued) {
+    return {
+      ...response.data,
+      data: { ...payload, id, senior_id: id, record_id: id },
+      offline: true,
+      queued: true,
+    };
+  }
   return response.data;
 }
 

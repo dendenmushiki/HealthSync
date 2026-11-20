@@ -129,6 +129,22 @@ test('marks every supported local record as pending before synchronization', asy
     sync_status: 'PENDING',
     record_id: `offline:${item.offlineOperationId}`,
   }));
+  expect(item.savedOffline).toBe(true);
+});
+
+test('preserves a provisional online request key when saving its failed write locally', async () => {
+  const operationId = '123e4567-e89b-42d3-a456-426614174000';
+  const item = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'health_records',
+    table: 'health_records',
+    payload: { resident_id: 15 },
+    userId: 7,
+    offlineOperationId: operationId,
+  });
+
+  expect(item.offlineOperationId).toBe(operationId);
+  expect(item.savedOffline).toBe(true);
 });
 
 test('does not automatically include failed or outcome-unknown records in synchronization attempts', async () => {

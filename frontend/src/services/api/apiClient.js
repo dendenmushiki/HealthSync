@@ -1,6 +1,7 @@
 import axios from 'axios';
-import { enqueueOperation, getOperation, updateOperationStatus } from '../offline/offlineQueueService';
-import { healthCheck, setBackendAvailability } from '../offline/networkService';
+import { v4 as uuidv4 } from 'uuid';
+import { enqueueOperation, updateOperationStatus } from '../offline/offlineQueueService';
+import { setBackendAvailability } from '../offline/networkService';
 
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
@@ -82,14 +83,6 @@ function getLocalRecord(config, route, operation) {
   return localRecord;
 }
 
-function getServerRecordId(responseData) {
-  const data = responseData?.data;
-  const record = data?.record || data;
-  return data?.serverRecordId || data?.resident_id || record?.id || record?.resident_id ||
-    record?.senior_id || record?.record_id || record?.timbang_id || record?.bmi_id ||
-    record?.adolescent_bmi_id || record?.health_record_id || record?.server_record_id || null;
-}
-
 function activeAccountMatches(config) {
   try {
     const user = getStoredUser();
@@ -126,21 +119,32 @@ function makeQueuedResponse(error) {
 
 async function saveFailedAttempt(error) {
   const config = error.config || {};
-  if (!config.healthsyncOperationId || !activeAccountMatches(config)) return null;
+  const operationId = config.healthsyncOperationId || config.healthsyncProvisionalOperationId;
+  if (!operationId || !activeAccountMatches(config)) return null;
   const status = Number(error.response?.status) || 0;
   const errorCode = error.response?.data?.errorCode;
   const safeToRetry = !error.response || errorCode === 'IDEMPOTENCY_RETRY_SAFE';
   const unknownOutcome = ['IDEMPOTENCY_OUTCOME_UNKNOWN', 'IDEMPOTENCY_KEY_CONFLICT', 'IDEMPOTENCY_KEY_REUSE']
     .includes(errorCode) || (status >= 500 && !safeToRetry);
+  const isAlreadyQueued = Boolean(config.healthsyncOperationId);
+  if (!isAlreadyQueued && !safeToRetry && !unknownOutcome) return null;
   const nextStatus = safeToRetry ? 'PENDING' : unknownOutcome ? 'CONFLICT' : 'FAILED';
-  await updateOperationStatus(config.healthsyncOperationId, {
+  if (!isAlreadyQueued) {
+    const queued = await enqueueOperation({
+      ...config.healthsyncQueueDetails,
+      offlineOperationId: operationId,
+      userId: config.healthsyncOwnerId,
+    });
+    config.healthsyncOperationId = queued.offlineOperationId;
+  }
+  await updateOperationStatus(operationId, {
     status: nextStatus,
     retryCount: 1,
     lastError: error.response?.data?.message || error.message || 'The server could not confirm this change.',
     syncStartedAt: null,
   }, config.healthsyncOwnerId);
   dispatchQueueChange('healthsync:offline-queued', {
-    offlineOperationId: config.healthsyncOperationId,
+    offlineOperationId: operationId,
   });
   return nextStatus;
 }
@@ -151,31 +155,34 @@ api.interceptors.request.use(async (config) => {
   const headers = config.headers || {};
   const existingKey = headers['X-Idempotency-Key'] || headers['x-idempotency-key'] ||
     (typeof headers.get === 'function' && headers.get('X-Idempotency-Key'));
-  if (existingKey) return config;
+  if (existingKey || config.healthsyncOperationId || config.healthsyncProvisionalOperationId) return config;
   const user = getStoredUser();
   if (!user?.user_id || user.role !== 'bhw') return config;
 
   const method = String(config.method || 'post').toUpperCase();
   const operation = method === 'POST' ? 'CREATE' : method === 'DELETE' ? 'DELETE' : 'UPDATE';
-  const queued = await enqueueOperation({
+  const operationId = uuidv4();
+  config.healthsyncProvisionalOperationId = operationId;
+  config.healthsyncOwnerId = String(user.user_id);
+  config.healthsyncToken = localStorage.getItem('hs_token');
+  config.healthsyncQueueDetails = {
     operation,
     module: route.module,
     table: route.table,
     payload: route.payload || config.data || {},
-    userId: String(user.user_id),
     request: { method, url: config.url, params: config.params, data: config.data },
     localRecord: getLocalRecord(config, route, operation),
-  });
-  config.healthsyncOperationId = queued.offlineOperationId;
-  config.healthsyncOwnerId = String(user.user_id);
-  config.healthsyncToken = localStorage.getItem('hs_token');
+  };
   config.headers = config.headers || {};
-  config.headers['X-Idempotency-Key'] = queued.offlineOperationId;
+  config.headers['X-Idempotency-Key'] = operationId;
 
-  const backendAvailable = typeof navigator === 'undefined' || navigator.onLine
-    ? await healthCheck()
-    : false;
-  if ((typeof navigator !== 'undefined' && !navigator.onLine) || !backendAvailable) {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const queued = await enqueueOperation({
+      ...config.healthsyncQueueDetails,
+      offlineOperationId: operationId,
+      userId: config.healthsyncOwnerId,
+    });
+    config.healthsyncOperationId = queued.offlineOperationId;
     const queuedError = new Error('Request saved for synchronization.');
     queuedError.offlineQueued = true;
     queuedError.config = config;
@@ -187,64 +194,29 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(async (response) => {
   setBackendAvailability(true);
   const config = response.config || {};
-  if (config.healthsyncOperationId && activeAccountMatches(config)) {
-    const data = response.data;
-    const success = data?.success === true && response.status < 400;
-    const serverRecordId = success ? getServerRecordId(data) : null;
-    const queuedItem = success
-      ? await getOperation(config.healthsyncOperationId, config.healthsyncOwnerId).catch(() => null)
-      : null;
-    const serverRecord = data?.data?.record || data?.data;
-    const idFieldByTable = {
-      health_records: 'health_record_id',
-      child_health_records: 'id',
-      senior_citizen_records: 'record_id',
-      operation_timbang: 'operation_timbang_id',
-      adult_bmi_records: 'record_id',
-      adolescent_bmi_records: 'record_id',
-      patient_clinical_records: 'id',
-      child_records: 'id',
-      maternal_records: 'id',
-      immunization_records: 'id',
-    };
-    const localRecord = queuedItem?.localRecord && success
-      ? {
-        ...queuedItem.localRecord,
-        ...(serverRecord && typeof serverRecord === 'object' ? serverRecord : {}),
-        ...(serverRecordId ? {
-          id: serverRecordId,
-          [idFieldByTable[queuedItem.table] || 'id']: serverRecordId,
-          ...(queuedItem.table === 'residents' ? { resident_id: serverRecordId } : {}),
-        } : {}),
-        offline: false,
-        sync_status: 'SYNCED',
-      }
-      : queuedItem?.localRecord;
-    const updates = success
-      ? {
-        status: 'SYNCED',
-        syncComplete: true,
-        serverResponse: data,
-        serverRecordId,
-        ...(localRecord ? { localRecord } : {}),
-        syncedAt: new Date().toISOString(),
-        lastError: null,
-        syncStartedAt: null,
-      }
-      : {
-        status: 'FAILED',
-        lastError: data?.message || 'The server did not confirm this change.',
-        syncStartedAt: null,
-      };
+  if (config.healthsyncProvisionalOperationId && response.status < 400 &&
+      response.data?.success !== true && activeAccountMatches(config)) {
     try {
-      await updateOperationStatus(config.healthsyncOperationId, updates, config.healthsyncOwnerId);
-      dispatchQueueChange('healthsync:queue-changed');
+      await enqueueOperation({
+        ...config.healthsyncQueueDetails,
+        offlineOperationId: config.healthsyncProvisionalOperationId,
+        userId: config.healthsyncOwnerId,
+      });
+      await updateOperationStatus(config.healthsyncProvisionalOperationId, {
+        status: 'CONFLICT',
+        lastError: response.data?.message || 'The server did not confirm whether this change was saved.',
+        syncStartedAt: null,
+      }, config.healthsyncOwnerId);
+      dispatchQueueChange('healthsync:offline-queued', {
+        offlineOperationId: config.healthsyncProvisionalOperationId,
+      });
     } catch (error) {
-      console.error('Could not update the saved operation after its server response.', {
-        operationId: config.healthsyncOperationId,
+      console.error('Could not preserve a record request without a confirmed server result.', {
+        operationId: config.healthsyncProvisionalOperationId,
         error: error.message,
       });
     }
+    return response;
   }
   return response;
 }, async (error) => {
@@ -264,7 +236,7 @@ api.interceptors.response.use(async (response) => {
     });
     return makeQueuedResponse(error);
   }
-  if (error.config?.healthsyncOperationId) {
+  if (error.config?.healthsyncOperationId || error.config?.healthsyncProvisionalOperationId) {
     try {
       const status = await saveFailedAttempt(error);
       if (status === 'PENDING') return makeQueuedResponse(error);

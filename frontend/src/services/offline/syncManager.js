@@ -119,6 +119,11 @@ export function runSync() {
     for (let item of pending) {
       try {
         assertActiveSession(session);
+        if (item.savedOffline !== true) {
+          item = await offlineQueue.updateOperationStatus(item.offlineOperationId, {
+            savedOffline: true,
+          }, session.userId) || item;
+        }
         item = await resolveResidentDependency(item);
         assertActiveSession(session);
         await offlineQueue.updateOperationStatus(item.offlineOperationId, {

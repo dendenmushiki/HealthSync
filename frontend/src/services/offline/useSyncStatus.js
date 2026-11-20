@@ -47,10 +47,10 @@ function useSyncStatusState() {
   const pending = items.filter((item) => item.status === 'PENDING').length;
   const failed = items.filter((item) => item.status === 'FAILED').length;
   const syncingCount = items.filter((item) => item.status === 'SYNCING').length;
-  const syncedToday = items.filter((item) => item.status === 'SYNCED' && item.syncedAt && new Date(item.syncedAt).toDateString() === new Date().toDateString()).length;
+  const syncedToday = items.filter((item) => item.savedOffline === true && item.status === 'SYNCED' && item.syncedAt && new Date(item.syncedAt).toDateString() === new Date().toDateString()).length;
   const conflicts = items.filter((item) => item.status === 'CONFLICT').length;
   const waiting = pending + failed + syncingCount;
-  const lastSynced = items.filter((item) => item.syncedAt).sort((a, b) => new Date(b.syncedAt) - new Date(a.syncedAt))[0]?.syncedAt || null;
+  const lastSynced = items.filter((item) => item.savedOffline === true && item.syncedAt).sort((a, b) => new Date(b.syncedAt) - new Date(a.syncedAt))[0]?.syncedAt || null;
 
   return {
     items,

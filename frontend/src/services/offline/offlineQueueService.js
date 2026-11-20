@@ -57,9 +57,10 @@ export async function enqueueOperation({
   photoAction = null,
   request = null,
   localRecord = null,
+  offlineOperationId: requestedOperationId,
 }) {
   const ownerId = requireOwner(userId);
-  const offlineOperationId = uuidv4();
+  const offlineOperationId = requestedOperationId || uuidv4();
   const localId = `offline:${offlineOperationId}`;
   const localRecordIdFields = {
     health_records: 'health_record_id',
@@ -98,6 +99,7 @@ export async function enqueueOperation({
     photoAction,
     request,
     localRecord: storedLocalRecord,
+    savedOffline: true,
     status: 'PENDING',
     retryCount: 0,
   };

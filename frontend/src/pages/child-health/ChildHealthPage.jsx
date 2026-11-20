@@ -115,7 +115,9 @@ const ChildHealthPage = () => {
         ? await updateChildHealthRecord(editingId, payload)
         : await createChildHealthRecord(payload);
       if (response?.success) {
-        setSuccessMessage(response.offline ? 'Saved locally. This record is waiting to synchronize.' : '');
+        setSuccessMessage(response.offline || response.queued
+          ? 'Record saved on this device. It will synchronize when the connection is restored.'
+          : editingId ? 'Child health record updated successfully.' : 'Child health record saved successfully.');
         setForm(initialForm);
         setEditingId(null);
         if (searchParams.has('recordId')) {

@@ -46,6 +46,9 @@ const makeItem = (status) => ({
   operation: 'CREATE',
   table: 'residents',
   payload: { first_name: 'Test', last_name: 'Resident' },
+  localRecord: { first_name: 'Test', last_name: 'Resident' },
+  savedOffline: true,
+  userId: '7',
   createdAt: '2026-11-16T00:00:00.000Z',
   status,
   retryCount: 0,
@@ -71,10 +74,14 @@ function renderSyncStatus(item) {
 
   render(
     <MemoryRouter>
-      <SyncStatus />
+      <AuthContext.Provider value={{ user: { user_id: 7, role: 'bhw' }, offlineVaultReady: true }}>
+        <SyncStatus />
+      </AuthContext.Provider>
     </MemoryRouter>
   );
-  fireEvent.click(screen.getByRole('button', { name: /Details for/ }));
+  fireEvent.click(screen.getByRole('button', {
+    name: item.status === 'SYNCED' ? /View synced/ : /Details for/,
+  }));
 }
 
 beforeEach(() => {
@@ -85,9 +92,28 @@ beforeEach(() => {
 test('synced changes cannot be discarded from Sync Status', async () => {
   renderSyncStatus(makeItem('SYNCED'));
 
-  const drawer = await screen.findByRole('dialog', { name: 'Sync change details' });
+  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
   expect(within(drawer).queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument();
   expect(screen.queryByRole('dialog', { name: 'Discard this queued change?' })).not.toBeInTheDocument();
+});
+
+test('pending details show BHW-friendly status without internal operation data', async () => {
+  const pendingItem = {
+    ...makeItem('PENDING'),
+    offlineOperationId: 'private-operation-id',
+    payload: {
+      first_name: 'Test',
+      last_name: 'Resident',
+      idempotency_key: 'private-idempotency-key',
+    },
+    request: { url: '/internal/endpoint' },
+  };
+  renderSyncStatus(pendingItem);
+
+  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
+  expect(within(drawer).getByText('Waiting to sync')).toBeInTheDocument();
+  expect(within(drawer).getByText(/saved on this device.*synchronize when a connection is available/i)).toBeInTheDocument();
+  expect(within(drawer).queryByText(/private-operation-id|private-idempotency-key|internal\/endpoint/i)).not.toBeInTheDocument();
 });
 
 test('a change that syncs before discard confirmation is preserved', async () => {
@@ -95,7 +121,7 @@ test('a change that syncs before discard confirmation is preserved', async () =>
   offlineQueue.getOperation.mockResolvedValue({ ...pendingItem, status: 'SYNCED' });
   renderSyncStatus(pendingItem);
 
-  const drawer = await screen.findByRole('dialog', { name: 'Sync change details' });
+  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
   fireEvent.click(within(drawer).getByRole('button', { name: 'Discard' }));
   fireEvent.click(screen.getByRole('checkbox', { name: /I understand this cannot be undone/i }));
   fireEvent.click(screen.getByRole('button', { name: 'Discard change' }));
@@ -108,16 +134,11 @@ test('a change that syncs before discard confirmation is preserved', async () =>
 test('unknown outcomes cannot be retried or discarded as unsent changes', async () => {
   renderSyncStatus(makeItem('CONFLICT'));
 
-  const drawer = await screen.findByRole('dialog', { name: 'Sync change details' });
-  fireEvent.click(within(drawer).getByRole('button', { name: 'Retry' }));
+  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
   expect(offlineQueue.updateOperationStatus).not.toHaveBeenCalled();
-  expect(screen.getByText(/server outcome is unknown/i)).toBeInTheDocument();
-
-  fireEvent.click(within(drawer).getByRole('button', { name: 'Discard' }));
-  expect(screen.getByRole('dialog', { name: 'This change needs attention' })).toBeInTheDocument();
-  expect(screen.getByText(/cannot be safely retried or discarded/i)).toBeInTheDocument();
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Discard change' })).not.toBeInTheDocument();
+  expect(within(drawer).getByText(/could not confirm whether this change was saved/i)).toBeInTheDocument();
+  expect(within(drawer).queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  expect(within(drawer).queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument();
 });
 
 test('BHWs can download offline data from Sync Status and inspect included datasets', async () => {
@@ -165,9 +186,30 @@ test('BHWs can download offline data from Sync Status and inspect included datas
   await waitFor(() => expect(downloadOfflineData).toHaveBeenCalledTimes(1));
 });
 
-test('BHWs see server-confirmed activity separately from their private local queue', async () => {
+test('Synced History contains only confirmed offline changes and shows simple details', async () => {
+  const offlineSyncedItem = {
+    ...makeItem('SYNCED'),
+    userId: '8',
+    syncedAt: '2026-11-16T00:01:00.000Z',
+  };
+  const onlineSyncedItem = {
+    ...makeItem('SYNCED'),
+    userId: '8',
+    offlineOperationId: 'online-write',
+    savedOffline: false,
+    payload: { first_name: 'Online', last_name: 'Record' },
+    localRecord: { first_name: 'Online', last_name: 'Record' },
+  };
+  const otherAccountItem = {
+    ...makeItem('SYNCED'),
+    offlineOperationId: 'other-account',
+    userId: '99',
+    payload: { first_name: 'Private', last_name: 'Resident' },
+    localRecord: { first_name: 'Private', last_name: 'Resident' },
+    syncedAt: '2026-11-16T00:02:00.000Z',
+  };
   useSyncStatus.mockReturnValue({
-    items: [],
+    items: [offlineSyncedItem, onlineSyncedItem, otherAccountItem],
     online: true,
     syncing: false,
     setSyncing: jest.fn(),
@@ -181,21 +223,6 @@ test('BHWs see server-confirmed activity separately from their private local que
     waiting: 0,
     lastSynced: null,
   });
-  api.get.mockResolvedValue({
-    data: {
-      success: true,
-      data: {
-        items: [{
-          table_name: 'adult_bmi_records',
-          operation: 'POST',
-          server_record_id: 91,
-          actor_name: 'BHW Account A',
-          created_at: '2026-11-16T00:01:00.000Z',
-        }],
-      },
-    },
-  });
-
   render(
     <MemoryRouter>
       <AuthContext.Provider value={{ user: { user_id: 8, role: 'bhw' }, offlineVaultReady: true }}>
@@ -204,10 +231,16 @@ test('BHWs see server-confirmed activity separately from their private local que
     </MemoryRouter>
   );
 
-  expect(await screen.findByText(/Synced by BHW Account A/)).toBeInTheDocument();
-  expect(screen.getByText('Adult BMI record')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Open nutrition records' })).toHaveAttribute('href', '/nutrition?type=Adult%20BMI');
-  expect(api.get).toHaveBeenCalledWith('/sync/activity');
+  expect(await screen.findByText('Synced History')).toBeInTheDocument();
+  expect(screen.getByText('Test Resident')).toBeInTheDocument();
+  expect(screen.queryByText('Online Record')).not.toBeInTheDocument();
+  expect(screen.queryByText('Private Resident')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /View synced Resident registration for Test Resident/i }));
+  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
+  expect(within(drawer).getByText('Synced successfully')).toBeInTheDocument();
+  expect(within(drawer).getByText(/confirmed this change was saved/i)).toBeInTheDocument();
+  expect(within(drawer).queryByText(/offlineOperationId|raw JSON|technical ID/i)).not.toBeInTheDocument();
+  expect(api.get).not.toHaveBeenCalled();
 });
 
 test('locked local queue is not described as fully synchronized', async () => {
