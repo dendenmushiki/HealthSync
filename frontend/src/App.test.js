@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
 import { AppContent } from './App.jsx';
@@ -27,8 +27,16 @@ jest.mock('./services/offline/useSyncStatus', () => ({
   default: () => {
     const React = require('react');
     const refresh = React.useCallback(() => Promise.resolve(), []);
-    return { pending: 0, failed: 0, refresh };
+    return {
+      pending: 0,
+      failed: 0,
+      online: true,
+      dashboardRequestFailed: false,
+      setDashboardRequestFailed: jest.fn(),
+      refresh,
+    };
   },
+  SyncStatusProvider: ({ children }) => children,
 }));
 
 const dashboardSummary = {
@@ -190,6 +198,76 @@ test('uses the existing unlock screen for a legacy PIN-only vault without a prep
   localStorage.clear();
 });
 
+test('shows the PIN form for a previously authorized device after an offline refresh', async () => {
+  const previousOnLine = navigator.onLine;
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+  localStorage.clear();
+  localStorage.setItem('hs_offline_device_id', 'device-local');
+  localStorage.setItem('hs_offline_session', JSON.stringify({
+    version: 2,
+    userId: '7',
+    role: 'bhw',
+    deviceId: 'device-local',
+    createdAt: Date.now(),
+  }));
+  render(
+    <AuthContext.Provider value={{
+      user: { ...bhwUser, device_id: 'device-local', offline_pin_enrolled: true },
+      loading: false,
+      token: 'server-token',
+      offlineVaultReady: false,
+      offlineVaultNeedsUnlock: false,
+      offlineVaultError: null,
+      sessionCleanupError: null,
+      updateUser: jest.fn(),
+      unlockOfflineAccess: jest.fn(),
+      logout: jest.fn(),
+      lockOfflineAccess: jest.fn(),
+      lockForAccountSwitch: jest.fn(),
+    }}>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <AppContent />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  expect(screen.getByLabelText('PIN digit 1 of 6')).toBeInTheDocument();
+  expect(screen.queryByText(/Offline authorization is unavailable for this account or device/)).not.toBeInTheDocument();
+  localStorage.clear();
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: previousOnLine });
+});
+
+test('explains missing local authorization without showing a PIN form offline', async () => {
+  const previousOnLine = navigator.onLine;
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+  localStorage.clear();
+  render(
+    <AuthContext.Provider value={{
+      user: { ...bhwUser, device_id: 'device-local', offline_pin_enrolled: true },
+      loading: false,
+      token: 'server-token',
+      offlineVaultReady: false,
+      offlineVaultNeedsUnlock: false,
+      offlineVaultError: null,
+      sessionCleanupError: null,
+      updateUser: jest.fn(),
+      unlockOfflineAccess: jest.fn(),
+      logout: jest.fn(),
+      lockOfflineAccess: jest.fn(),
+      lockForAccountSwitch: jest.fn(),
+    }}>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <AppContent />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  expect(screen.getByText(/Offline authorization is unavailable for this account or device/)).toBeInTheDocument();
+  expect(screen.queryByLabelText('PIN digit 1 of 6')).not.toBeInTheDocument();
+  localStorage.clear();
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: previousOnLine });
+});
+
 test('renders actual dashboard summary metrics and method-specific charts', async () => {
   api.get.mockResolvedValue({
     data: { success: true, data: dashboardSummary },
@@ -249,7 +327,10 @@ test('does not synthesize dashboard metrics from a legacy or incomplete response
     </MemoryRouter>
   );
 
-  expect(await screen.findByRole('alert')).toHaveTextContent(/did not contain a valid community summary/i);
+  expect(await screen.findByText(/couldn't complete that request/i)).toBeInTheDocument();
+  const banner = screen.getByText(/couldn't complete that request/i).closest('.hs-status-banner');
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(banner).toHaveTextContent(/did not contain a valid community summary/i);
   expect(screen.queryByText('240')).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: /population distribution/i })).not.toBeInTheDocument();
 });

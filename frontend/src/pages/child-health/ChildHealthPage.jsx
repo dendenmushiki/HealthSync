@@ -4,6 +4,8 @@ import { getResident } from '../../services/api/residentService';
 import { listChildHealthRecords, createChildHealthRecord, deleteChildHealthRecord, updateChildHealthRecord } from '../../services/api/childHealthService';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import { formatDateLabel, getLocalDateInputValue } from '../../utils/dateUtils';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const initialForm = {
   family_serial_number: '',
@@ -75,7 +77,8 @@ const ChildHealthPage = () => {
           }
         }
       } catch (err) {
-        setError('Unable to load child health records.');
+        console.error('Unable to load child health records.', err);
+        setError(err);
       } finally {
         setLoading(false);
       }
@@ -123,10 +126,11 @@ const ChildHealthPage = () => {
         const refreshed = await listChildHealthRecords({ resident_id: id, page: 1, limit: 20 });
         if (refreshed?.success) setRecords(refreshed.data?.items || []);
       } else {
-        setError(response?.message || 'Unable to save child health record.');
+        setError(getFriendlyError(response?.message || 'Unable to save child health record.'));
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to save child health record.');
+      console.error('Unable to save child health record.', err);
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -139,7 +143,8 @@ const ChildHealthPage = () => {
       setRecords((current) => current.filter((record) => record.id !== recordToDelete.id));
       setRecordToDelete(null);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to delete child health record.');
+      console.error('Unable to delete child health record.', err);
+      setError(err);
     } finally {
       setDeleting(false);
     }
@@ -157,7 +162,7 @@ const ChildHealthPage = () => {
         <Link to={`/residents/${id}`} className="page-action-button page-action-back"><span aria-hidden="true">&#8592;</span> Back to resident</Link>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && <StatusBanner error={error} compact />}
       {successMessage && <div className="alert alert-info" role="status">{successMessage}</div>}
 
       <div className="healthsync-form-shell">

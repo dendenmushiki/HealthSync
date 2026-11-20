@@ -20,7 +20,7 @@ const mapValidationErrors = (message) => {
   return Object.keys(errors).length ? errors : undefined;
 };
 
-const getResidentAssessment = async (input = {}) => {
+const getResidentAssessment = async (input = {}, connection = pool) => {
   if (!input || typeof input !== 'object') {
     const error = new Error('Measurement details are required.');
     error.statusCode = 400;
@@ -33,7 +33,7 @@ const getResidentAssessment = async (input = {}) => {
     throw error;
   }
 
-  const [residents] = await pool.query(
+  const [residents] = await connection.query(
     "SELECT resident_id, DATE_FORMAT(birthdate, '%Y-%m-%d') AS birthdate, sex FROM residents WHERE resident_id = ?",
     [residentId]
   );
@@ -206,18 +206,21 @@ const getOperationTimbang = async (req, res) => {
  */
 const createOperationTimbang = async (req, res) => {
   let conn;
+  const ownsConnection = !req.idempotencyConnection;
   let transactionActive = false;
   try {
-    const { resident, assessment } = await getResidentAssessment(req.body);
+    const { resident, assessment } = await getResidentAssessment(req.body, req.idempotencyConnection || pool);
     const residentId = resident.resident_id;
     const weightKg = Number(req.body.weight_kg);
     const measurementCm = Number(req.body.measurement_cm);
     const { measurement_type: measurementType, date_recorded: dateRecorded } = req.body;
     const userId = req.user.user_id;
 
-    conn = await pool.getConnection();
-    await conn.beginTransaction();
-    transactionActive = true;
+    conn = req.idempotencyConnection || await pool.getConnection();
+    if (ownsConnection) {
+      await conn.beginTransaction();
+      transactionActive = true;
+    }
     try {
       const [timbangResult] = await conn.query(
         `INSERT INTO operation_timbang
@@ -241,8 +244,10 @@ const createOperationTimbang = async (req, res) => {
           assessment.wflh_status,
         ]
       );
-      await conn.commit();
-      transactionActive = false;
+      if (ownsConnection) {
+        await conn.commit();
+        transactionActive = false;
+      }
 
       await writeAudit({
         user_id: userId,
@@ -251,6 +256,7 @@ const createOperationTimbang = async (req, res) => {
         table_name: 'operation_timbang',
         record_id: timbangId,
         new_data: { resident_id: residentId, weight_kg: weightKg, measurement_cm: measurementCm, measurement_type: measurementType, date_recorded: dateRecorded },
+        connection: req.idempotencyConnection,
       });
       await writeAudit({
         user_id: userId,
@@ -259,6 +265,7 @@ const createOperationTimbang = async (req, res) => {
         table_name: 'operation_timbang_assessments',
         record_id: assessmentResult.insertId,
         new_data: { timbang_id: timbangId, ...assessment },
+        connection: req.idempotencyConnection,
       });
 
       const [fullRecord] = await conn.query(
@@ -271,7 +278,7 @@ const createOperationTimbang = async (req, res) => {
       );
       return res.status(201).json({ success: true, data: fullRecord[0] });
     } catch (error) {
-      if (transactionActive) {
+      if (transactionActive && ownsConnection) {
         try {
           await conn.rollback();
           transactionActive = false;
@@ -286,7 +293,7 @@ const createOperationTimbang = async (req, res) => {
     logger.error('createOperationTimbang error', error);
     return res.status(500).json({ success: false, message: 'Unable to save Operation Timbang record.' });
   } finally {
-    if (conn) conn.release();
+    if (conn && ownsConnection) conn.release();
   }
 };
 

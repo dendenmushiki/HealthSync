@@ -5,6 +5,8 @@ import Pagination from '../../components/common/Pagination';
 import { AuthContext } from '../../context/AuthContext';
 import { formatDateTime, formatRelativeTime } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 import './UserManagementPage.css';
 
 const ROLES = [
@@ -416,7 +418,8 @@ const UserManagementPage = () => {
       setTotal(Number(response.data.total || 0));
       setCounts((current) => ({ ...current, ...(response.data.counts || {}) }));
     } catch (error) {
-      setLoadError(error.response?.data?.message || error.message || 'Unable to load users.');
+      console.error('Unable to load users.', error);
+      setLoadError(error);
     } finally {
       setLoading(false);
     }
@@ -440,7 +443,10 @@ const UserManagementPage = () => {
         if (!response.data?.success) throw new Error(response.data?.message || 'Unable to load user details.');
         if (active) setDetail(response.data.data);
       })
-      .catch((error) => { if (active) setDetailError(error.response?.data?.message || error.message || 'Unable to load user details.'); })
+      .catch((error) => {
+        console.error('Unable to load user details.', error);
+        if (active) setDetailError(error);
+      })
       .finally(() => { if (active) setDetailLoading(false); });
     return () => { active = false; };
   }, [detailReload, drawerMode, selectedUserId]);
@@ -463,7 +469,8 @@ const UserManagementPage = () => {
         if (active) setOfflineDevices(response.data.data || []);
       })
       .catch((error) => {
-        if (active) setOfflineDevicesError(error.response?.data?.message || error.message || 'Unable to load authorized devices.');
+        console.error('Unable to load authorized devices.', error);
+        if (active) setOfflineDevicesError(error);
       })
       .finally(() => { if (active) setOfflineDevicesLoading(false); });
     return () => { active = false; };
@@ -485,7 +492,8 @@ const UserManagementPage = () => {
         const response = await api.get('/users/check-username', { params: { username: newForm.username.trim() } });
         if (active) setNewUsernameCheck({ checking: false, available: response.data?.available === true, error: response.data?.message || '' });
       } catch (error) {
-        if (active) setNewUsernameCheck({ checking: false, available: null, error: error.response?.data?.message || 'Could not verify username availability.' });
+        console.error('Unable to check username availability.', error);
+        if (active) setNewUsernameCheck({ checking: false, available: null, error: getFriendlyError(error) });
       }
     }, 350);
     return () => { active = false; window.clearTimeout(timer); };
@@ -507,7 +515,8 @@ const UserManagementPage = () => {
         const response = await api.get('/users/check-username', { params: { username: editForm.username.trim(), exclude: detail.user_id } });
         if (active) setEditUsernameCheck({ checking: false, available: response.data?.available === true, error: response.data?.message || '' });
       } catch (error) {
-        if (active) setEditUsernameCheck({ checking: false, available: null, error: error.response?.data?.message || 'Could not verify username availability.' });
+        console.error('Unable to check username availability.', error);
+        if (active) setEditUsernameCheck({ checking: false, available: null, error: getFriendlyError(error) });
       }
     }, 350);
     return () => { active = false; window.clearTimeout(timer); };
@@ -622,7 +631,8 @@ const UserManagementPage = () => {
       setOfflineDevices(refreshed.data.data || []);
       setToast(response.data.message || (action === 'approve' ? 'Device approved.' : 'Device revoked.'));
     } catch (error) {
-      setOfflineDevicesError(error.response?.data?.message || error.message || 'Unable to update device authorization.');
+      console.error('Unable to update device authorization.', error);
+      setOfflineDevicesError(error);
     } finally {
       setSaving(false);
     }
@@ -675,7 +685,8 @@ const UserManagementPage = () => {
         navigate('/login', { replace: true });
       }
     } catch (error) {
-      setActionError(error.response?.data?.message || error.message || 'The action could not be completed.');
+      console.error('Unable to complete user action.', error);
+      setActionError(error);
     } finally {
       setSaving(false);
     }
@@ -709,7 +720,8 @@ const UserManagementPage = () => {
       await fetchUsers();
     } catch (error) {
       setEditErrors(error.response?.data?.fieldErrors || {});
-      setActionError(error.response?.data?.message || error.message || 'Unable to save changes.');
+      console.error('Unable to save user changes.', error);
+      setActionError(error);
     } finally {
       setSaving(false);
     }
@@ -743,7 +755,8 @@ const UserManagementPage = () => {
       await fetchUsers();
     } catch (error) {
       setNewErrors(error.response?.data?.fieldErrors || {});
-      setActionError(error.response?.data?.message || error.message || 'Unable to create user.');
+      console.error('Unable to create user.', error);
+      setActionError(error);
     } finally {
       setSaving(false);
     }
@@ -772,7 +785,7 @@ const UserManagementPage = () => {
             <button type="button" className="users-icon-button" aria-label="Close add user drawer" onClick={requestCloseDrawer}>×</button>
           </div>
           <form className="users-drawer-content users-add-form" onSubmit={handleCreate} noValidate>
-            {actionError && <div className="users-inline-alert" role="alert">{actionError}</div>}
+            {actionError && <StatusBanner error={actionError} compact />}
             <div className="users-form-field">
               <label htmlFor="new-full-name">Full name</label>
               <input id="new-full-name" autoComplete="name" maxLength="120" value={newForm.full_name} onChange={(event) => updateNewForm('full_name', event.target.value)} aria-invalid={Boolean(newErrors.full_name)} />
@@ -847,7 +860,7 @@ const UserManagementPage = () => {
                 <p>Sign in using these credentials. You will be asked to choose your own password at first login.</p>
               </div>
             </> : <div className="users-empty-state"><strong>For your security, the password is not recoverable.</strong><p>Generate a new temporary password by resetting this user’s password.</p></div>}
-            {actionError && <div className="users-inline-alert" role="alert">{actionError}</div>}
+            {actionError && <StatusBanner error={actionError} compact />}
             <div className="users-drawer-footer"><button type="button" className="users-button users-button-primary" onClick={requestCloseDrawer}>Done</button></div>
           </div>
         </UserDrawer>
@@ -870,7 +883,7 @@ const UserManagementPage = () => {
         </div>
         <div className="users-drawer-content users-detail-content">
           {detailLoading && <div className="users-detail-skeleton" aria-label="Loading user details"><span /><span /><span /><span /></div>}
-          {!detailLoading && detailError && <div className="users-error-state" role="alert"><p>{detailError}</p>          <button type="button" className="users-button users-button-outline" onClick={() => setDetailReload((current) => current + 1)}>Try again</button></div>}
+          {!detailLoading && detailError && <StatusBanner error={detailError} retry={() => setDetailReload((current) => current + 1)} compact />}
           {!detailLoading && detail && detailTab === 'profile' && <>
             {detail.protected && <div className="users-protected-chip" title="The primary HealthSync admin account is managed through its own Settings page.">🔒 Protected — managed through Settings</div>}
             {editMode ? (
@@ -888,7 +901,7 @@ const UserManagementPage = () => {
                 <RoleSelector value={editForm.role} onChange={(value) => updateEditForm('role', value)}
                   disabled={Boolean(detail.protected || Number(detail.user_id) === Number(currentUser?.user_id))} idPrefix="edit" />
                 {editErrors.role && <small className="users-field-error">{editErrors.role}</small>}
-                {actionError && <div className="users-inline-alert" role="alert">{actionError}</div>}
+                {actionError && <StatusBanner error={actionError} compact />}
                 <div className="users-detail-save-bar">
                   <button type="button" className="users-button users-button-outline" onClick={() => { setEditForm(savedEditForm); setEditMode(false); setEditErrors({}); }}>Cancel</button>
                   <button type="submit" className="users-button users-button-primary" disabled={!isEditDirty || editUsernameCheck.available !== true || saving}>
@@ -927,7 +940,7 @@ const UserManagementPage = () => {
             <section className="users-offline-devices" aria-label="Offline authorized devices">
               <h3>Offline authorized devices</h3>
               <p>Revoked devices lose access when they reconnect. A disconnected device may remain usable until then.</p>
-              {offlineDevicesError && <div className="users-inline-alert" role="alert">{offlineDevicesError}</div>}
+              {offlineDevicesError && <StatusBanner error={offlineDevicesError} compact />}
               {offlineDevicesLoading ? <p>Loading devices…</p> : offlineDevices.length ? (
                 <ul>
                   {offlineDevices.map((device) => (
@@ -996,7 +1009,7 @@ const UserManagementPage = () => {
         })}
       </section>
 
-      {actionError && !drawerMode && <div className="users-page-alert" role="alert">{actionError}<button type="button" aria-label="Dismiss error" onClick={() => setActionError('')}>×</button></div>}
+      {actionError && !drawerMode && <StatusBanner error={actionError} compact />}
       <section className="users-directory-card" aria-label="System users directory">
         <div className="users-directory-heading"><div><h2>System users</h2><p>Current access roster</p></div>
           <span className="users-result-count" aria-live="polite">{loading ? 'Updating users…' : `${total} result${total === 1 ? '' : 's'}`}</span>
@@ -1020,7 +1033,7 @@ const UserManagementPage = () => {
           <button type="button" className="users-clear-filters" onClick={clearFilters}>Clear all</button>
         </div>}
 
-        {loadError ? <div className="users-error-state" role="alert"><strong>Couldn’t load users</strong><p>{loadError}</p><button type="button" className="users-button users-button-outline" onClick={fetchUsers}>Try again</button></div> : (
+        {loadError ? <StatusBanner error={loadError} retry={fetchUsers} /> : (
           <>
             <div className="users-table-wrap">
               <table className="users-table">
@@ -1096,7 +1109,7 @@ const UserManagementPage = () => {
               <input id="admin-current-password" type="password" autoComplete="current-password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} /></div>
             <p className="users-modal-note">The reset signs out all active sessions. The user must choose a new password at next sign-in.</p>
           </>}
-          {actionError && <div className="users-inline-alert" role="alert">{actionError}</div>}
+          {actionError && <StatusBanner error={actionError} compact />}
         </div>
         <div className="users-modal-actions">
           <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => setConfirmAction(null)}>Cancel</button>

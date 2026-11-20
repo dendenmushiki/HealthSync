@@ -33,3 +33,12 @@ test('persists a nonextractable private key and verifies its signed device chall
   expect(idb.addToStore).toHaveBeenCalledWith('offlineDevices', identity);
   expect(signature).toBeTruthy();
 });
+
+test('does not create or replace a missing identity during authorization checks', async () => {
+  localStorage.setItem('hs_offline_device_id', 'previously-authorized-device');
+
+  await expect(getDeviceIdentity({ createIfMissing: false })).resolves.toBeNull();
+
+  expect(idb.addToStore).not.toHaveBeenCalled();
+  expect(localStorage.getItem('hs_offline_device_id')).toBe('previously-authorized-device');
+});

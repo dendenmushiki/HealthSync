@@ -13,7 +13,7 @@ const {
 
 router.get('/', authenticateToken, authorizeRole(['bhw']), listChildHealthRecords);
 router.get('/:id', authenticateToken, authorizeRole(['bhw']), getChildHealthRecord);
-router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records'), createChildHealthRecord);
+router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records', { atomic: true }), createChildHealthRecord);
 router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records'), updateChildHealthRecord);
 router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('child_health', 'child_health_records'), deleteChildHealthRecord);
 

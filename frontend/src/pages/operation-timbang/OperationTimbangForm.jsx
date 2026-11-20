@@ -3,6 +3,7 @@ import ResidentAutocomplete from '../../components/residents/ResidentAutocomplet
 import { calculateOperationTimbang, createOperationTimbang } from '../../services/api/operationTimbangService';
 import { formatResidentName, normalizeResidentId } from '../../utils/residentUtils';
 import OperationTimbangFormRedesign from './OperationTimbangFormRedesign';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const getLocalDateString = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -115,10 +116,11 @@ const OperationTimbangForm = ({ onSaved }) => {
           measurement_type: form.measurement_type,
         });
         if (active && response?.success) setPreview(response.data);
-        else if (active) setCalculationError(response?.message || 'Unable to calculate nutritional status. Please check the measurements and required child information.');
+        else if (active)         setCalculationError(response?.message || 'Unable to calculate nutritional status. Please check the measurements and required child information.');
       } catch (calculationFailure) {
         if (active) {
-          setCalculationError(calculationFailure.response?.data?.message || 'Unable to calculate nutritional status. Please check the measurements and required child information.');
+          console.error('Unable to calculate Operation Timbang status.', calculationFailure);
+          setCalculationError(calculationFailure);
         }
       } finally {
         if (active) setCalculating(false);
@@ -175,7 +177,8 @@ const OperationTimbangForm = ({ onSaved }) => {
       setSelectedResident(null);
       if (onSaved) onSaved();
     } catch (saveFailure) {
-      setError(saveFailure.response?.data?.message || 'Unable to save Operation Timbang record.');
+      console.error('Unable to save Operation Timbang record.', saveFailure);
+      setError(saveFailure);
     } finally {
       setSaving(false);
     }
@@ -191,8 +194,10 @@ const OperationTimbangForm = ({ onSaved }) => {
           <p>Operation Timbang child measurement</p>
         </div>
 
-        {error && <div className="alert alert-danger" role="alert">{error}</div>}
-        {calculationError && <div className="alert alert-warning" role="status">{calculationError}</div>}
+        {error && <StatusBanner error={error} compact />}
+        {calculationError && (typeof calculationError === 'string'
+          ? <div className="alert alert-warning" role="status">{calculationError}</div>
+          : <StatusBanner error={calculationError} compact />)}
 
         <form onSubmit={handleSubmit} className="healthsync-form">
           <section className="healthsync-form-section">

@@ -13,6 +13,8 @@ import {
 } from '../../services/offline/offlineVaultService';
 import { createOfflineSession } from '../../services/offline/offlineSessionService';
 import PinDigitInput from '../../components/common/PinDigitInput';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const SECTIONS = [
   { id: 'profile', label: 'Profile' },
@@ -187,7 +189,8 @@ const AdminSettingsPage = () => {
         localStorage.setItem('hs_preferences', JSON.stringify(nextPreferences));
         setLoginHistory(response.data.data.loginHistory || []);
       } catch (loadError) {
-        if (active) setError(loadError.response?.data?.message || loadError.message || 'Unable to load account settings.');
+        console.error('Unable to load account settings.', loadError);
+        if (active) setError(loadError);
       } finally {
         if (active) setLoading(false);
       }
@@ -224,7 +227,8 @@ const AdminSettingsPage = () => {
         if (active) setAuthorizedDevices(response.data.data || []);
       })
       .catch((error) => {
-        if (active) setDevicesError(error.response?.data?.message || error.message || 'Unable to load authorized devices.');
+        console.error('Unable to load authorized devices.', error);
+        if (active) setDevicesError(error);
       });
     return () => { active = false; };
   }, [selectedSection]);
@@ -312,9 +316,8 @@ const AdminSettingsPage = () => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       showToast('Profile photo saved.');
     } catch (uploadError) {
-      const errorMessage = uploadError.response?.data?.message || uploadError.message || 'Unable to save profile photo.';
-      setPhotoError(errorMessage);
-      showToast(errorMessage, 'error');
+      setPhotoError(uploadError);
+      showToast(getFriendlyError(uploadError), 'error');
     } finally {
       setPhotoBusy(false);
     }
@@ -333,9 +336,8 @@ const AdminSettingsPage = () => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       showToast('Profile photo removed.');
     } catch (removeError) {
-      const errorMessage = removeError.response?.data?.message || removeError.message || 'Unable to remove profile photo.';
-      setPhotoError(errorMessage);
-      showToast(errorMessage, 'error');
+      setPhotoError(removeError);
+      showToast(getFriendlyError(removeError), 'error');
     } finally {
       setPhotoBusy(false);
     }
@@ -386,8 +388,8 @@ const AdminSettingsPage = () => {
     } catch (saveError) {
       const serverMessage = saveError.response?.data?.message || saveError.message || 'Failed to save settings.';
       if (saveError.response?.status === 409) setUsernameError(serverMessage);
-      else setError(serverMessage);
-      showToast(serverMessage, 'error');
+      else setError(saveError);
+      showToast(getFriendlyError(saveError), 'error');
     } finally {
       setSaving(false);
     }
@@ -450,9 +452,8 @@ const AdminSettingsPage = () => {
         },
       });
     } catch (passwordError) {
-      const errorMessage = passwordError.response?.data?.message || passwordError.message || 'Unable to update password.';
-      setError(errorMessage);
-      showToast(errorMessage, 'error');
+      setError(passwordError);
+      showToast(getFriendlyError(passwordError), 'error');
     } finally {
       setSecurityBusy(false);
     }
@@ -549,9 +550,8 @@ const AdminSettingsPage = () => {
       if (!hasDevicePin) {
         setPinMessage('PIN enrollment did not finish. You can retry without losing queued offline changes.');
       }
-      const message = pinError.response?.data?.message || pinError.message || 'Unable to save PIN.';
-      setError(message);
-      showToast(message, 'error');
+      setError(pinError);
+      showToast(getFriendlyError(pinError), 'error');
     } finally {
       setSecurityBusy(false);
     }
@@ -580,9 +580,8 @@ const AdminSettingsPage = () => {
       setDevicePassword('');
       showToast('Device authorization revoked.');
     } catch (revokeError) {
-      const message = revokeError.response?.data?.message || revokeError.message || 'Unable to revoke device.';
-      setDevicesError(message);
-      showToast(message, 'error');
+      setDevicesError(revokeError);
+      showToast(getFriendlyError(revokeError), 'error');
     } finally {
       setSecurityBusy(false);
     }
@@ -598,9 +597,8 @@ const AdminSettingsPage = () => {
       logout({ skipServer: true });
       navigate('/login', { replace: true, state: { message: 'All devices have been signed out. Please sign in again.' } });
     } catch (revokeError) {
-      const errorMessage = revokeError.response?.data?.message || revokeError.message || 'Unable to sign out other devices.';
-      setError(errorMessage);
-      showToast(errorMessage, 'error');
+      setError(revokeError);
+      showToast(getFriendlyError(revokeError), 'error');
       setSecurityBusy(false);
     }
   };
@@ -638,9 +636,8 @@ const AdminSettingsPage = () => {
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (exportError) {
-      const errorMessage = exportError.response?.data?.message || 'Unable to download account activity.';
-      setError(errorMessage);
-      showToast(errorMessage, 'error');
+      setError(exportError);
+      showToast(getFriendlyError(exportError), 'error');
     }
   };
 
@@ -663,7 +660,7 @@ const AdminSettingsPage = () => {
           </div>}
         </div>
         <div className="settings-main">
-          {error && <div className="settings-error" role="alert">{error}</div>}
+          {error && <StatusBanner error={error} compact />}
           {loading ? (
             <div className="settings-loading" role="status" aria-label="Loading settings"><span /><span /><span /></div>
           ) : (
@@ -682,7 +679,7 @@ const AdminSettingsPage = () => {
                     <div className="settings-photo-actions">
                       <button type="button" className="settings-primary-button" disabled={!photoFile || photoBusy} onClick={handlePhotoUpload}>{photoBusy ? 'Saving photo…' : 'Save photo'}</button>
                       {user?.profile_photo && <button type="button" className="settings-text-button" disabled={photoBusy} onClick={handlePhotoRemove}>Remove photo</button>}
-                      {photoError && <p className="settings-inline-error" role="alert">{photoError}</p>}
+                      {photoError && <StatusBanner error={photoError} compact />}
                     </div>
                   </div>
                 </SettingCard>
@@ -774,7 +771,7 @@ const AdminSettingsPage = () => {
                   <div className="settings-danger-zone"><div><strong>Log out of all devices</strong><span>This signs out every active device, including this one.</span></div><button type="button" className="settings-outline-danger" onClick={() => setShowRevokeModal(true)}>Log out all devices</button></div>
                 </SettingCard>
                 <SettingCard title="Offline devices" description="Device revocation takes effect when the device reconnects. A device that remains disconnected cannot receive revocation updates.">
-                  {devicesError && <p className="settings-inline-error" role="alert">{devicesError}</p>}
+                  {devicesError && <StatusBanner error={devicesError} compact />}
                   {authorizedDevices.length ? <ul>
                     {authorizedDevices.map((device) => <li key={device.device_id}>
                       {device.device_id === user?.device_id ? 'This device' : `Device ${device.device_id.slice(0, 8)}`} · {device.status.toLowerCase()}

@@ -25,7 +25,7 @@ import RoleGuard from './components/layout/RoleGuard';
 import SyncStatus from './pages/SyncStatus';
 import ReportsPage from './pages/reports/ReportsPage';
 import { getProfilePhotoUrl } from './utils/profilePhoto';
-import useSyncStatus from './services/offline/useSyncStatus';
+import useSyncStatus, { SyncStatusProvider } from './services/offline/useSyncStatus';
 import { getOfflineSession } from './services/offline/offlineSessionService';
 import './App.css';
 import './nutrition.css';
@@ -151,6 +151,7 @@ export function AppContent() {
   const offlineAuthorized = Boolean(offlineGrant && user &&
     String(offlineGrant.userId) === String(user.user_id) &&
     offlineGrant.role === user.role &&
+    offlineGrant.deviceId === user.device_id &&
     offlineGrant.deviceId === localStorage.getItem('hs_offline_device_id') &&
     user.offline_pin_enrolled && !user.must_change_password && !user.offline_pin_setup_required);
 
@@ -190,7 +191,7 @@ export function AppContent() {
         unlockOfflineAccess={unlockOfflineAccess}
         logout={logout}
         online={online}
-        authorized={false}
+        authorized={offlineAuthorized}
         migrationRequired={false}
         offlineVaultError={offlineVaultError}
       />
@@ -315,6 +316,14 @@ function SessionSyncGuard() {
 export default App;
 
 function AppShell() {
+  return (
+    <SyncStatusProvider>
+      <AppShellContent />
+    </SyncStatusProvider>
+  );
+}
+
+function AppShellContent() {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -335,6 +344,14 @@ function AppShell() {
   const isOfficial = user?.role === 'official' || user?.role === 'barangay_official';
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
   const syncHeaderState = useSyncStatus();
+  const syncUnavailable = !syncHeaderState.online || syncHeaderState.dashboardRequestFailed;
+  const syncHeaderLabel = syncUnavailable
+    ? 'Offline'
+    : syncHeaderState.syncing
+      ? 'Syncing'
+      : syncHeaderState.waiting
+        ? `${syncHeaderState.waiting} waiting`
+        : 'Synced';
 
   useEffect(() => {
     setProfilePhotoLoadError(false);
@@ -500,7 +517,7 @@ function AppShell() {
             <div className="healthsync-topbar-title"><span>Barangay Health Monitoring</span></div>
           </div>
           <div className="healthsync-topbar-user" aria-label={user ? `Signed in as ${user.username || user.name || 'User'}, ${user.role || 'User'}` : 'Account'}>
-            {!isAdmin && !isOfficial && <NavLink className={`healthsync-sync-chip ${syncHeaderState.online ? 'online' : 'offline'}`} to="/sync-status" title="Open sync status"><span aria-hidden="true" />{syncHeaderState.syncing ? 'Syncing' : syncHeaderState.waiting ? `${syncHeaderState.waiting} waiting` : 'Synced'}</NavLink>}
+            {!isAdmin && !isOfficial && <NavLink className={`healthsync-sync-chip ${syncUnavailable ? 'offline' : 'online'}`} to="/sync-status" title="Open sync status"><span aria-hidden="true" />{syncHeaderLabel}</NavLink>}
             {user && <div className="healthsync-notification-wrap">
               <button type="button" className="healthsync-notification-button" aria-label={`Notifications${notifications.some((item) => !item.read) ? `, ${notifications.filter((item) => !item.read).length} unread` : ''}`} aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen((open) => !open); if (!notificationsOpen) setNotifications((items) => items.map((item) => ({ ...item, read: true }))); }}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>

@@ -1,10 +1,11 @@
 import idb from './indexedDbService';
-import { getOfflineSession } from './offlineSessionService';
+import { getOfflineSession, isOfflinePinRequired } from './offlineSessionService';
 import { verifyDevicePossession } from './deviceIdentityService';
 
 const VAULT_VERSION = 3;
 const PBKDF2_ITERATIONS = 600000;
 const BLOB_MARKER = '__healthsync_offline_blob_v1__';
+const SESSION_UNLOCK_KEY = 'hs_offline_vault_session_unlock';
 const memoryKeys = new Map();
 
 function getCrypto() {
@@ -84,6 +85,88 @@ async function deriveKey(credential, salt, iterations) {
 
 function wrappedKeyAad(userId, role) {
   return encodeText(JSON.stringify(['healthsync-offline-vault', VAULT_VERSION, userId, role, 'wrapped-key']));
+}
+
+// Tab-scoped storage keeps the current online session unlocked across refreshes.
+function getSessionUnlockRecord() {
+  const raw = sessionStorage.getItem(SESSION_UNLOCK_KEY);
+  if (!raw) return null;
+  try {
+    const record = JSON.parse(raw);
+    if (record?.version === 1 && record.userId && record.role && record.deviceId &&
+        Array.isArray(record.rawKey) && record.rawKey.length === 64 &&
+        record.rawKey.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+      return record;
+    }
+  } catch (error) {
+    sessionStorage.removeItem(SESSION_UNLOCK_KEY);
+    return null;
+  }
+  sessionStorage.removeItem(SESSION_UNLOCK_KEY);
+  return null;
+}
+
+function rememberSessionUnlock(userId, role, rawKey) {
+  const grant = getOfflineSession();
+  if (!grant || String(grant.userId) !== userId || grant.role !== role || !grant.deviceId) return false;
+  sessionStorage.setItem(SESSION_UNLOCK_KEY, JSON.stringify({
+    version: 1,
+    userId,
+    role,
+    deviceId: grant.deviceId,
+    rawKey: Array.from(rawKey),
+  }));
+  return true;
+}
+
+export function hasOfflineVaultSessionUnlock({ userId, role, deviceId }) {
+  const ownerId = normalizeUserId(userId);
+  if (isOfflinePinRequired(ownerId)) return false;
+  const grant = getOfflineSession();
+  const record = getSessionUnlockRecord();
+  const matches = Boolean(record && grant &&
+    record.userId === ownerId && record.role === role && record.deviceId === deviceId &&
+    String(grant.userId) === ownerId && grant.role === role && grant.deviceId === deviceId);
+  if (record) record.rawKey.fill(0);
+  return matches;
+}
+
+export async function restoreOfflineVaultSession({ userId, role, deviceId }) {
+  const ownerId = normalizeUserId(userId);
+  if (!hasOfflineVaultSessionUnlock({ userId: ownerId, role, deviceId })) return false;
+  const record = getSessionUnlockRecord();
+  if (!record) return false;
+  const keyBytes = new Uint8Array(record.rawKey);
+  record.rawKey.fill(0);
+  let retainedInMemory = false;
+  try {
+    if (!await verifyDevicePossession(deviceId)) {
+      clearOfflineVaultSessionUnlock(ownerId);
+      return false;
+    }
+    const vault = await idb.getFromStore('offlineVaults', ownerId);
+    if (!vault || vault.version !== VAULT_VERSION || vault.kdf !== 'PBKDF2-SHA-256' ||
+        vault.iterations !== PBKDF2_ITERATIONS || vault.role !== role) {
+      clearOfflineVaultSessionUnlock(ownerId);
+      return false;
+    }
+    const { key, indexKey } = await importDataKeys(keyBytes);
+    memoryKeys.get(ownerId)?.rawKey.fill(0);
+    memoryKeys.set(ownerId, { key, indexKey, rawKey: keyBytes, role });
+    retainedInMemory = true;
+    return true;
+  } finally {
+    if (!retainedInMemory) keyBytes.fill(0);
+  }
+}
+
+export function clearOfflineVaultSessionUnlock(userId) {
+  const record = getSessionUnlockRecord();
+  const shouldClear = userId === undefined || !record || record.userId === String(userId);
+  if (record) record.rawKey.fill(0);
+  if (shouldClear) {
+    sessionStorage.removeItem(SESSION_UNLOCK_KEY);
+  }
 }
 
 function onlinePasswordWrappedKeyAad(userId, role) {
@@ -308,6 +391,7 @@ export async function createOfflineVault({
       );
     }
     await idb.addToStore('offlineVaults', vault);
+    rememberSessionUnlock(ownerId, accountRole, rawKey);
     memoryKeys.set(ownerId, { key, indexKey, rawKey, role: accountRole });
     retainedInMemory = true;
     return publicVaultMetadata(vault);
@@ -382,6 +466,7 @@ export async function unlockOfflineVault({ userId, credential, credentialType: r
       await idb.putToStore('offlineSecurity', { key: `pin-attempts:${ownerId}`, failures: 0, lockedUntil: 0 });
     }
     const { key, indexKey } = await importDataKeys(keyBytes);
+    rememberSessionUnlock(ownerId, vault.role, keyBytes);
     memoryKeys.get(ownerId)?.rawKey.fill(0);
     memoryKeys.set(ownerId, { key, indexKey, rawKey: keyBytes, role: vault.role });
     retainedInMemory = true;
@@ -447,16 +532,18 @@ export async function changeOfflineVaultCredential({ userId, credential, credent
   return publicVaultMetadata(updatedVault);
 }
 
-export function lockOfflineVault(userId) {
+export function lockOfflineVault(userId, { preserveSessionUnlock = false } = {}) {
   if (userId === undefined) {
     for (const { rawKey } of memoryKeys.values()) rawKey.fill(0);
     memoryKeys.clear();
+    if (!preserveSessionUnlock) clearOfflineVaultSessionUnlock();
     return;
   }
   const ownerId = normalizeUserId(userId);
   const unlocked = memoryKeys.get(ownerId);
   if (unlocked) unlocked.rawKey.fill(0);
   memoryKeys.delete(ownerId);
+  if (!preserveSessionUnlock) clearOfflineVaultSessionUnlock(ownerId);
 }
 
 export function isOfflineVaultUnlocked(userId) {

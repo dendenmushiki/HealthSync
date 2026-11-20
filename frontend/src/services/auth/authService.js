@@ -20,9 +20,16 @@ export async function checkDeviceAuthorization(user) {
   if (!user?.user_id || !user?.device_id) {
     throw new Error('The active account and device are required to verify offline authorization.');
   }
-  const identity = await getDeviceIdentity();
+  const identity = await getDeviceIdentity({ createIfMissing: false });
+  if (!identity) {
+    const error = new Error('The saved device authorization key is unavailable on this browser.');
+    error.code = 'OFFLINE_DEVICE_IDENTITY_MISSING';
+    throw error;
+  }
   if (identity.deviceId !== user.device_id) {
-    throw new Error('The registered device identity does not match this account session.');
+    const error = new Error('The registered device identity does not match this account session.');
+    error.code = 'OFFLINE_DEVICE_IDENTITY_MISMATCH';
+    throw error;
   }
   const challenge = Array.from(window.crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('');
   const signature = await signDeviceMessage(identity, challenge);

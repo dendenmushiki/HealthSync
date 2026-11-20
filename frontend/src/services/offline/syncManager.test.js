@@ -275,7 +275,7 @@ test('uses an exclusive browser lock to avoid concurrent synchronization in sepa
   try {
     await runSync();
     expect(requestLock).toHaveBeenCalledWith(
-      'healthsync-offline-sync',
+      'healthsync-offline-sync:7%3Aunknown-device',
       { mode: 'exclusive', ifAvailable: true },
       expect.any(Function)
     );

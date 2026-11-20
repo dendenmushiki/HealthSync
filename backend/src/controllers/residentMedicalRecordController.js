@@ -133,14 +133,23 @@ const createResidentMedicalRecord = async (req, res) => {
     if (Object.keys(errors).length) return res.status(400).json({ success: false, message: Object.values(errors)[0], errors });
   }
   try {
-    const [residentRows] = await pool.query('SELECT resident_id FROM residents WHERE resident_id = ?', [ids.residentId]);
+    const connection = req.idempotencyConnection || pool;
+    const [residentRows] = await connection.query('SELECT resident_id FROM residents WHERE resident_id = ?', [ids.residentId]);
     if (!residentRows.length) return res.status(404).json({ success: false, message: 'Resident not found.' });
-    const [result] = await pool.query(
+    const [result] = await connection.query(
       `INSERT INTO \`${table}\` (resident_id, record_data, recorded_by) VALUES (?, ?, ?)`,
       [ids.residentId, JSON.stringify(req.body.record_data), req.user.user_id]
     );
-    const [rows] = await pool.query(`SELECT id, resident_id, record_data, created_at, updated_at FROM \`${table}\` WHERE id = ?`, [result.insertId]);
-    await writeAudit({ user_id: req.user.user_id, action: 'CREATE', module: req.params.recordType, table_name: table, record_id: result.insertId, new_data: req.body.record_data });
+    const [rows] = await connection.query(`SELECT id, resident_id, record_data, created_at, updated_at FROM \`${table}\` WHERE id = ?`, [result.insertId]);
+    await writeAudit({
+      user_id: req.user.user_id,
+      action: 'CREATE',
+      module: req.params.recordType,
+      table_name: table,
+      record_id: result.insertId,
+      new_data: req.body.record_data,
+      connection: req.idempotencyConnection,
+    });
     return res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     logger.error('createResidentMedicalRecord error', error);

@@ -42,6 +42,9 @@ test('preserves leading zeroes while completing first-login password and PIN set
     </MemoryRouter>
   );
 
+  expect(screen.getByRole('heading', { name: 'Set your password and account PIN' })).toBeInTheDocument();
+  expect(screen.getByRole('group', { name: 'Six-digit PIN' })).toBeInTheDocument();
+
   fireEvent.change(screen.getByLabelText('New password'), {
     target: { value: 'HealthSyncStrongPassword9!' },
   });

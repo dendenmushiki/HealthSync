@@ -20,7 +20,7 @@ router.get('/:id', authenticateToken, authorizeRole(['bhw']), getOperationTimban
 
 // Calculations and record changes are restricted to BHW users.
 router.post('/calculate', authenticateToken, authorizeRole(['bhw']), calculateOperationTimbang);
-router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang'), createOperationTimbang);
+router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang', { atomic: true }), createOperationTimbang);
 router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang'), updateOperationTimbang);
 router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('operation_timbang', 'operation_timbang'), deleteOperationTimbang);
 

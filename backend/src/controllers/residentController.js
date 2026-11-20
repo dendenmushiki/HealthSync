@@ -297,6 +297,7 @@ function residentValues(body, existing, userId, location) {
 
 const createResident = async (req, res) => {
   try {
+    const connection = req.idempotencyConnection || pool;
     await ensureResidentSchema();
     const errors = validateResidentInput(req.body);
     if (errors) return res.status(400).json({ success: false, message: Object.values(errors)[0], errors });
@@ -310,14 +311,22 @@ const createResident = async (req, res) => {
     } catch (locationError) {
       return res.status(400).json({ success: false, message: locationError.message });
     }
-    const [result] = await pool.query(`
+    const [result] = await connection.query(`
       INSERT INTO residents (first_name, middle_name, last_name, suffix, household_no, address, region_code, province_code,
         city_municipality_code, barangay_code, contact_no, philhealth_id_no, is_4ps, category_flags, sitio, birthdate, sex,
         civil_status, occupation, resident_status, pregnant, lactating, profile_photo, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, residentValues(req.body, null, req.user?.user_id, location));
-    await writeAudit({ user_id: req.user?.user_id, action: 'CREATE', module: 'residents', table_name: 'residents', record_id: result.insertId, new_data: { ...req.body, senior_citizen: calculateAge(req.body.birthdate) >= 60 } });
-    const [rows] = await pool.query(`${RESIDENT_SELECT_SQL} WHERE r.resident_id = ?`, [result.insertId]);
+    await writeAudit({
+      user_id: req.user?.user_id,
+      action: 'CREATE',
+      module: 'residents',
+      table_name: 'residents',
+      record_id: result.insertId,
+      new_data: { ...req.body, senior_citizen: calculateAge(req.body.birthdate) >= 60 },
+      connection: req.idempotencyConnection,
+    });
+    const [rows] = await connection.query(`${RESIDENT_SELECT_SQL} WHERE r.resident_id = ?`, [result.insertId]);
     return res.status(201).json({ success: true, data: addDerivedFields(rows[0]) });
   } catch (error) {
     logger.error('createResident error', error);

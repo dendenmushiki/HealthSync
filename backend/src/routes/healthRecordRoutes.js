@@ -19,7 +19,7 @@ router.get('/overview', authenticateToken, authorizeRole(['bhw']), listAllHealth
 router.get('/details/:sourceTable/:recordId', authenticateToken, authorizeRole(['bhw']), getHealthRecordDetails);
 router.get('/:id', authenticateToken, authorizeRole(['bhw']), getHealthRecord);
 
-router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('health_records', 'health_records'), createHealthRecord);
+router.post('/', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('health_records', 'health_records', { atomic: true }), createHealthRecord);
 router.put('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('health_records', 'health_records'), updateHealthRecord);
 router.delete('/:id', authenticateToken, authorizeRole(['bhw']), createIdempotencyMiddleware('health_records', 'health_records'), deleteHealthRecord);
 

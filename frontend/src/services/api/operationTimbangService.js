@@ -3,8 +3,7 @@ import { publishNotification } from '../notifications/notificationEvents';
 import { getResident } from './residentService';
 import { calculateOperationTimbangOffline } from '../nutrition/offlineNutritionCalculator';
 import { getOfflineNutritionHistory, getOfflineNutritionRecordsForType } from './nutritionRecordsService';
-
-const isOffline = () => typeof navigator !== 'undefined' && !navigator.onLine;
+import { isOffline } from '../offline/networkService';
 const RECORD_TYPE = 'Operation Timbang';
 const STATUS_PRIORITY = {
   'Severely stunted': 7,
@@ -55,38 +54,41 @@ export async function getOperationTimbang(id) {
 }
 
 export async function createOperationTimbang(payload) {
-  if (isOffline()) {
-    const residentResponse = await getResident(payload.resident_id);
-    const assessment = calculateOperationTimbangOffline({
-      ...payload,
-      birthdate: residentResponse.data?.birthdate,
-      sex: residentResponse.data?.sex,
-    });
-    const resident = residentResponse.data;
-    const localRecord = {
-      ...payload,
-      ...assessment,
-      id: null,
-      record_type: RECORD_TYPE,
-      record_date: assessment.record_date || assessment.date_recorded ||
-        payload.record_date || payload.date_recorded || payload.measurement_date,
-      height_cm: payload.measurement_cm,
-      resident_id: payload.resident_id,
-      first_name: resident.first_name,
-      middle_name: resident.middle_name,
-      last_name: resident.last_name,
-      suffix: resident.suffix,
-      birthdate: resident.birthdate,
-      sex: resident.sex,
-      sitio: resident.sitio,
-      status: [assessment.wfa_status, assessment.hfa_status, assessment.wflh_status]
-        .sort((first, second) => (STATUS_PRIORITY[second] || 1) - (STATUS_PRIORITY[first] || 1))[0],
-      sync_status: 'PENDING',
+  const residentResponse = await getResident(payload.resident_id);
+  const assessment = calculateOperationTimbangOffline({
+    ...payload,
+    birthdate: residentResponse.data?.birthdate,
+    sex: residentResponse.data?.sex,
+  });
+  const resident = residentResponse.data;
+  const localRecord = {
+    ...payload,
+    ...assessment,
+    id: null,
+    record_type: RECORD_TYPE,
+    record_date: assessment.record_date || assessment.date_recorded ||
+      payload.record_date || payload.date_recorded || payload.measurement_date,
+    height_cm: payload.measurement_cm,
+    resident_id: payload.resident_id,
+    first_name: resident.first_name,
+    middle_name: resident.middle_name,
+    last_name: resident.last_name,
+    suffix: resident.suffix,
+    birthdate: resident.birthdate,
+    sex: resident.sex,
+    sitio: resident.sitio,
+    status: [assessment.wfa_status, assessment.hfa_status, assessment.wflh_status]
+      .sort((first, second) => (STATUS_PRIORITY[second] || 1) - (STATUS_PRIORITY[first] || 1))[0],
+    sync_status: 'PENDING',
+  };
+  const response = await api.post('/operation-timbang', payload, { offlineLocalRecord: localRecord });
+  if (response.data?.offline || response.data?.queued) {
+    return {
+      ...response.data,
+      data: { ...localRecord, id: `offline:${response.data.offlineOperationId}` },
+      offline: true,
     };
-    const response = await api.post('/operation-timbang', payload, { offlineLocalRecord: localRecord });
-    return { ...response.data, data: { ...localRecord, id: `offline:${response.data.offlineOperationId}` }, offline: true };
   }
-  const response = await api.post('/operation-timbang', payload);
   if (response.data?.success && !response.data?.queued) {
     publishNotification('nutritionAlerts', 'Nutrition assessment recorded', 'A new Operation Timbang record is available for review.');
   }

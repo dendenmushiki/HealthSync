@@ -12,8 +12,10 @@ import {
   changeOfflineVaultCredential,
   createOfflineVault,
   getOfflineVaultMetadata,
+  hasOfflineVaultSessionUnlock,
   isOfflineVaultUnlocked,
   lockOfflineVault,
+  restoreOfflineVaultSession,
   unlockOfflineVault,
 } from '../services/offline/offlineVaultService';
 import { migrateLegacyQueue } from '../services/offline/offlineQueueService';
@@ -34,38 +36,106 @@ export const AuthProvider = ({ children }) => {
   const pendingOnlinePassword = useRef(null);
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem('hs_logout_pending')) {
-        lockOfflineVault();
-        clearOfflineSession();
-        localStorage.removeItem('hs_token');
-        localStorage.removeItem('hs_user');
-        localStorage.removeItem('hs_logout_pending');
-      }
-      const stored = getAuth();
-      const grant = getOfflineSession();
-      const ownerId = stored?.user?.user_id;
-      const grantMatchesUser = ownerId !== undefined && ownerId !== null && grant &&
-        String(grant.userId) === String(ownerId) && grant.role === stored.user.role;
-      const needsInactivityPin = grantMatchesUser && isOfflinePinRequired(ownerId);
-      if (stored?.user && (stored.token || grant)) {
-        if (grant && !grantMatchesUser) {
+    let active = true;
+    const initializeSession = async () => {
+      try {
+        if (localStorage.getItem('hs_logout_pending')) {
           lockOfflineVault();
           clearOfflineSession();
           localStorage.removeItem('hs_token');
           localStorage.removeItem('hs_user');
-        } else {
-          setToken(stored.token);
-          setUser(stored.user);
-          setOfflineVaultNeedsUnlock(Boolean(grantMatchesUser && needsInactivityPin));
-          setOfflineVaultReady(Boolean(grantMatchesUser && isOfflineVaultUnlocked(ownerId)));
+          localStorage.removeItem('hs_logout_pending');
         }
+        const stored = getAuth();
+        const grant = getOfflineSession();
+        const ownerId = stored?.user?.user_id;
+        const grantMatchesUser = ownerId !== undefined && ownerId !== null && grant &&
+          String(grant.userId) === String(ownerId) && grant.role === stored.user.role;
+        const needsInactivityPin = grantMatchesUser && isOfflinePinRequired(ownerId);
+        const isOnline = typeof navigator === 'undefined' || navigator.onLine;
+        if (stored?.user && (stored.token || grant)) {
+          if (grant && !grantMatchesUser) {
+            lockOfflineVault();
+            clearOfflineSession();
+            localStorage.removeItem('hs_token');
+            localStorage.removeItem('hs_user');
+          } else {
+            setToken(stored.token);
+            setUser(stored.user);
+            setOfflineVaultNeedsUnlock(Boolean(grantMatchesUser && needsInactivityPin));
+            const restoreSessionUnlock = Boolean(
+              grantMatchesUser && stored.token && isOnline && !needsInactivityPin &&
+              !stored.user.must_change_password && !stored.user.offline_pin_setup_required &&
+              hasOfflineVaultSessionUnlock({
+                userId: ownerId,
+                role: grant.role,
+                deviceId: grant.deviceId,
+              })
+            );
+            if (needsInactivityPin) {
+              lockOfflineVault(ownerId);
+              setOfflineVaultReady(false);
+            } else if (restoreSessionUnlock) {
+              try {
+                const restored = await restoreOfflineVaultSession({
+                  userId: ownerId,
+                  role: grant.role,
+                  deviceId: grant.deviceId,
+                });
+                if (!restored) throw new Error('The saved offline session could not be restored.');
+                const response = await api.get('/auth/me');
+                const serverUser = response?.data?.data?.user;
+                if (!response?.data?.success || !serverUser ||
+                    String(serverUser.user_id) !== String(ownerId) || serverUser.role !== grant.role) {
+                  throw new Error('The online account session could not be verified.');
+                }
+                const vaultMetadata = await getOfflineVaultMetadata(ownerId);
+                if (vaultMetadata?.credentialType === 'pin' && !serverUser.offline_pin_enrolled) {
+                  throw new Error('The shared PIN changed. Reconnect and unlock this device again.');
+                }
+                if (!active) return;
+                const verifiedUser = { ...stored.user, ...serverUser, device_id: stored.user.device_id };
+                setToken(stored.token);
+                setUser(verifiedUser);
+                setAuth(stored.token, verifiedUser);
+                setOfflineVaultReady(true);
+                setOfflineVaultNeedsUnlock(false);
+                setOfflineVaultError(null);
+              } catch (error) {
+                if (active) {
+                  lockOfflineVault(ownerId);
+                  setOfflineVaultReady(false);
+                  const confirmedRevocation = ['DEVICE_REVOKED', 'ACCOUNT_DEACTIVATED']
+                    .includes(error.response?.data?.errorCode);
+                  setOfflineVaultNeedsUnlock(Boolean(grantMatchesUser && !confirmedRevocation));
+                  setOfflineVaultError(!confirmedRevocation && (
+                    !error.response || Number(error.response.status) >= 500
+                  )
+                    ? 'The server could not confirm this device right now. You can still unlock local data with your PIN; synchronization will resume when the server is available.'
+                    : error.message || 'The online session could not be verified. Offline data remains locked.');
+                }
+              }
+            } else {
+              if (!isOnline && grantMatchesUser) {
+                lockOfflineVault(ownerId);
+                setOfflineVaultReady(false);
+              } else {
+                setOfflineVaultReady(Boolean(grantMatchesUser && isOfflineVaultUnlocked(ownerId)));
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if (active) {
+          lockOfflineVault();
+          setSessionCleanupError('Sign-out cleanup is incomplete. Reload the page to retry before signing in.');
+        }
+      } finally {
+        if (active) setLoading(false);
       }
-    } catch (error) {
-      lockOfflineVault();
-      setSessionCleanupError('Sign-out cleanup is incomplete. Reload the page to retry before signing in.');
-    }
-    setLoading(false);
+    };
+    initializeSession();
+    return () => { active = false; };
   }, []);
 
   const login = async (username, password) => {
@@ -262,12 +332,22 @@ export const AuthProvider = ({ children }) => {
         return true;
       })
       .catch((error) => {
-        lockOfflineVault(user.user_id);
-        setOfflineVaultReady(false);
-        if (!error.response?.data?.errorCode) {
-          setOfflineVaultError('Device authorization could not be verified online. HealthSync is locked until the server can confirm this device.');
+        const errorCode = error.response?.data?.errorCode;
+        const confirmedRevocation = ['DEVICE_REVOKED', 'ACCOUNT_DEACTIVATED'].includes(errorCode);
+        const localIdentityFailure = ['OFFLINE_DEVICE_IDENTITY_MISSING', 'OFFLINE_DEVICE_IDENTITY_MISMATCH']
+          .includes(error.code);
+        const transientServerFailure = !error.response ||
+          Number(error.response.status) >= 500 ||
+          [408, 429].includes(Number(error.response.status));
+        if (confirmedRevocation || localIdentityFailure || !transientServerFailure) {
+          lockOfflineVault(user.user_id);
+          setOfflineVaultReady(false);
+          if (!errorCode) setOfflineVaultError(error.message || 'Device authorization could not be verified.');
+          return false;
         }
-        return false;
+        setOfflineVaultError('The server could not confirm this device right now. Local PIN unlock remains available; synchronization will resume when the server is available.');
+        if (!isOfflineVaultUnlocked(user.user_id)) setOfflineVaultNeedsUnlock(true);
+        return true;
       })
       .finally(() => { authorizationCheckInFlight.current = null; });
     authorizationCheckInFlight.current = request;
@@ -279,7 +359,9 @@ export const AuthProvider = ({ children }) => {
     const grant = getOfflineSession();
     if (ownerId === undefined || ownerId === null || user?.must_change_password ||
         user?.offline_pin_setup_required ||
-        !grant || String(grant.userId) !== String(ownerId) || grant.role !== user.role) {
+        !grant || String(grant.userId) !== String(ownerId) || grant.role !== user.role ||
+        grant.deviceId !== user.device_id ||
+        grant.deviceId !== localStorage.getItem('hs_offline_device_id')) {
       throw new Error('Offline authorization is unavailable for this account and device. Reconnect and sign in online.');
     }
     if (typeof navigator !== 'undefined' && navigator.onLine) {

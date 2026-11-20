@@ -355,6 +355,7 @@ const getHealthRecord = async (req, res) => {
  */
 const createHealthRecord = async (req, res) => {
   try {
+    const connection = req.idempotencyConnection || pool;
     const userId = req.user.user_id;
     const {
       resident_id,
@@ -396,7 +397,7 @@ const createHealthRecord = async (req, res) => {
     }
 
     // Verify resident exists
-    const [residentCheck] = await pool.query(
+    const [residentCheck] = await connection.query(
       'SELECT resident_id FROM residents WHERE resident_id = ?',
       [resident_id]
     );
@@ -416,7 +417,7 @@ const createHealthRecord = async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    const [result] = await pool.query(sql, [
+    const [result] = await connection.query(sql, [
       resident_id,
       record_date,
       record_type || null,
@@ -456,11 +457,12 @@ const createHealthRecord = async (req, res) => {
       module: 'health_records',
       table_name: 'health_records',
       record_id: newId,
-      new_data: { resident_id, record_date, record_type, medical_history, notes }
+      new_data: { resident_id, record_date, record_type, medical_history, notes },
+      connection: req.idempotencyConnection,
     });
 
     // Get full record
-    const [rows] = await pool.query(
+    const [rows] = await connection.query(
       'SELECT * FROM health_records WHERE health_record_id = ?',
       [newId]
     );

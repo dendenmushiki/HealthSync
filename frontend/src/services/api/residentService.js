@@ -12,6 +12,7 @@ import offlineQueue from '../offline/offlineQueueService';
 import locations from '../../data/philippineLocations.json';
 import { calculateAge } from '../../utils/residentUtils';
 import { calculateAgeInMonths } from '../../utils/nutritionRecordAge';
+import { isOffline } from '../offline/networkService';
 
 function getStoredUser() {
   try {
@@ -152,7 +153,7 @@ const getCachedResident = async (user, id) => {
 };
 
 export async function getResidents(params = {}) {
-  if (!navigator.onLine) return getCachedResidents(params);
+  if (isOffline()) return getCachedResidents(params);
   try {
     const resp = await api.get('/residents', { params });
     if (resp.data?.success) {
@@ -186,7 +187,7 @@ export async function getAllResidents(params = {}) {
 }
 
 export async function getResident(id) {
-  if (!navigator.onLine) {
+  if (isOffline()) {
     const user = getAuthorizedOfflineAccount();
     const resident = await getCachedResident(user, id);
     if (resident) return { success: true, data: resident, offline: true };
@@ -234,7 +235,8 @@ export const getResidentBarangays = (cityMunicipalityCode) => getOptions(
 );
 
 export async function createResident(payload) {
-  const resp = await api.post('/residents', payload);
+  const offlineLocalRecord = { ...payload, created_at: new Date().toISOString(), offline: true, sync_status: 'PENDING' };
+  const resp = await api.post('/residents', payload, { offlineLocalRecord });
   if (resp.data?.success && !resp.data?.queued) {
     publishNotification('newResidentAlerts', 'New resident registered', 'A resident record was added to HealthSync.');
   }
@@ -242,7 +244,9 @@ export async function createResident(payload) {
 }
 
 export async function updateResident(id, payload) {
-  const resp = await api.put(`/residents/${id}`, payload);
+  const resp = await api.put(`/residents/${id}`, payload, {
+    offlineLocalRecord: { ...payload, id, resident_id: id },
+  });
   return resp.data;
 }
 

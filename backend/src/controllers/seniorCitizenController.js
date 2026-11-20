@@ -123,8 +123,10 @@ const getSeniorCitizen = async (req, res) => {
  * Create senior citizen record
  */
 const createSeniorCitizen = async (req, res) => {
-  const connection = await pool.getConnection();
+  const ownsConnection = !req.idempotencyConnection;
+  const connection = req.idempotencyConnection || await pool.getConnection();
   let lockAcquired = false;
+  let transactionActive = !ownsConnection;
   try {
     const { resident_id, senior_citizen_id, contact_number, emergency_contact_name, emergency_contact_number, health_conditions, date_registered } = req.body;
     const userId = req.user.user_id;
@@ -136,17 +138,26 @@ const createSeniorCitizen = async (req, res) => {
     if (!contact_number) errors.contact_number = 'Contact number is required.';
     if (Object.keys(errors).length) return res.status(400).json({ success:false,message:'Please correct the highlighted fields.',errors });
 
-    await connection.beginTransaction();
+    if (ownsConnection) {
+      await connection.beginTransaction();
+      transactionActive = true;
+    }
     const [[lockResult]] = await connection.query("SELECT GET_LOCK('healthsync-senior-id',5) AS acquired");
     lockAcquired = Number(lockResult?.acquired) === 1;
     if (!lockAcquired) {
-      await connection.rollback();
+      if (transactionActive && ownsConnection) {
+        await connection.rollback();
+        transactionActive = false;
+      }
       return res.status(503).json({ success: false, message: 'Senior registration is busy. Please try again.' });
     }
     const rejectTransaction = async (status, body) => {
-      await connection.rollback();
       await connection.query("SELECT RELEASE_LOCK('healthsync-senior-id')");
       lockAcquired = false;
+      if (transactionActive && ownsConnection) {
+        await connection.rollback();
+        transactionActive = false;
+      }
       return res.status(status).json(body);
     };
     const [residentCheck] = await connection.query('SELECT resident_id,birthdate FROM residents WHERE resident_id=?',[resident_id]);
@@ -166,16 +177,45 @@ const createSeniorCitizen = async (req, res) => {
     if (duplicateId.length) return rejectTransaction(409,{success:false,message:'Senior citizen ID is already used.',errors:{senior_citizen_id:'This Senior citizen ID is already in use.'}});
 
     const [result] = await connection.query(`INSERT INTO senior_citizen_records (resident_id,senior_citizen_id,contact_number,emergency_contact_name,emergency_contact_number,health_conditions,date_registered,recorded_by) VALUES (?,?,?,?,?,?,?,?)`,[resident_id,generatedId,contact_number||null,emergency_contact_name||null,emergency_contact_number||null,health_conditions||null,date_registered,userId]);
-    await writeAudit({user_id:userId,action:'CREATE',module:'senior_citizens',table_name:'senior_citizen_records',record_id:result.insertId,new_data:{resident_id,senior_citizen_id:generatedId,date_registered}});
-    await connection.commit(); await connection.query("SELECT RELEASE_LOCK('healthsync-senior-id')"); lockAcquired = false;
-    const [rows] = await pool.query('SELECT * FROM senior_citizen_records WHERE senior_id=?',[result.insertId]);
+    await writeAudit({
+      user_id: userId,
+      action: 'CREATE',
+      module: 'senior_citizens',
+      table_name: 'senior_citizen_records',
+      record_id: result.insertId,
+      new_data: { resident_id, senior_citizen_id: generatedId, date_registered },
+      connection: req.idempotencyConnection,
+    });
+    if (transactionActive && ownsConnection) {
+      await connection.commit();
+      transactionActive = false;
+    }
+    await connection.query("SELECT RELEASE_LOCK('healthsync-senior-id')");
+    lockAcquired = false;
+    const [rows] = await connection.query('SELECT * FROM senior_citizen_records WHERE senior_id=?', [result.insertId]);
     return res.status(201).json({success:true,data:rows[0]});
   } catch (err) {
-    await connection.rollback().catch(()=>{});
-    if (lockAcquired) await connection.query("SELECT RELEASE_LOCK('healthsync-senior-id')").catch(()=>{});
+    if (transactionActive && ownsConnection) {
+      try {
+        await connection.rollback();
+        transactionActive = false;
+      } catch (rollbackError) {
+        logger.error('createSeniorCitizen rollback error', rollbackError);
+      }
+    }
+    if (lockAcquired) {
+      try {
+        await connection.query("SELECT RELEASE_LOCK('healthsync-senior-id')");
+        lockAcquired = false;
+      } catch (releaseError) {
+        logger.error('createSeniorCitizen lock release error', releaseError);
+      }
+    }
     if (err?.code === 'ER_DUP_ENTRY') return res.status(409).json({success:false,message:'Senior citizen ID is already used.',errors:{senior_citizen_id:'This Senior citizen ID is already in use.'}});
     logger.error('createSeniorCitizen error',err); return res.status(500).json({success:false,message:'Server error'});
-  } finally { connection.release(); }
+  } finally {
+    if (ownsConnection) connection.release();
+  }
 };
 
 /**

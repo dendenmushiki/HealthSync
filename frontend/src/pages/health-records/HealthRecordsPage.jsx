@@ -9,6 +9,8 @@ import Pagination from '../../components/common/Pagination';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateLabel, getLocalDateInputValue } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const TYPES = [
   { key: 'clinical', label: 'Clinical', fullLabel: 'Clinical Record' },
@@ -69,7 +71,8 @@ const RecordResidentPicker = ({ type, onClose, onSelect }) => {
       if (!response?.success) throw new Error(response?.message || 'Unable to search residents.');
       setResidents(response.data?.items || []);
     } catch (loadError) {
-      setError(loadError.response?.data?.message || loadError.message || 'Unable to search residents.');
+      console.error('Unable to search residents.', loadError);
+      setError(loadError);
     } finally {
       setLoading(false);
     }
@@ -111,7 +114,7 @@ const RecordResidentPicker = ({ type, onClose, onSelect }) => {
         <span aria-hidden="true">⌕</span>
         <input ref={inputRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search residents by name" />
       </label>
-      {error && <div className="health-record-error" role="alert">{error}<button type="button" onClick={() => loadResidents(query.trim())}>Try again</button></div>}
+      {error && <StatusBanner error={error} retry={() => loadResidents(query.trim())} compact />}
       {loading ? <div className="health-record-picker-loading" role="status">Searching residents…</div>
         : residents.length ? <ul className="health-record-picker-list">{residents.map((resident) => <li key={resident.resident_id}>
           <button type="button" onClick={() => onSelect(resident)}>
@@ -212,7 +215,10 @@ const HealthRecordsPage = () => {
         setTotal(Number(data.total) || 0);
         setTypeCounts(data.typeCounts || {});
       } catch (fetchError) {
-        if (active) setError(fetchError.response?.data?.message || fetchError.message || 'Unable to load health records.');
+        if (active) {
+          console.error('Unable to load health records.', fetchError);
+          setError(fetchError);
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -268,7 +274,8 @@ const HealthRecordsPage = () => {
       setToast('Record deleted.');
       setRetry((current) => current + 1);
     } catch (deleteError) {
-      setToast(deleteError.response?.data?.message || 'Unable to delete health record.');
+      console.error('Unable to delete health record.', deleteError);
+      setToast(getFriendlyError(deleteError));
     } finally {
       setDeleting(false);
     }
@@ -354,7 +361,7 @@ const HealthRecordsPage = () => {
       {loading && items.length > 0 && <span className="sr-only">Updating results</span>}
       {isFiltered && !loading && <span>{total} {total === 1 ? 'result' : 'results'}</span>}
     </div>
-    {error && <div className="health-record-error" role="alert"><span>{error}</span><button type="button" onClick={() => setRetry((current) => current + 1)}>Try again</button></div>}
+    {error && <StatusBanner error={error} retry={() => setRetry((current) => current + 1)} />}
 
     <section className="health-record-table-card" aria-label="Health records">
       <div className="health-record-table-wrap">

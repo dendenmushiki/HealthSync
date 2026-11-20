@@ -2,6 +2,7 @@ import api from './apiClient';
 import { getOfflineSnapshotRecords } from '../offline/offlineDataDownloadService';
 import { calculateAge } from '../../utils/residentUtils';
 import { getQueueItems } from '../offline/offlineQueueService';
+import { isOffline } from '../offline/networkService';
 
 const MEDICAL_TABLES = {
   clinical: 'patient_clinical_records',
@@ -15,8 +16,6 @@ const LABELS = {
   maternal: 'Maternal Record',
   immunization: 'Immunization Record',
 };
-const isOffline = () => typeof navigator !== 'undefined' && !navigator.onLine;
-
 async function getOfflineLegacyClinicalRecords() {
   const [records, queuedItems] = await Promise.all([
     getOfflineSnapshotRecords('legacyClinical'),
@@ -273,15 +272,13 @@ export async function getHealthRecord(id) {
 }
 
 export async function createHealthRecord(payload) {
-  const offlineLocalRecord = isOffline()
-    ? {
-      ...payload,
+  const offlineLocalRecord = {
+    ...payload,
     record_type: payload.record_type || 'clinical',
-      created_at: new Date().toISOString(),
-      offline: true,
-      sync_status: 'PENDING',
-    }
-    : undefined;
+    created_at: new Date().toISOString(),
+    offline: true,
+    sync_status: 'PENDING',
+  };
   const response = await api.post('/health-records', payload, { offlineLocalRecord });
   return response.data;
 }

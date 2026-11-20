@@ -114,6 +114,23 @@ test('assigns a stable local resident ID to encrypted resident queue records', a
   expect(JSON.stringify(Array.from(getStore('offlineData').values()))).not.toContain('Offline');
 });
 
+test('marks every supported local record as pending before synchronization', async () => {
+  const item = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'adult_bmi',
+    table: 'adult_bmi_records',
+    payload: { resident_id: 15 },
+    localRecord: { resident_id: 15, weight_kg: 62, height_cm: 165 },
+    userId: 7,
+  });
+
+  expect(item.localRecord).toEqual(expect.objectContaining({
+    offline: true,
+    sync_status: 'PENDING',
+    record_id: `offline:${item.offlineOperationId}`,
+  }));
+});
+
 test('does not automatically include failed or outcome-unknown records in synchronization attempts', async () => {
   const pending = await enqueueOperation({
     operation: 'CREATE',

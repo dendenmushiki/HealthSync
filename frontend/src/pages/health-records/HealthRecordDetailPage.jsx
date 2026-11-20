@@ -7,6 +7,7 @@ import ConfirmModal from '../../components/common/ConfirmModal';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatBirthdate, formatDateLabel, formatDateOnly } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const TYPES = {
   clinical: { label: 'Clinical Record', title: 'Clinical record' },
@@ -120,7 +121,8 @@ const HealthRecordDetailPage = () => {
       } catch (loadError) {
         if (active) {
           setNotFound(loadError.response?.status === 404);
-          setError(loadError.response?.data?.message || loadError.message || 'Unable to load health record.');
+          console.error('Unable to load health record.', loadError);
+          setError(loadError);
         }
       } finally {
         if (active) setLoading(false);
@@ -221,7 +223,8 @@ const HealthRecordDetailPage = () => {
       else await deleteResidentMedicalRecord(record.resident_id, type, record.id);
       navigate(location.state?.from || '/health-records', { replace: true, state: { recordToast: 'Record deleted.' } });
     } catch (deleteError) {
-      setError(deleteError.response?.data?.message || 'Unable to delete health record.');
+      console.error('Unable to delete health record.', deleteError);
+      setError(deleteError);
       setRecordToDelete(false);
     } finally {
       setDeleting(false);
@@ -232,7 +235,7 @@ const HealthRecordDetailPage = () => {
     <div className="health-record-detail-skeleton"><span /><span /><span /><div /></div>
   </main>;
   if (notFound) return <main className="health-record-detail-page"><section className="health-record-state-card"><span className="health-record-empty-icon" aria-hidden="true">?</span><h1>Record not found</h1><p>This health record may have been deleted or is no longer available.</p><Link className="health-record-secondary-button" to={location.state?.from || '/health-records'}>Back to health records</Link></section></main>;
-  if (error && !detail) return <main className="health-record-detail-page"><section className="health-record-state-card" role="alert"><h1>Unable to load health record</h1><p>{error}</p><button className="health-record-secondary-button" type="button" onClick={() => setRetry((current) => current + 1)}>Try again</button></section></main>;
+  if (error && !detail) return <main className="health-record-detail-page"><section className="health-record-state-card"><h1>Unable to load health record</h1><StatusBanner error={error} retry={() => setRetry((current) => current + 1)} /></section></main>;
   if (!record || !resident) return null;
 
   return <main className="health-record-detail-page">
@@ -264,7 +267,7 @@ const HealthRecordDetailPage = () => {
       </div>
     </header>
 
-    {error && <div className="health-record-error" role="alert">{error}</div>}
+    {error && <StatusBanner error={error} compact />}
     <div className="health-record-detail-layout">
       <div className="health-record-detail-main">
         {type !== 'immunization' && <RecordSection title="Vitals" icon="＋">

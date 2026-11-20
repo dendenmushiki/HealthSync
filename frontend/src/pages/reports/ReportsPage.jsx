@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../services/api/apiClient';
+import StatusBanner from '../../components/common/StatusBanner';
 import { AuthContext } from '../../context/AuthContext';
 import { formatDateOnly, formatDateTimeInTimeZone, getDateInputValueInTimeZone } from '../../utils/dateUtils';
 import { getPendingOperations } from '../../services/offline/offlineQueueService';
@@ -281,7 +282,8 @@ const ReportsPage = () => {
         setOfflineNotice(`Showing the report saved on this device: ${cachedReport.metadata?.generatedAt ? formatDateTimeInTimeZone(cachedReport.metadata.generatedAt) : 'last available sync'}.`);
         setError('');
       } else {
-        setError(loadError.response?.data?.message || loadError.message || 'Unable to load FHSIS report data.');
+        console.error('Unable to load FHSIS report data.', loadError);
+        setError(loadError);
       }
     } finally {
       if (requestId === reportRequestIdRef.current) setLoading(false);
@@ -689,7 +691,7 @@ const ReportsPage = () => {
       </div>
 
       {periodError && <div className="fhsis-inline-error" role="alert">Choose a valid range. From must be on or before To, and To cannot be in the future.</div>}
-      {error && <div className="fhsis-inline-error" role="alert">{error}<button type="button" onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
+      {error && <StatusBanner error={error} retry={() => setRetry((value) => value + 1)} />}
       {remarksError && <div className="fhsis-inline-error" role="alert">{remarksError}</div>}
       {offlineNotice && <div className="fhsis-offline-notice" role="status">{offlineNotice}</div>}
       {reportIsStale && <div className="fhsis-offline-notice" role="status">This report was generated more than 24 hours ago. Refresh before relying on it.</div>}

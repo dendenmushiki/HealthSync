@@ -13,12 +13,13 @@ import {
   putOfflineRecord,
   unlockOfflineVault,
 } from './offlineVaultService';
+import { verifyDevicePossession } from './deviceIdentityService';
 import { createOfflineSession } from './offlineSessionService';
 import idb from './indexedDbService';
 
 jest.mock('./deviceIdentityService', () => ({
   __esModule: true,
-  verifyDevicePossession: async () => true,
+  verifyDevicePossession: jest.fn(async () => true),
 }));
 
 const stores = new Map();
@@ -88,6 +89,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   stores.clear();
+  verifyDevicePossession.mockResolvedValue(true);
   localStorage.clear();
   idb.addToStore = jest.fn(async (name, value) => {
     const store = getStore(name);
@@ -373,4 +375,29 @@ test('requires a valid account grant and rejects role metadata tampering', async
   createOfflineSession({ userId: 7, role: 'admin', deviceId: 'device-local' });
   await expect(unlockOfflineVault({ userId: 7, credential: 'CorrectHorseBattery9!' }))
     .rejects.toThrow('offline vault is damaged');
+});
+
+test('requires the existing local device identity and preserves queued data when it is missing', async () => {
+  await createOfflineVault({
+    userId: 7,
+    role: 'bhw',
+    credential: '000042',
+    credentialType: 'pin',
+  });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await putOfflineRecord(7, 'offlineQueue', 'queued-operation', {
+    offlineOperationId: 'queued-operation',
+    status: 'PENDING',
+  });
+  lockOfflineVault(7);
+  verifyDevicePossession.mockResolvedValue(false);
+
+  await expect(unlockOfflineVault({ userId: 7, credential: '000042' }))
+    .rejects.toThrow('This device is not authorized to unlock offline data.');
+
+  expect(getStore('offlineData').size).toBeGreaterThan(0);
+  verifyDevicePossession.mockResolvedValue(true);
+  await unlockOfflineVault({ userId: 7, credential: '000042' });
+  await expect(getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .resolves.toEqual(expect.objectContaining({ status: 'PENDING' }));
 });

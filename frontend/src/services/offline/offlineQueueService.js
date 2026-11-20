@@ -82,7 +82,8 @@ export async function enqueueOperation({
         ? { resident_id: localId, offlineResidentId: localId }
         : {}),
       ...(localRecordIdField && !localRecord[localRecordIdField] ? { [localRecordIdField]: localId } : {}),
-      ...(table === 'residents' ? { offline: true, sync_status: 'PENDING' } : {}),
+      offline: true,
+      sync_status: 'PENDING',
     }
     : null;
   const item = {

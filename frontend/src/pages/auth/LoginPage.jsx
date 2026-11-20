@@ -1,6 +1,8 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -42,10 +44,11 @@ const LoginPage = () => {
           ? '/change-password'
           : resp.user?.role === 'admin' ? '/admin-dashboard' : '/dashboard', { replace: true });
       } else {
-        setError(resp.message || 'Invalid credentials');
+        setError(getFriendlyError(resp.message || 'Invalid credentials'));
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Login failed');
+      console.error('Unable to sign in.', err);
+      setError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -134,15 +137,7 @@ const LoginPage = () => {
                 {location.state.message}
               </div>
             )}
-            {error && (
-              <div className="alert alert-danger login-alert" id="login-error" role="alert" aria-live="assertive">
-                <svg className="login-alert-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 7v6m0 4h.01" />
-                </svg>
-                <span>{error}</span>
-              </div>
-            )}
+            {error && <StatusBanner id="login-error" error={error} compact />}
             <form onSubmit={handleSubmit} className="login-form" aria-labelledby="login-form-label">
               <div className="login-field">
                 <label className="form-label" htmlFor="username">Username</label>

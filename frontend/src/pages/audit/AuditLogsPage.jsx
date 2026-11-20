@@ -4,6 +4,8 @@ import Pagination from '../../components/common/Pagination';
 import { exportAuditLogs, getAuditLog, getAuditOptions, getAuditSummary, listAuditLogs } from '../../services/api/auditService';
 import { formatDateTimeInTimeZone, formatRelativeTime, getDateInputValueInTimeZone } from '../../utils/dateUtils';
 import { AUDIT_CATEGORIES, getCategoryLabel, getEventConfig, getEventSummary, getModuleLabel } from './auditEventConfig';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 import './AuditLogsPage.css';
 
 const SECRET_KEY = /(password|passwd|passphrase|hash|token|secret|authorization|cookie|credential|api.?key|private.?key)/i;
@@ -200,7 +202,10 @@ const AuditDrawer = ({ eventId, filters, onClose, onNavigate, navigate, triggerR
           setNeighbors({ previousId: response.previousId, nextId: response.nextId });
         }
       })
-      .catch((requestError) => { if (active) setError(requestError.response?.data?.message || requestError.message || 'Unable to load event.'); })
+      .catch((requestError) => {
+        console.error('Unable to load audit event.', requestError);
+        if (active) setError(requestError);
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [eventId, filters, retryKey]);
@@ -261,7 +266,7 @@ const AuditDrawer = ({ eventId, filters, onClose, onNavigate, navigate, triggerR
           <button type="button" className="audit-icon-button" aria-label="Close event details" onClick={onClose}>×</button>
         </header>
         {loading && <div className="audit-detail-skeleton" aria-label="Loading event details"><span /><span /><span /><span /></div>}
-        {!loading && error && <div className="audit-error" role="alert"><p>{error}</p><button type="button" className="audit-button" onClick={() => setRetryKey((value) => value + 1)}>Try again</button></div>}
+        {!loading && error && <StatusBanner error={error} retry={() => setRetryKey((value) => value + 1)} compact />}
         {!loading && event && <>
           <div className="audit-detail-event">
             <EventBadge item={event} /><ResultBadge result={event.result} />
@@ -446,7 +451,10 @@ const AuditLogsPage = () => {
           if (Number(response.page) && Number(response.page) !== page) updateParams({ page: Number(response.page) }, true);
         }
       })
-      .catch((requestError) => { if (active) setError(requestError.response?.data?.message || requestError.message || 'Unable to load audit logs.'); })
+      .catch((requestError) => {
+        console.error('Unable to load audit logs.', requestError);
+        if (active) setError(requestError);
+      })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [queryString, listParams, page, refreshKey, updateParams]);
@@ -546,7 +554,8 @@ const AuditLogsPage = () => {
       URL.revokeObjectURL(url);
       setToast('Audit CSV export started.');
     } catch (requestError) {
-      setToast(requestError.response?.data?.message || 'Audit export failed.');
+      console.error('Unable to export audit logs.', requestError);
+      setToast(getFriendlyError(requestError));
     } finally { setExporting(false); }
   };
 
@@ -675,7 +684,7 @@ const AuditLogsPage = () => {
           {activeFilters.map((filter, index) => <button type="button" key={`${filter.key}-${filter.value || index}`} className="audit-filter-chip" onClick={() => removeFilter(filter.key, filter.value)}>{filter.label}<span aria-hidden="true">×</span></button>)}
           {activeFilters.length > 0 && <button type="button" className="audit-clear-link" onClick={clearFilters}>Clear all</button>}
         </div>
-        {error && <div className="audit-error" role="alert"><span>{error}</span><button type="button" className="audit-button" onClick={() => setRefreshKey((value) => value + 1)}>Try again</button></div>}
+        {error && <StatusBanner error={error} retry={() => setRefreshKey((value) => value + 1)} />}
 
         <div className="audit-table-wrap" aria-busy={loading}>
           <table className="audit-table" aria-label="Audit log events">

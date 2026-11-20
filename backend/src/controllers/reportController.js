@@ -276,6 +276,7 @@ const getFhsisRemarks = async (req, res) => {
 
 const saveFhsisRemark = async (req, res) => {
   try {
+    const connection = req.idempotencyConnection || pool;
     const reportPeriodValue = String(req.body?.reportPeriod || '');
     const indicatorKey = String(req.body?.indicatorKey || '');
     const remark = req.body?.remark;
@@ -285,15 +286,15 @@ const saveFhsisRemark = async (req, res) => {
     }
     const value = remark.trim();
     if (!value) {
-      await pool.query('DELETE FROM report_remarks WHERE report_period = ? AND indicator_key = ?', [reportPeriodValue, indicatorKey]);
+      await connection.query('DELETE FROM report_remarks WHERE report_period = ? AND indicator_key = ?', [reportPeriodValue, indicatorKey]);
       return res.json({ success: true, data: { indicatorKey, remark: '' } });
     }
-    await pool.query(`
+    await connection.query(`
       INSERT INTO report_remarks (report_period, indicator_key, remark, updated_by)
       VALUES (?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE remark = VALUES(remark), updated_by = VALUES(updated_by), updated_at = CURRENT_TIMESTAMP
     `, [reportPeriodValue, indicatorKey, value, req.user.user_id]);
-    const [[saved]] = await pool.query(`
+    const [[saved]] = await connection.query(`
       SELECT rr.indicator_key, rr.remark, rr.updated_at, u.full_name AS updated_by_name
       FROM report_remarks rr
       LEFT JOIN users u ON u.user_id = rr.updated_by

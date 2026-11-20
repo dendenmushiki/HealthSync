@@ -251,6 +251,31 @@ html[data-theme='dark'] .dashboard-page {
   font-weight: 700;
 }
 
+.dashboard-page > .hs-status-banner {
+  margin: 0;
+}
+
+.dashboard-toast {
+  position: fixed;
+  z-index: 1200;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid #176a43;
+  border-radius: 0.6rem;
+  background: #e6f5ec;
+  color: #174b31;
+  box-shadow: 0 5px 20px rgb(20 45 30 / 18%);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+html[data-theme='dark'] .dashboard-toast {
+  border-color: #60b889;
+  background: #173a2a;
+  color: #d3f4df;
+}
+
 .dashboard-page .dashboard-kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

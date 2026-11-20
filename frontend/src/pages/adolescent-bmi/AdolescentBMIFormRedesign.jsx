@@ -9,6 +9,7 @@ import ConfirmModal from '../../components/common/ConfirmModal';
 import { createAdolescentBMI, previewAdolescentBMI, getPreviousAdolescentBMI } from '../../services/api/adolescentBMIService';
 import { getLocalDateInputValue, formatDateLabel } from '../../utils/dateUtils';
 import { normalizeResidentId } from '../../utils/residentUtils';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 export const getAdolescentAgeInMonths = (birthdate, dateRecorded) => {
   const matchBirth = /^\d{4}-\d{2}-\d{2}$/.exec(String(birthdate || '').slice(0, 10));
@@ -128,7 +129,8 @@ const AdolescentBMIFormRedesign = ({ onSaved, onSwitchToAdult }) => {
     } catch (error) {
       const fieldErrors = error.response?.data?.errors;
       if (fieldErrors) setErrors(normalizeServerErrors(fieldErrors));
-      publishToast(error.response?.data?.message || error.message || 'Unable to save BMI record.');
+      console.error('Unable to save adolescent BMI record.', error);
+      publishToast(getFriendlyError(error));
     } finally { setSaving(false); }
   };
 

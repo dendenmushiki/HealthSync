@@ -6,6 +6,7 @@ import {
 } from '../offline/offlineVaultService';
 import { getOfflineSession } from '../offline/offlineSessionService';
 import offlineQueue from '../offline/offlineQueueService';
+import { isOffline } from '../offline/networkService';
 
 const ACTIVE_NUTRITION_SNAPSHOT_KEY = 'activeNutritionSnapshot';
 const ACTIVE_OFFLINE_DATA_SNAPSHOT_KEY = 'activeOfflineDataSnapshot';
@@ -143,7 +144,7 @@ async function listOfflineNutritionRecords(params = {}) {
 }
 
 export async function listNutritionRecords(params = {}) {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return listOfflineNutritionRecords(params);
+  if (isOffline()) return listOfflineNutritionRecords(params);
   const response = await api.get('/nutrition/records', { params });
   return response.data;
 }

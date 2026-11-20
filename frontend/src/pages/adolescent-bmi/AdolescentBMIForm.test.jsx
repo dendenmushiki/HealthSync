@@ -59,7 +59,7 @@ test('shows preview errors and does not permit an unclassified save', async () =
   fireEvent.change(screen.getByLabelText('Height (cm)'), { target: { value: '150' } });
   fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '40' } });
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Resident sex is required.');
+  expect(await screen.findByRole('status')).toHaveTextContent('Resident sex is required.');
   expect(screen.getByRole('button', { name: 'Save record' })).toBeDisabled();
   expect(createAdolescentBMI).not.toHaveBeenCalled();
 });

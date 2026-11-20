@@ -22,7 +22,7 @@ router.put(
   '/fhsis/remarks',
   authenticateToken,
   authorizeRole(['bhw', 'official']),
-  createIdempotencyMiddleware('report_remarks', 'report_remarks'),
+  createIdempotencyMiddleware('report_remarks', 'report_remarks', { atomic: true }),
   saveFhsisRemark
 );
 router.get('/fhsis/drilldown', authenticateToken, authorizeRole(['bhw', 'official']), getFhsisDrilldown);

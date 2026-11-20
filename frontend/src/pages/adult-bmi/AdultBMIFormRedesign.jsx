@@ -9,6 +9,7 @@ import ConfirmModal from '../../components/common/ConfirmModal';
 import { createAdultBMI, previewAdultBMI, getPreviousAdultBMI } from '../../services/api/adultBMIService';
 import { getLocalDateInputValue, formatDateLabel } from '../../utils/dateUtils';
 import { normalizeResidentId } from '../../utils/residentUtils';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const initialForm = () => ({ resident_id: '', date_recorded: getLocalDateInputValue(), height_cm: '', weight_kg: '' });
 const ageInMonths = (birthdate, asOf) => {
@@ -117,7 +118,8 @@ const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
     } catch (error) {
       const fieldErrors = error.response?.data?.errors;
       if (fieldErrors) setErrors(Object.fromEntries(Object.entries(fieldErrors).map(([key, value]) => [key === 'weight' ? 'weight_kg' : key === 'height' ? 'height_cm' : key, value])));
-      publishToast(error.response?.data?.message || error.message || 'Unable to save adult BMI record.');
+      console.error('Unable to save adult BMI record.', error);
+      publishToast(getFriendlyError(error));
     } finally { setSaving(false); }
   };
 

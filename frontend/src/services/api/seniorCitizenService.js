@@ -4,6 +4,7 @@ import { getOfflineSnapshotRecords } from '../offline/offlineDataDownloadService
 import { calculateAge } from '../../utils/residentUtils';
 import { getResidents, getResident } from './residentService';
 import offlineQueue from '../offline/offlineQueueService';
+import { healthCheck, isOffline } from '../offline/networkService';
 
 function getManilaToday() {
   const parts = new Intl.DateTimeFormat('en', {
@@ -46,7 +47,7 @@ async function searchEligibleResidentsOffline(search) {
 }
 
 export async function listSeniorCitizens(params = {}) {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (isOffline()) {
     const [downloaded, queuedItems] = await Promise.all([
       getOfflineSnapshotRecords('seniorCitizens'),
       offlineQueue.getQueueItems(),
@@ -96,7 +97,7 @@ export async function listSeniorCitizens(params = {}) {
 }
 
 export async function getSeniorCitizen(id) {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (isOffline()) {
     const [records, queuedItems] = await Promise.all([
       getOfflineSnapshotRecords('seniorCitizens'),
       offlineQueue.getQueueItems(),
@@ -115,12 +116,12 @@ export async function getSeniorCitizen(id) {
 }
 
 export async function createSeniorCitizen(payload) {
-  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-  let requestPayload = payload;
-  let offlineLocalRecord;
-  if (isOffline) {
-    const residentResponse = await getResident(payload.resident_id);
-    const resident = residentResponse.data;
+  if (typeof navigator !== 'undefined' && navigator.onLine) await healthCheck();
+  const offline = isOffline();
+  const residentResponse = await getResident(payload.resident_id);
+  const resident = residentResponse.data;
+  let requestPayload = offline ? { ...payload, senior_citizen_id: '' } : payload;
+  if (offline) {
     const registrationDate = new Date(`${String(payload.date_registered).slice(0, 10)}T00:00:00`);
     if (calculateAge(resident.birthdate, registrationDate) < 60) {
       throw new Error('Residents must be 60 years or older on the registration date.');
@@ -134,21 +135,20 @@ export async function createSeniorCitizen(payload) {
       .map((item) => item.localRecord)]
       .some((record) => String(record.resident_id) === String(payload.resident_id));
     if (duplicate) throw new Error('This resident is already registered as a senior citizen.');
-    requestPayload = { ...payload, senior_citizen_id: '' };
-    offlineLocalRecord = {
-      ...payload,
-      senior_citizen_id: payload.senior_citizen_id || 'Pending server assignment',
-      first_name: resident.first_name,
-      middle_name: resident.middle_name,
-      last_name: resident.last_name,
-      suffix: resident.suffix,
-      birthdate: resident.birthdate,
-      sex: resident.sex,
-      created_at: new Date().toISOString(),
-      offline: true,
-      sync_status: 'PENDING',
-    };
   }
+  const offlineLocalRecord = {
+    ...payload,
+    senior_citizen_id: payload.senior_citizen_id || 'Pending server assignment',
+    first_name: resident.first_name,
+    middle_name: resident.middle_name,
+    last_name: resident.last_name,
+    suffix: resident.suffix,
+    birthdate: resident.birthdate,
+    sex: resident.sex,
+    created_at: new Date().toISOString(),
+    offline: true,
+    sync_status: 'PENDING',
+  };
   const response = await api.post('/senior-citizens', requestPayload, { offlineLocalRecord });
   if (response.data?.success && !response.data?.queued) {
     publishNotification('seniorFollowUpAlerts', 'Senior registry updated', 'A senior citizen record was registered.');
@@ -167,7 +167,7 @@ export async function removeSeniorCitizen(id) {
 }
 
 export async function searchEligibleResidents(search) {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (isOffline()) {
     return searchEligibleResidentsOffline(search);
   }
   const response = await api.get('/senior-citizens/eligible-residents/search', { params: { search } });
@@ -175,7 +175,7 @@ export async function searchEligibleResidents(search) {
 }
 
 export async function getNextSeniorId() {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (isOffline()) {
     const [downloaded, queuedItems] = await Promise.all([
       getOfflineSnapshotRecords('seniorCitizens'),
       offlineQueue.getQueueItems(),

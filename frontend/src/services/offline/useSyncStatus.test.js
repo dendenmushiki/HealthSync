@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import useSyncStatus from './useSyncStatus';
+import useSyncStatus, { SyncStatusProvider } from './useSyncStatus';
 import offlineQueue from './offlineQueueService';
 
 jest.mock('./offlineQueueService', () => ({
@@ -25,7 +25,7 @@ test('reports the actual queue access reason instead of a generic locked message
   offlineQueue.getQueueItems.mockRejectedValueOnce(
     new Error('Offline access is not prepared for this device.')
   );
-  render(<StatusProbe />);
+  render(<SyncStatusProvider><StatusProbe /></SyncStatusProvider>);
 
   await waitFor(() => expect(screen.getByTestId('sync-error'))
     .toHaveTextContent('Offline access is not prepared for this device.'));

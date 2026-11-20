@@ -1,8 +1,7 @@
 import api from './apiClient';
 import { getOfflineSnapshotRecords } from '../offline/offlineDataDownloadService';
 import { getQueueItems } from '../offline/offlineQueueService';
-
-const isOffline = () => typeof navigator !== 'undefined' && !navigator.onLine;
+import { isOffline } from '../offline/networkService';
 
 async function getOfflineChildRecords() {
   const [records, queuedItems] = await Promise.all([
@@ -47,15 +46,13 @@ export async function getChildHealthRecord(id) {
 }
 
 export async function createChildHealthRecord(payload) {
-  const offlineLocalRecord = isOffline()
-    ? {
-      ...payload,
-      record_date: payload.record_date || payload.visit_date,
-      created_at: new Date().toISOString(),
-      offline: true,
-      sync_status: 'PENDING',
-    }
-    : undefined;
+  const offlineLocalRecord = {
+    ...payload,
+    record_date: payload.record_date || payload.visit_date,
+    created_at: new Date().toISOString(),
+    offline: true,
+    sync_status: 'PENDING',
+  };
   const response = await api.post('/child-health', payload, { offlineLocalRecord });
   return response.data;
 }

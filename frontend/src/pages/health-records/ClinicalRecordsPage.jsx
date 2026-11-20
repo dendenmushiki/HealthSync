@@ -4,6 +4,7 @@ import { getResident } from '../../services/api/residentService';
 import { listHealthRecords, createHealthRecord, deleteHealthRecord, updateHealthRecord } from '../../services/api/healthRecordService';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import { formatDateLabel, getLocalDateInputValue } from '../../utils/dateUtils';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const initialForm = {
   record_date: getLocalDateInputValue(),
@@ -69,7 +70,8 @@ const ClinicalRecordsPage = () => {
           }
         }
       } catch (err) {
-        setError('Unable to load resident clinical records.');
+        console.error('Unable to load resident clinical records.', err);
+        setError(err);
       } finally {
         setLoading(false);
       }
@@ -119,7 +121,8 @@ const ClinicalRecordsPage = () => {
         setError(response?.message || 'Unable to save clinical record.');
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to save clinical record.');
+      console.error('Unable to save clinical record.', err);
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -132,7 +135,8 @@ const ClinicalRecordsPage = () => {
       setRecords((current) => current.filter((record) => record.health_record_id !== recordToDelete.health_record_id));
       setRecordToDelete(null);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to delete clinical record.');
+      console.error('Unable to delete clinical record.', err);
+      setError(err);
     } finally {
       setDeleting(false);
     }
@@ -150,7 +154,7 @@ const ClinicalRecordsPage = () => {
         <Link to={`/residents/${id}`} className="page-action-button page-action-back"><span aria-hidden="true">&#8592;</span> Back to resident</Link>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && <StatusBanner error={error} compact />}
       {successMessage && <div className="alert alert-info" role="status">{successMessage}</div>}
 
       <div className="healthsync-form-shell">

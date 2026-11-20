@@ -16,6 +16,7 @@ import { enqueueOperation } from '../../services/offline/offlineQueueService';
 import { calculateAge, formatResidentName, isSeniorCitizen } from '../../utils/residentUtils';
 import { toDateInputValue } from '../../utils/dateUtils';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
+import { healthCheck, isOffline } from '../../services/offline/networkService';
 import SITIOS from '../../constants/sitios';
 
 const initialForm = {
@@ -451,7 +452,8 @@ const ResidentForm = ({ onBack }) => {
       };
       delete payload.profile_photo;
 
-      if (!navigator.onLine) {
+      if (navigator.onLine) await healthCheck();
+      if (isOffline()) {
         const operation = id ? 'UPDATE' : 'CREATE';
         const queued = await enqueueOperation({
           operation,

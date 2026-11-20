@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import offlineQueue from './offlineQueueService';
 import networkService from './networkService';
 
-export default function useSyncStatus() {
+const SyncStatusContext = createContext(null);
+
+function useSyncStatusState() {
   const [items, setItems] = useState([]);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
+  const [dashboardRequestFailed, setDashboardRequestFailed] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -27,18 +30,17 @@ export default function useSyncStatus() {
   useEffect(() => {
     refresh();
     networkService.startNetworkMonitor();
-    const unsubscribe = networkService.subscribe(({ online: isOnline }) => setOnline(isOnline));
+    const unsubscribe = networkService.subscribe(({ online: isOnline, backendAvailable }) => {
+      setOnline(isOnline && backendAvailable !== false);
+    });
     const onQueue = () => refresh();
     const onSyncComplete = () => { setSyncing(false); refresh(); };
-    const onOnline = () => setOnline(true);
     window.addEventListener('healthsync:queue-changed', onQueue);
     window.addEventListener('healthsync:sync-complete', onSyncComplete);
-    window.addEventListener('online', onOnline);
     return () => {
       unsubscribe();
       window.removeEventListener('healthsync:queue-changed', onQueue);
       window.removeEventListener('healthsync:sync-complete', onSyncComplete);
-      window.removeEventListener('online', onOnline);
     };
   }, [refresh]);
 
@@ -50,5 +52,35 @@ export default function useSyncStatus() {
   const waiting = pending + failed + syncingCount;
   const lastSynced = items.filter((item) => item.syncedAt).sort((a, b) => new Date(b.syncedAt) - new Date(a.syncedAt))[0]?.syncedAt || null;
 
-  return { items, online, syncing, setSyncing, loaded, refresh, pending, failed, syncingCount, syncedToday, conflicts, waiting, lastSynced, error };
+  return {
+    items,
+    online,
+    syncing,
+    setSyncing,
+    loaded,
+    refresh,
+    pending,
+    failed,
+    syncingCount,
+    syncedToday,
+    conflicts,
+    waiting,
+    lastSynced,
+    error,
+    dashboardRequestFailed,
+    setDashboardRequestFailed,
+  };
+}
+
+export function SyncStatusProvider({ children }) {
+  const status = useSyncStatusState();
+  return <SyncStatusContext.Provider value={status}>{children}</SyncStatusContext.Provider>;
+}
+
+export default function useSyncStatus() {
+  const status = useContext(SyncStatusContext);
+  if (!status) {
+    throw new Error('useSyncStatus must be used within SyncStatusProvider.');
+  }
+  return status;
 }

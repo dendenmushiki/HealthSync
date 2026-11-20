@@ -26,7 +26,12 @@ const medicalRecordIdempotency = createIdempotencyMiddleware(
   (req) => `${req.params.recordType}_records`,
   (req) => tableByRecordType[req.params.recordType]
 );
-router.post('/:residentId/:recordType', medicalRecordIdempotency, createResidentMedicalRecord);
+const medicalRecordCreateIdempotency = createIdempotencyMiddleware(
+  (req) => `${req.params.recordType}_records`,
+  (req) => tableByRecordType[req.params.recordType],
+  { atomic: true }
+);
+router.post('/:residentId/:recordType', medicalRecordCreateIdempotency, createResidentMedicalRecord);
 router.put('/:residentId/:recordType/:recordId', medicalRecordIdempotency, updateResidentMedicalRecord);
 router.delete('/:residentId/:recordType/:recordId', medicalRecordIdempotency, deleteResidentMedicalRecord);
 

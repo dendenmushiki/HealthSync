@@ -1,7 +1,7 @@
 import offlineQueue from './offlineQueueService';
 import api from '../api/apiClient';
 
-let runningPromise = null;
+const runningPromises = new Map();
 const IDEMPOTENT_QUEUED_TABLES = new Set([
   'residents',
   'health_records',
@@ -97,7 +97,15 @@ function isNetworkFailure(error) {
 }
 
 export function runSync() {
-  if (runningPromise) return runningPromise;
+  let ownerId = 'unauthenticated';
+  try {
+    ownerId = getActiveSession().userId;
+  } catch {
+    // syncWork reports the authentication error through its normal path.
+  }
+  const deviceId = localStorage.getItem('hs_offline_device_id') || 'unknown-device';
+  const scope = `${ownerId}:${deviceId}`;
+  if (runningPromises.has(scope)) return runningPromises.get(scope);
   const syncWork = async () => {
   const result = { synced: 0, failed: 0 };
   if (typeof navigator !== 'undefined' && !navigator.onLine) return result;
@@ -240,12 +248,15 @@ export function runSync() {
   };
   const lockManager = typeof navigator !== 'undefined' ? navigator.locks : null;
   const request = lockManager?.request
-    ? lockManager.request('healthsync-offline-sync', { mode: 'exclusive', ifAvailable: true }, (lock) => (
+    ? lockManager.request(`healthsync-offline-sync:${encodeURIComponent(scope)}`, { mode: 'exclusive', ifAvailable: true }, (lock) => (
       lock ? syncWork() : { synced: 0, failed: 0 }
     ))
     : syncWork();
-  runningPromise = request.finally(() => { runningPromise = null; });
-  return runningPromise;
+  const scopedPromise = request.finally(() => {
+    if (runningPromises.get(scope) === scopedPromise) runningPromises.delete(scope);
+  });
+  runningPromises.set(scope, scopedPromise);
+  return scopedPromise;
 }
 
 const syncManager = { runSync };

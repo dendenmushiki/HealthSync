@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import ResidentAutocomplete from '../../components/residents/ResidentAutocomplete';
 import { createAdolescentBMI, previewAdolescentBMI } from '../../services/api/adolescentBMIService';
 import { normalizeResidentId } from '../../utils/residentUtils';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const getLocalDate = () => {
   const now = new Date();
@@ -110,7 +111,8 @@ const AdolescentBMIForm = ({ onSaved }) => {
         if (active) {
           setResult(null);
           setResultKey('');
-          setPreviewError(previewError?.response?.data?.message || 'Unable to calculate nutritional status. Please check the measurements and resident information.');
+          console.error('Unable to calculate adolescent BMI.', previewError);
+          setPreviewError(previewError);
         }
       } finally {
         if (active) setPreviewLoading(false);
@@ -164,7 +166,8 @@ const AdolescentBMIForm = ({ onSaved }) => {
         setError(response?.message || 'Unable to save BMI record.');
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to save BMI record.');
+      console.error('Unable to save adolescent BMI record.', err);
+      setError(err);
     } finally {
       setLoading(false);
     }
@@ -178,7 +181,7 @@ const AdolescentBMIForm = ({ onSaved }) => {
           <p>Adolescent nutritional evaluation</p>
         </div>
 
-        {error && <div className="alert alert-danger">{error}</div>}
+        {error && <StatusBanner error={error} compact />}
 
         <form onSubmit={handleSubmit} className="healthsync-form">
           <section className="healthsync-form-section">
@@ -234,7 +237,9 @@ const AdolescentBMIForm = ({ onSaved }) => {
               {currentResult && <span> · Z-score: {currentResult.bmi_for_age_zscore}</span>}
             </div>
           )}
-          {previewError && <div className="alert alert-danger mb-0" role="alert">{previewError}</div>}
+          {previewError && (typeof previewError === 'string'
+            ? <div className="alert alert-danger mb-0" role="alert">{previewError}</div>
+            : <StatusBanner error={previewError} compact />)}
 
           <div className="healthsync-form-actions">
             <button type="submit" className="btn btn-primary" disabled={loading || previewLoading || !currentResult?.bmi_for_age_category}>{loading ? 'Saving...' : 'Save record'}</button>

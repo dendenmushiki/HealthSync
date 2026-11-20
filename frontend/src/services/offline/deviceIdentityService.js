@@ -33,13 +33,13 @@ async function createIdentity() {
   return identity;
 }
 
-export async function getDeviceIdentity() {
+export async function getDeviceIdentity({ createIfMissing = true } = {}) {
   const deviceId = localStorage.getItem(DEVICE_ID_KEY);
   if (deviceId) {
     const identity = await idb.getFromStore('offlineDevices', deviceId);
     if (identity?.privateKey && identity.publicKey) return identity;
   }
-  return createIdentity();
+  return createIfMissing ? createIdentity() : null;
 }
 
 export async function signDeviceMessage(identity, message) {

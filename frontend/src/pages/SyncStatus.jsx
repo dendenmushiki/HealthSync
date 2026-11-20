@@ -11,6 +11,7 @@ import {
 } from '../services/offline/offlineDataDownloadService';
 import useSyncStatus from '../services/offline/useSyncStatus';
 import { formatDateLabel } from '../utils/dateUtils';
+import StatusBanner from '../components/common/StatusBanner';
 import './SyncStatus.css';
 
 const statusLabel = { PENDING: 'Waiting to sync', SYNCING: 'Syncing', FAILED: 'Failed', SYNCED: 'Synced', CONFLICT: 'Outcome Unknown' };
@@ -92,7 +93,7 @@ export default function SyncStatus() {
         const current = await getActiveResidentSnapshot();
         if (active) setSnapshot(current || null);
       } catch (error) {
-        if (active) setDownloadError(error.message || 'Offline snapshot status could not be loaded.');
+        if (active) setDownloadError(error);
       }
     };
     loadSnapshot();
@@ -116,7 +117,8 @@ export default function SyncStatus() {
         }
       })
       .catch((error) => {
-        if (active) setServerActivityError(error.response?.data?.message || 'Shared sync activity is unavailable.');
+        if (active)         console.error('Unable to load shared sync activity.', error);
+        setServerActivityError(error);
       });
     return () => { active = false; };
   }, [syncState.online, user?.role]);
@@ -147,7 +149,8 @@ export default function SyncStatus() {
       setSnapshot(result);
       if (result.cleanupWarning) setDownloadError('The new offline data is ready, but older encrypted cache cleanup was incomplete.');
     } catch (error) {
-      setDownloadError(error.message || 'Offline data could not be downloaded. The previous snapshot is unchanged.');
+      console.error('Unable to download offline data.', error);
+      setDownloadError(error);
     } finally {
       setDownloading(false);
     }
@@ -159,7 +162,8 @@ export default function SyncStatus() {
       await syncManager.runSync();
       setAutoSyncError('');
     } catch (error) {
-      setAutoSyncError(error.message || 'Saved changes could not be synchronized.');
+      console.error('Unable to synchronize saved changes.', error);
+      setAutoSyncError(error);
     } finally {
       syncState.setSyncing(false);
       await syncState.refresh();
@@ -233,8 +237,8 @@ export default function SyncStatus() {
         ? 'This older encrypted vault needs its existing six-digit PIN once. Its queued changes are preserved.'
         : 'The encrypted queue remains on this device and has not been counted as synchronized.'}</p></div>
     </div>}
-    {offlineCacheError && <div className="sync-toast" role="alert">{offlineCacheError}</div>}
-    {autoSyncError && <div className="sync-toast" role="alert">{autoSyncError}</div>}
+    {offlineCacheError && <StatusBanner error={offlineCacheError} compact />}
+    {autoSyncError && <StatusBanner error={autoSyncError} compact />}
     {toast && <div className="sync-toast" role="status">{toast}<button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification">×</button></div>}
     <section className={`sync-hero sync-hero-${heroMode}`} aria-live="polite"><div className="sync-hero-icon"><Icon name={heroMode === 'synced' ? 'check' : ['failed', 'locked'].includes(heroMode) ? 'warning' : 'sync'} size={26}/></div><div className="sync-hero-copy"><strong>{heroCopy[heroMode][0]}</strong><span>{heroCopy[heroMode][1]}</span>{heroMode === 'syncing' && <div className="sync-progress" aria-label="Sync in progress"><span /></div>}</div><div className="sync-hero-actions"><button type="button" className="sync-primary-button" onClick={syncNow} disabled={!syncState.online || syncState.waiting === 0 || syncState.syncing}><Icon name="sync"/> {syncState.syncing ? 'Syncing…' : 'Sync now'}</button>{syncState.failed > 0 && <button type="button" className="sync-secondary-button" onClick={async () => { for (const item of syncState.items.filter(i => i.status === 'FAILED')) await offlineQueue.updateOperationStatus(item.offlineOperationId, { status:'PENDING', lastError:null }); await syncNow(); }}>Retry failed</button>}<button type="button" className="sync-icon-button" onClick={syncState.refresh} aria-label="Refresh sync queue"><Icon name="refresh"/></button></div></section>
     {user?.role === 'bhw' && <section className="sync-offline-card" aria-label="Offline data download">
@@ -267,11 +271,11 @@ export default function SyncStatus() {
         {downloadProgress.totalResidents === undefined && downloadProgress.totalRecords === undefined ? '' : ` of ${downloadProgress.totalRecords ?? downloadProgress.totalResidents}`}
         {downloadProgress.totalPages === undefined ? '' : ` · page ${downloadProgress.pagesCompleted} of ${downloadProgress.totalPages}`}
       </div>}
-      {downloadError && <p className="sync-offline-error" role="alert">{downloadError}</p>}
+      {downloadError && <StatusBanner error={downloadError} retry={downloadSnapshot} retrying={downloading} compact />}
     </section>}
     {user?.role === 'bhw' && <section className="sync-team-activity" aria-label="Server-confirmed sync activity">
       <header><div><h2>Server-confirmed activity</h2><p>Recent changes received by HealthSync from authorized BHW accounts.</p></div></header>
-      {serverActivityError && <p className="sync-offline-error" role="alert">{serverActivityError}</p>}
+      {serverActivityError && <StatusBanner error={serverActivityError} compact />}
       {!serverActivityError && serverActivity.length === 0 && <p className="sync-activity-empty">No confirmed sync activity is available yet.</p>}
       {serverActivity.length > 0 && <ul>{serverActivity.map((item) => <li key={`${item.table_name}-${item.server_record_id}-${item.created_at}`}>
         <div><strong>{item.table_name === 'adult_bmi_records' ? 'Adult BMI record' : (item.table_name || 'Record').replaceAll('_', ' ')}</strong><span>Synced by {item.actor_name || 'a BHW'} · {relativeTime(item.created_at)}</span></div>

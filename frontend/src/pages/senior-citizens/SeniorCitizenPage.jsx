@@ -4,6 +4,7 @@ import ResidentAutocomplete from '../../components/residents/ResidentAutocomplet
 import ResidentIdentityLink from '../../components/residents/ResidentIdentityLink';
 import { calculateAge } from '../../utils/residentUtils';
 import { getLocalDateInputValue } from '../../utils/dateUtils';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const SeniorCitizenPage = () => {
   const [items, setItems] = useState([]);
@@ -109,7 +110,8 @@ const SeniorCitizenPage = () => {
         setError(resp?.message || 'Unable to register senior citizen.');
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to register senior citizen.');
+      console.error('Unable to register senior citizen.', err);
+      setError(err);
     } finally {
       setSaving(false);
     }
@@ -124,7 +126,7 @@ const SeniorCitizenPage = () => {
         </div>
 
         {activeTab === 'registration' && <div className="healthsync-form-card mb-4">
-          {error && <div className="alert alert-danger">{error}</div>}
+          {error && <StatusBanner error={error} compact />}
 
           <form onSubmit={handleSubmit} className="healthsync-form senior-registration-form">
             <section className="healthsync-form-section">

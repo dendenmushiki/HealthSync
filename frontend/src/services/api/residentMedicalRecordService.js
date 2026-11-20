@@ -6,6 +6,7 @@ import {
 } from '../offline/offlineVaultService';
 import { getOfflineSession } from '../offline/offlineSessionService';
 import offlineQueue from '../offline/offlineQueueService';
+import { isOffline } from '../offline/networkService';
 
 const getPath = (residentId, recordType) => `/resident-medical-records/${residentId}/${recordType}`;
 
@@ -49,7 +50,7 @@ async function getOfflineMedicalRecords(residentId, recordType) {
 }
 
 export async function listResidentMedicalRecords(residentId, recordType) {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (isOffline()) {
     return { success: true, data: await getOfflineMedicalRecords(residentId, recordType), offline: true };
   }
   const response = await api.get(getPath(residentId, recordType));
@@ -62,7 +63,7 @@ export async function listAllResidentMedicalRecords(params = {}) {
 }
 
 export async function getResidentMedicalRecord(residentId, recordType, recordId) {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  if (isOffline()) {
     const records = await getOfflineMedicalRecords(residentId, recordType);
     const record = records.find((item) => String(item.id) === String(recordId));
     if (!record) throw new Error('This medical record has not been downloaded to this device.');
@@ -73,16 +74,14 @@ export async function getResidentMedicalRecord(residentId, recordType, recordId)
 }
 
 export async function createResidentMedicalRecord(residentId, recordType, recordData) {
-  const offlineLocalRecord = typeof navigator !== 'undefined' && !navigator.onLine
-    ? {
-      resident_id: residentId,
-      record_type: recordType,
-      record_data: recordData,
-      created_at: new Date().toISOString(),
-      offline: true,
-      sync_status: 'PENDING',
-    }
-    : undefined;
+  const offlineLocalRecord = {
+    resident_id: residentId,
+    record_type: recordType,
+    record_data: recordData,
+    created_at: new Date().toISOString(),
+    offline: true,
+    sync_status: 'PENDING',
+  };
   const response = await api.post(
     getPath(residentId, recordType),
     { record_data: recordData },

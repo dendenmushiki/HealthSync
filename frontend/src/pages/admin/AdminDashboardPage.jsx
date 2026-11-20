@@ -4,6 +4,7 @@ import api from '../../services/api/apiClient';
 import { listAuditLogs } from '../../services/api/auditService';
 import { getEventConfig } from '../audit/auditEventConfig';
 import { formatDateTimeInTimeZone, formatRelativeTime } from '../../utils/dateUtils';
+import StatusBanner from '../../components/common/StatusBanner';
 import './AdminDashboard.css';
 
 const REFRESH_INTERVAL = 30000;
@@ -158,7 +159,7 @@ function getActivityTone(activity, event) {
 function RecentSystemActivity() {
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState(null);
   const requestInFlight = useRef(false);
 
   const fetchActivities = useCallback(async () => {
@@ -170,9 +171,10 @@ function RecentSystemActivity() {
         throw new Error('The recent activity response was incomplete.');
       }
       setActivities(response.data.slice(0, RECENT_ITEMS_LIMIT));
-      setError(false);
-    } catch {
-      setError(true);
+      setError(null);
+    } catch (activityError) {
+      console.error('Unable to load recent system activity.', activityError);
+      setError(activityError);
     } finally {
       requestInFlight.current = false;
       setLoading(false);
@@ -201,10 +203,7 @@ function RecentSystemActivity() {
           ))}
         </ul>
       ) : error && !activities.length ? (
-        <div className="admin-activity-state" role="status">
-          <span>Recent activity is temporarily unavailable.</span>
-          <button type="button" onClick={fetchActivities}>Try again</button>
-        </div>
+        <StatusBanner error={error} retry={fetchActivities} compact />
       ) : activities.length ? (
         <ul className="admin-activity-list" aria-label="Latest system activity" aria-busy={loading}>
           {activities.map((activity) => {
@@ -242,7 +241,7 @@ function RecentSystemActivity() {
           <span>No recent system activity.</span>
         </div>
       )}
-      {error && activities.length > 0 && <span className="admin-activity-refresh-note" role="status">Could not refresh activity.</span>}
+      {error && activities.length > 0 && <StatusBanner error={error} retry={fetchActivities} compact />}
     </DashboardPanel>
   );
 }
@@ -267,7 +266,7 @@ const AdminDashboardPage = () => {
       setError('');
     } catch (requestError) {
       console.error('Unable to load administrator overview.', requestError);
-      setError(requestError.response?.data?.message || 'Unable to load administrator overview.');
+      setError(requestError);
     } finally {
       requestInFlight.current = false;
       setLoading(false);
@@ -329,12 +328,7 @@ const AdminDashboardPage = () => {
         </div>
       </header>
 
-      {error && (
-        <div className="dashboard-error admin-dashboard-error" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={fetchSummary}>Try again</button>
-        </div>
-      )}
+      {error && <StatusBanner error={error} retry={fetchSummary} />}
 
       {loading && !summary ? <AdminDashboardSkeleton /> : summary && (
         <>

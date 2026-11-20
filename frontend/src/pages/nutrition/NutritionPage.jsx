@@ -14,6 +14,7 @@ import ConfirmModal from '../../components/common/ConfirmModal';
 import { formatNutritionRecordAge } from '../../utils/nutritionRecordAge';
 import NutritionLayout from '../../components/nutrition/NutritionLayout';
 import NutritionRecordsPage from './NutritionRecordsPage';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const tabs = [
   { key: 'operation-timbang', label: 'Operation Timbang', icon: '▣' },
@@ -64,7 +65,8 @@ const NutritionPage = () => {
       setRecentRecords([...operationRecords, ...adolescentRecords, ...adultRecords]);
       setRecentPage(1);
     } catch (err) {
-      setError('Unable to load recent nutrition records.');
+      console.error('Unable to load recent nutrition records.', err);
+      setError(err);
     } finally {
       setRecentLoading(false);
     }
@@ -119,7 +121,8 @@ const NutritionPage = () => {
       setRecentPage((currentPage) => Math.min(currentPage, Math.max(1, Math.ceil(nextFilteredCount / 10))));
       setRecordToDelete(null);
     } catch (deleteError) {
-      setError(deleteError.response?.data?.message || deleteError.message || 'Unable to delete nutrition record.');
+      console.error('Unable to delete nutrition record.', deleteError);
+      setError(deleteError);
       setRecordToDelete(null);
     } finally {
       setDeleting(false);
@@ -208,7 +211,7 @@ const NutritionPage = () => {
 
   return (
     <div className="page-shell">
-      {error && <div className="alert alert-danger" role="alert">{error}</div>}
+      {error && <StatusBanner error={error} compact />}
       <NutritionLayout
         tabs={tabs}
         activeTab={activeTab}

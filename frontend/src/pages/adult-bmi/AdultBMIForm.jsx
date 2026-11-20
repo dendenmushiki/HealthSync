@@ -3,6 +3,8 @@ import ResidentAutocomplete from '../../components/residents/ResidentAutocomplet
 import { createAdultBMI } from '../../services/api/adultBMIService';
 import { calculateAge, normalizeResidentId } from '../../utils/residentUtils';
 import { getLocalDateInputValue } from '../../utils/dateUtils';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const AdultBMIForm = ({ onSaved }) => {
   const [selectedResident, setSelectedResident] = useState(null);
@@ -59,10 +61,11 @@ const AdultBMIForm = ({ onSaved }) => {
         setForm({ resident_id: '', record_date: getLocalDateInputValue(), height_cm: '', weight_kg: '' });
         if (onSaved) onSaved();
       } else {
-        setError(response?.message || 'Unable to save adult BMI record.');
+        setError(getFriendlyError(response?.message || 'Unable to save adult BMI record.'));
       }
     } catch (err) {
-      setError(err?.response?.data?.message || 'Unable to save adult BMI record.');
+      console.error('Unable to save adult BMI record.', err);
+      setError(err);
     } finally {
       setLoading(false);
     }
@@ -76,7 +79,7 @@ const AdultBMIForm = ({ onSaved }) => {
           <p>Adult nutritional status assessment</p>
         </div>
 
-        {error && <div className="alert alert-danger">{error}</div>}
+        {error && <StatusBanner error={error} compact />}
 
         <form onSubmit={handleSubmit} className="healthsync-form">
           <section className="healthsync-form-section">

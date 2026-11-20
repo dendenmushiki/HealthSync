@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api/apiClient';
 import PinDigitInput from '../../components/common/PinDigitInput';
+import StatusBanner from '../../components/common/StatusBanner';
 import './ForcePasswordChangePage.css';
 
 const ForcePasswordChangePage = () => {
@@ -88,7 +89,8 @@ const ForcePasswordChangePage = () => {
       setConfirmation('');
       setComplete(true);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || requestError.message || 'Unable to change password.');
+      console.error('Unable to change password.', requestError);
+      setError(requestError);
     } finally {
       setBusy(false);
     }
@@ -111,11 +113,15 @@ const ForcePasswordChangePage = () => {
         ) : (
           <>
             <p className="hs-force-eyebrow">SECURITY REQUIREMENT</p>
-            <h1 id="hs-force-title">{passwordUpdated || !user?.must_change_password ? 'Set your offline PIN' : 'Set your new password'}</h1>
+            <h1 id="hs-force-title">{passwordUpdated || !user?.must_change_password
+              ? 'Set your offline PIN'
+              : setupRequired ? 'Set your password and account PIN' : 'Set your new password'}</h1>
             <p className="hs-force-copy">{passwordUpdated || !user?.must_change_password
               ? 'Choose one six-digit PIN for your account. Use the same PIN on your other approved devices; each device stores its offline data separately.'
-              : 'Choose a password only you know. Your temporary password cannot be used again.'}</p>
-            {error && <div className="hs-force-error" role="alert">{error}</div>}
+              : setupRequired
+                ? 'Choose a password only you know and set a six-digit PIN for offline access. Your temporary password cannot be used again.'
+                : 'Choose a password only you know. Your temporary password cannot be used again.'}</p>
+            {error && <StatusBanner error={error} compact />}
             {!passwordUpdated && user?.must_change_password && (
             <form onSubmit={submit} className="hs-force-form">
               <label htmlFor="hs-new-password">New password</label>

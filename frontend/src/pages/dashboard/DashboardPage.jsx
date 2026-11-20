@@ -5,6 +5,7 @@ import idb from '../../services/offline/indexedDbService';
 import syncManager from '../../services/offline/syncManager';
 import useSyncStatus from '../../services/offline/useSyncStatus';
 import { AuthContext } from '../../context/AuthContext';
+import StatusBanner from '../../components/common/StatusBanner';
 
 const rangeLabels = {
   this_month: 'This month',
@@ -672,25 +673,41 @@ const DashboardPage = () => {
   const [stats, setStats] = useState(null);
   const [statsKey, setStatsKey] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [requestError, setRequestError] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [requestInFlight, setRequestInFlight] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [requestDurationMs, setRequestDurationMs] = useState(null);
+  const [showUpdatedToast, setShowUpdatedToast] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [offline, setOffline] = useState(!navigator.onLine);
   const sharedSync = useSyncStatus();
   const refreshSync = sharedSync.refresh;
+  const setDashboardRequestFailed = sharedSync.setDashboardRequestFailed;
   const syncQueue = { pending: sharedSync.pending, failed: sharedSync.failed };
   const isBhw = String(user?.role || '').toLowerCase().replace(/[-_\s]+/g, '_') === 'bhw';
   const queryKey = JSON.stringify([user?.user_id || 'current', range, customFrom, customTo]);
   const queryKeyRef = useRef(queryKey);
   const statsKeyRef = useRef('');
   const requestIdRef = useRef(0);
+  const wasUnavailableRef = useRef(false);
+  const toastTimerRef = useRef(null);
+  const dashboardRequestFailedRef = useRef(sharedSync.dashboardRequestFailed);
+  dashboardRequestFailedRef.current = sharedSync.dashboardRequestFailed;
   queryKeyRef.current = queryKey;
+  const requestUnavailable = Boolean(requestError && !requestError.response && (
+    requestError.isAxiosError
+    || requestError.request
+    || /timeout|timed out|network error|failed to fetch/i.test(String(requestError.message || ''))
+  ));
+  const offline = !sharedSync.online || !navigator.onLine || requestUnavailable;
+  const connectionUnavailable = offline || sharedSync.dashboardRequestFailed || Boolean(requestError);
+  const currentStats = statsKey === queryKey ? stats : null;
 
   const loadSync = useCallback(async () => {
     try {
       await refreshSync();
     } catch (syncError) {
       console.error('Unable to refresh dashboard synchronization status.', syncError);
-      setError('Dashboard data loaded, but synchronization status could not be refreshed.');
     }
   }, [refreshSync]);
 
@@ -699,12 +716,16 @@ const DashboardPage = () => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const cacheKey = `dashboard_summary_${encodeURIComponent(requestKey)}`;
+    const requestStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    let requestElapsedMs;
+    setRequestInFlight(true);
     if (!background) setLoading(true);
 
     try {
       const response = await api.get('/dashboard/summary', {
         params: { range, from: customFrom, to: customTo },
       });
+      requestElapsedMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - requestStartedAt;
       if (requestId !== requestIdRef.current || requestKey !== queryKeyRef.current) return;
 
       const data = response.data?.data;
@@ -715,9 +736,17 @@ const DashboardPage = () => {
       setStats(data);
       setStatsKey(requestKey);
       statsKeyRef.current = requestKey;
-      setError('');
+      setRequestError(null);
+      setActionError(null);
+      setRetryCount(0);
+      setDashboardRequestFailed(false);
+      if (wasUnavailableRef.current || dashboardRequestFailedRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+        setShowUpdatedToast(true);
+        toastTimerRef.current = window.setTimeout(() => setShowUpdatedToast(false), 3500);
+      }
+      wasUnavailableRef.current = false;
       setLastUpdated(new Date());
-      setOffline(false);
       try {
         const cachedSummary = {
           ...data,
@@ -739,15 +768,15 @@ const DashboardPage = () => {
         });
       } catch (cacheError) {
         console.error('Unable to save the dashboard summary for offline use.', cacheError);
-        setError('Dashboard data is current, but its offline copy could not be updated.');
       }
     } catch (fetchError) {
+      requestElapsedMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - requestStartedAt;
       if (requestId !== requestIdRef.current || requestKey !== queryKeyRef.current) return;
-      const message = fetchError?.response?.data?.message
-        || fetchError?.message
-        || 'Unable to load dashboard data.';
-      setError(`${message} Showing the last saved data for this view when available.`);
-      setOffline(!navigator.onLine);
+      console.error('Unable to load dashboard summary.', fetchError);
+      setRequestError(fetchError);
+      setDashboardRequestFailed(true);
+      setRetryCount((current) => current + 1);
+      wasUnavailableRef.current = true;
       try {
         const cached = await idb.getFromStore('syncMetadata', cacheKey);
         if (requestId !== requestIdRef.current || requestKey !== queryKeyRef.current) return;
@@ -763,7 +792,6 @@ const DashboardPage = () => {
         }
       } catch (cacheError) {
         console.error('Unable to read the saved dashboard summary.', cacheError);
-        setError(`${message} The saved dashboard copy could not be read.`);
         if (statsKeyRef.current !== requestKey) {
           setStats(null);
           setStatsKey('');
@@ -772,30 +800,45 @@ const DashboardPage = () => {
       }
     } finally {
       if (requestId === requestIdRef.current) {
+        setRequestDurationMs(requestElapsedMs);
+        setRequestInFlight(false);
         setLoading(false);
         loadSync();
       }
     }
-  }, [customFrom, customTo, loadSync, range]);
+  }, [customFrom, customTo, loadSync, range, setDashboardRequestFailed]);
 
   useEffect(() => {
     fetchDashboard();
-    const timer = window.setInterval(() => fetchDashboard(true), 300000);
-    const onFocus = () => fetchDashboard(true);
+    const onFocus = () => { if (navigator.onLine) fetchDashboard(true); };
     const onNetworkChange = () => {
-      setOffline(!navigator.onLine);
+      if (navigator.onLine) fetchDashboard(true);
       loadSync();
     };
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onNetworkChange);
     window.addEventListener('offline', onNetworkChange);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onNetworkChange);
       window.removeEventListener('offline', onNetworkChange);
     };
   }, [fetchDashboard, loadSync, queryKey]);
+
+  useEffect(() => {
+    if (sharedSync.dashboardRequestFailed && !navigator.onLine) return undefined;
+    const delay = sharedSync.dashboardRequestFailed
+      ? Math.min(30000 * (2 ** Math.max(0, retryCount - 1)), 300000)
+      : 300000;
+    const timer = window.setTimeout(() => fetchDashboard(true), delay);
+    return () => window.clearTimeout(timer);
+  }, [fetchDashboard, retryCount, sharedSync.dashboardRequestFailed]);
+
+  useEffect(() => {
+    if (connectionUnavailable) wasUnavailableRef.current = true;
+  }, [connectionUnavailable]);
+
+  useEffect(() => () => window.clearTimeout(toastTimerRef.current), []);
 
   const updateRange = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -821,11 +864,10 @@ const DashboardPage = () => {
       await fetchDashboard(true);
     } catch (syncError) {
       console.error('Unable to synchronize dashboard changes.', syncError);
-      setError(syncError?.message || 'Unable to synchronize queued changes.');
+      setActionError(syncError);
     }
   };
 
-  const currentStats = statsKey === queryKey ? stats : null;
   const kpis = currentStats?.kpis || {};
   const senior = kpis.seniorCitizens || {};
   const children = kpis.childrenUnder5 || {};
@@ -835,7 +877,7 @@ const DashboardPage = () => {
     || user?.full_name?.split(' ')?.[0]
     || user?.name?.split(' ')?.[0]
     || 'Health Worker';
-  const syncLabel = offline
+  const syncLabel = connectionUnavailable
     ? 'Offline'
     : syncQueue.failed > 0
       ? `${syncQueue.failed} failed`
@@ -879,12 +921,12 @@ const DashboardPage = () => {
           </div>
         )}
         <div className="dashboard-refresh">
-          <span className={`dashboard-sync-status ${offline || syncQueue.failed ? 'is-warning' : ''}`}>
+          <span className={`dashboard-sync-status ${connectionUnavailable || syncQueue.failed ? 'is-warning' : ''}`}>
             <i aria-hidden="true" />
             {syncLabel}
           </span>
           <span className="dashboard-updated" aria-live="polite">Updated {formatTime(lastUpdated)}</span>
-          <button type="button" onClick={() => fetchDashboard(true)} aria-label="Refresh dashboard" title="Refresh dashboard">
+          <button type="button" onClick={() => fetchDashboard(true)} aria-label="Refresh dashboard" title="Refresh dashboard" disabled={requestInFlight}>
             <DashboardIcon name="refresh" size={17} />
           </button>
           {(syncQueue.pending > 0 || syncQueue.failed > 0) && (
@@ -895,17 +937,20 @@ const DashboardPage = () => {
         </div>
       </div>
 
-      {offline && (
-        <div className="dashboard-offline-banner" role="status">
-          Offline — showing saved dashboard data when available.
-        </div>
+      {connectionUnavailable && (
+        <StatusBanner
+          error={requestError || actionError}
+          offline={offline}
+          savedAt={lastUpdated}
+          retry={() => { setActionError(null); fetchDashboard(true); }}
+          retrying={requestInFlight}
+          technicalDetails={requestDurationMs === null ? '' : `Dashboard request: ${Math.round(requestDurationMs)} ms`}
+        />
       )}
-      {error && (
-        <div className="dashboard-error" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => fetchDashboard()}>Try again</button>
-        </div>
+      {!connectionUnavailable && actionError && (
+        <StatusBanner error={actionError} retry={syncNow} compact />
       )}
+      {showUpdatedToast && <div className="dashboard-toast" role="status" aria-live="polite">Dashboard updated</div>}
 
       {loading && !currentStats ? (
         <DashboardLoadingSkeleton />
@@ -1012,7 +1057,7 @@ const DashboardPage = () => {
             </ChartCard>
           </section>
         </>
-      ) : !loading && !error ? (
+      ) : !loading && !requestError ? (
         <div className="dashboard-unavailable" role="status">
           <strong>Dashboard data is unavailable.</strong>
           <p>No statistics have been displayed because a valid summary was not returned.</p>

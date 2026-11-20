@@ -145,6 +145,7 @@ const getChildHealthRecord = async (req, res) => {
 
 const createChildHealthRecord = async (req, res) => {
   try {
+    const connection = req.idempotencyConnection || pool;
     const userId = req.user.user_id;
     const payload = normalizeChildPayload(req.body);
 
@@ -156,7 +157,7 @@ const createChildHealthRecord = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Record date is required' });
     }
 
-    const [residentCheck] = await pool.query('SELECT resident_id, birthdate FROM residents WHERE resident_id = ?', [payload.resident_id]);
+    const [residentCheck] = await connection.query('SELECT resident_id, birthdate FROM residents WHERE resident_id = ?', [payload.resident_id]);
     if (!residentCheck || residentCheck.length === 0) {
       return res.status(400).json({ success: false, message: 'Resident not found' });
     }
@@ -179,7 +180,7 @@ const createChildHealthRecord = async (req, res) => {
     }
 
     const insertSql = `INSERT INTO child_health_records (${insertFields.map((field) => `\`${field}\``).join(', ')}) VALUES (${insertFields.map(() => '?').join(', ')})`;
-    const [result] = await pool.query(insertSql, insertValues);
+    const [result] = await connection.query(insertSql, insertValues);
 
     await writeAudit({
       user_id: userId,
@@ -187,10 +188,11 @@ const createChildHealthRecord = async (req, res) => {
       module: 'child_health_records',
       table_name: 'child_health_records',
       record_id: result.insertId,
-      new_data: { ...payload, recorded_by: userId }
+      new_data: { ...payload, recorded_by: userId },
+      connection: req.idempotencyConnection,
     });
 
-    const [rows] = await pool.query('SELECT * FROM child_health_records WHERE id = ?', [result.insertId]);
+    const [rows] = await connection.query('SELECT * FROM child_health_records WHERE id = ?', [result.insertId]);
     return res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     logger.error('createChildHealthRecord error', error);

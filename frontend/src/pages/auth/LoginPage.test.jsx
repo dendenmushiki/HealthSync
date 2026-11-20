@@ -47,7 +47,8 @@ test('disables repeated submissions and announces authentication errors', async 
 
   finishLogin({ success: false, message: 'Invalid credentials' });
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
+  const errorMessage = await screen.findByText('Please check your username and password.');
+  expect(errorMessage.closest('.hs-status-banner')).toBeInTheDocument();
   expect(screen.getByLabelText('Username')).toHaveAttribute('aria-invalid', 'true');
   expect(screen.getByLabelText('Password')).toHaveAttribute('aria-describedby', 'login-error');
   expect(screen.getByRole('button', { name: /login/i })).toBeEnabled();

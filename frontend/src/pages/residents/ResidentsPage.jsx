@@ -6,6 +6,8 @@ import { deleteResident, getResidents } from '../../services/api/residentService
 import ConfirmModal from '../../components/common/ConfirmModal';
 import Pagination from '../../components/common/Pagination';
 import SITIOS from '../../constants/sitios';
+import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const DEFAULTS = { search: '', status: '', sex: '', sitio: '', classification: '', sort: 'name-asc', page: 1, pageSize: 10 };
 const SORT_OPTIONS = [
@@ -100,7 +102,8 @@ const ResidentsPage = () => {
       setPagination(data.pagination || { page: urlState.page, limit: urlState.pageSize, total: data.total || 0, totalPages });
       if (totalPages > 0 && urlState.page > totalPages) updateQueryParams({ page: totalPages === 1 ? '' : totalPages });
     } catch (fetchError) {
-      setError(fetchError.response?.data?.message || fetchError.message || 'Unable to load residents.');
+      console.error('Unable to load residents.', fetchError);
+      setError(fetchError);
     } finally {
       setLoading(false);
     }
@@ -161,7 +164,8 @@ const ResidentsPage = () => {
       setToast('Resident deleted.');
       await fetchResidents();
     } catch (deleteError) {
-      setToast(deleteError.response?.data?.message || 'Unable to delete resident.');
+      console.error('Unable to delete resident.', deleteError);
+      setToast(getFriendlyError(deleteError));
     } finally {
       setDeleting(false);
     }
@@ -219,7 +223,7 @@ const ResidentsPage = () => {
           <span aria-live="polite" aria-atomic="true">{loading && items.length ? 'Updating results…' : `Showing ${first}-${last} of ${pagination.total} matching residents`}</span>
           {loading && items.length > 0 && <span className="residents-loading-bar" aria-hidden="true" />}
         </div>
-        {error && <div className="residents-error-banner" role="alert"><span>{error}</span><button type="button" onClick={retryFetch}>Try again</button></div>}
+        {error && <StatusBanner error={error} retry={retryFetch} />}
         {emptyResults && !error ? <div className="residents-empty-state">
           <span className="residents-empty-icon" aria-hidden="true">⌕</span>
           <strong>{pagination.total === 0 && !hasFilters ? 'No residents yet' : 'No residents match your filters'}</strong>
