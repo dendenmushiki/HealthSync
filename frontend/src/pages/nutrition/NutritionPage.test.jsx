@@ -70,6 +70,10 @@ test('recent records show infant ages in months and delete only after confirmati
 
   const table = await screen.findByRole('table');
   const rows = within(table).getAllByRole('row');
+  const loadsBeforeSync = listNutritionRecords.mock.calls.length;
+  fireEvent(window, new Event('healthsync:sync-complete'));
+  await waitFor(() => expect(listNutritionRecords.mock.calls.length).toBeGreaterThan(loadsBeforeSync));
+
   expect(rows[1]).toHaveTextContent('Ana Santos');
   expect(rows[1]).toHaveTextContent('8 mos');
   expect(rows[2]).toHaveTextContent('Pedro Cruz');

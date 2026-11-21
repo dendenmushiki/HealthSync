@@ -5,6 +5,7 @@ const logger = require('../services/logger');
 const { writeAudit } = require('../services/auditService');
 const { validatePassword } = require('../services/passwordPolicy');
 const { ensureUserManagementSchema } = require('../services/userManagementService');
+const { validateUserContactInfo } = require('../services/userProfileValidation');
 const configuredExpiryHours = Number.parseInt(process.env.TEMP_PASSWORD_EXPIRY_HOURS, 10);
 const TEMP_PASSWORD_EXPIRY_HOURS = Number.isInteger(configuredExpiryHours) && configuredExpiryHours > 0
   ? Math.min(configuredExpiryHours, 720) : 72;
@@ -152,7 +153,7 @@ const listUsers = async (req, res) => {
     const [[countRows], [rows], [summaryRows]] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM users u WHERE ${where}`, params),
       pool.query(
-        `SELECT u.user_id, u.full_name, u.username, u.role, u.profile_photo, u.is_active, u.must_change_password,
+        `SELECT u.user_id, u.full_name, u.username, u.contact_number, u.email, u.role, u.profile_photo, u.is_active, u.must_change_password,
           u.temp_password_expires_at, u.last_login_at, u.created_at, u.locked_until,
           CASE WHEN u.is_active = 1 AND u.locked_until > UTC_TIMESTAMP() THEN 1 ELSE 0 END AS is_locked,
           CASE WHEN u.must_change_password = 1 AND u.temp_password_expires_at IS NOT NULL
@@ -216,7 +217,7 @@ const getUser = async (req, res) => {
     const { id } = req.params;
     if (!validId(id)) return sendError(res, 400, 'Invalid user ID.');
     const [rows] = await pool.query(
-      `SELECT u.user_id, u.full_name, u.username, u.role, u.profile_photo, u.is_active, u.created_at, u.updated_at,
+      `SELECT u.user_id, u.full_name, u.username, u.contact_number, u.email, u.role, u.profile_photo, u.is_active, u.created_at, u.updated_at,
         u.created_by, creator.full_name AS created_by_name, u.last_login_at, u.password_changed_at,
         u.must_change_password, u.temp_password_expires_at, u.failed_login_attempts, u.locked_until,
         (u.must_change_password = 1 AND u.temp_password_expires_at IS NOT NULL
@@ -260,8 +261,10 @@ const createUser = async (req, res) => {
   try {
     await ensureUserManagementSchema();
     const identity = validateIdentity(req.body || {});
-    if (Object.keys(identity.fieldErrors).length) {
-      return sendError(res, 400, 'Check the highlighted fields.', 'VALIDATION_ERROR', identity.fieldErrors);
+    const contactInfo = validateUserContactInfo(req.body || {}, { required: true });
+    const fieldErrors = { ...identity.fieldErrors, ...contactInfo.fieldErrors };
+    if (Object.keys(fieldErrors).length) {
+      return sendError(res, 400, 'Check the highlighted fields.', 'VALIDATION_ERROR', fieldErrors);
     }
     const passwordResult = getTemporaryPassword(req.body?.password_mode, req.body?.password);
     if (passwordResult.error) {
@@ -270,13 +273,13 @@ const createUser = async (req, res) => {
 
     const passwordHash = await bcrypt.hash(passwordResult.password, 10);
     const [result] = await pool.query(
-      `INSERT INTO users (full_name, username, password, role, is_active, must_change_password,
+      `INSERT INTO users (full_name, username, contact_number, email, password, role, is_active, must_change_password,
         offline_pin_setup_required, temp_password_expires_at, created_by)
-       VALUES (?, ?, ?, ?, 1, 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${TEMP_PASSWORD_EXPIRY_HOURS} HOUR), ?)`,
-      [identity.name, identity.username, passwordHash, identity.role, req.user.user_id]
+       VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${TEMP_PASSWORD_EXPIRY_HOURS} HOUR), ?)`,
+      [identity.name, identity.username, contactInfo.contact_number, contactInfo.email, passwordHash, identity.role, req.user.user_id]
     );
     const [rows] = await pool.query(
-      `SELECT user_id, full_name, username, role, is_active, must_change_password, temp_password_expires_at, created_at
+      `SELECT user_id, full_name, username, contact_number, email, role, is_active, must_change_password, temp_password_expires_at, created_at
        FROM users WHERE user_id = ?`,
       [result.insertId]
     );
@@ -291,7 +294,7 @@ const createUser = async (req, res) => {
       action: 'user_created',
       targetId: result.insertId,
       description: `Created user ${identity.username}`,
-      new_data: { full_name: identity.name, username: identity.username, role: identity.role, is_active: true },
+      new_data: { full_name: identity.name, username: identity.username, contact_number: contactInfo.contact_number, email: contactInfo.email, role: identity.role, is_active: true },
     });
     return res.status(201).json({
       success: true,

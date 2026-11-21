@@ -466,6 +466,7 @@ const ResidentForm = ({ onBack }) => {
           request: { method: id ? 'PUT' : 'POST', url: id ? `/residents/${id}` : '/residents', data: payload },
           localRecord: { ...payload, ...(id ? { resident_id: id, id } : {}) }
         });
+        window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));
         navigate('/sync-status', { state: { queuedOperationId: queued.offlineOperationId } });
         return;
       }

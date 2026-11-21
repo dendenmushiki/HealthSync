@@ -2075,24 +2075,27 @@ html[data-theme='dark'] .hs-inactivity-button { color: #111a24; }
 
 .app-pagination-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: center;
+  gap: 0.6rem;
   width: 100%;
   margin-top: 1rem;
-  color: #64778b;
-  font-size: 0.8rem;
+  color: var(--hs-muted, #64778b);
+  font-size: 0.78rem;
 }
 
 .app-pagination {
-  margin-left: auto;
+  width: 100%;
+  margin: 0;
 }
 
 .app-pagination-list {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.35rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2103,13 +2106,13 @@ html[data-theme='dark'] .hs-inactivity-button { color: #111a24; }
 }
 
 .app-pagination-button {
-  min-width: 2.25rem;
-  min-height: 2.25rem;
+  min-width: 2.35rem;
+  min-height: 2.35rem;
   padding: 0.45rem 0.7rem;
-  border: 1px solid #d0d5dd;
-  border-radius: 6px;
-  background: #fff;
-  color: #344054;
+  border: 1px solid var(--hs-border, #d0d5dd);
+  border-radius: 0.45rem;
+  background: var(--hs-surface, #fff);
+  color: var(--hs-text, #344054);
   font-size: 0.82rem;
   font-weight: 600;
   line-height: 1.2;
@@ -2117,14 +2120,14 @@ html[data-theme='dark'] .hs-inactivity-button { color: #111a24; }
 }
 
 .app-pagination-button:hover:not(:disabled) {
-  border-color: #0d6efd;
-  background: #f0f6ff;
-  color: #0a58ca;
+  border-color: var(--hs-primary, #0d6efd);
+  background: color-mix(in srgb, var(--hs-primary, #0d6efd) 9%, var(--hs-surface, #fff));
+  color: var(--hs-primary, #0a58ca);
 }
 
 .app-pagination-button.active {
-  border-color: #0d6efd;
-  background: #0d6efd;
+  border-color: var(--hs-primary, #0d6efd);
+  background: var(--hs-primary, #0d6efd);
   color: #fff;
 }
 
@@ -2135,8 +2138,20 @@ html[data-theme='dark'] .hs-inactivity-button { color: #111a24; }
 
 .app-pagination-ellipsis {
   min-width: 1.1rem;
-  color: #667085;
+  color: var(--hs-muted, #667085);
   text-align: center;
+}
+
+.app-pagination-summary { text-align: center; }
+.app-pagination-size { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+.app-pagination-size select {
+  min-height: 2.3rem;
+  padding: 0.25rem 1.7rem 0.25rem 0.45rem;
+  border: 1px solid var(--hs-border, #d0d5dd);
+  border-radius: 0.4rem;
+  background: var(--hs-surface, #fff);
+  color: var(--hs-text, #344054);
+  font: inherit;
 }
 
 .audit-filter-card + .card .table tbody tr {
@@ -5594,6 +5609,26 @@ label.form-label {
   }
 }
 
+.residents-directory-page .app-pagination-list,
+.senior-registry-page .app-pagination-list,
+.health-records-page .app-pagination-list,
+.nutrition-records-page .app-pagination-list,
+.recent-records-section .app-pagination-list {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 767px) {
+  .residents-directory-page .app-pagination-button,
+  .senior-registry-page .app-pagination-button,
+  .health-records-page .app-pagination-button,
+  .nutrition-records-page .app-pagination-button,
+  .recent-records-section .app-pagination-button {
+    min-width: 2.4rem;
+    min-height: 2.4rem;
+  }
+}
+
 @media (max-height: 600px) {
   .healthsync-sidebar {
     padding-top: 0.6rem;
@@ -7011,8 +7046,8 @@ html[data-theme='dark'] .clinical-bmi-obese { background: #4a252b; color: #ffb7b
 @keyframes residents-skeleton { to { background-position: -200% 0; } }
 .residents-visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; clip-path: inset(50%) !important; white-space: nowrap !important; }
 .residents-directory-page :focus-visible { outline: none; box-shadow: var(--hs-focus); }
-.residents-directory-page .app-pagination-row { justify-content: flex-start; gap: 1rem; margin-top: .85rem; padding-top: .75rem; border-top: 1px solid var(--residents-border); color: var(--residents-muted); font-size: .78rem; }
-.residents-directory-page .app-pagination { margin-left: auto; }
+.residents-directory-page .app-pagination-row { justify-content: center; gap: .6rem; margin-top: .85rem; padding-top: .75rem; border-top: 1px solid var(--residents-border); color: var(--residents-muted); font-size: .78rem; }
+.residents-directory-page .app-pagination { margin: 0; }
 .residents-directory-page .app-pagination-list { gap: .25rem; }
 .residents-directory-page .app-pagination-button { min-width: 2.35rem; min-height: 2.35rem; border-color: var(--residents-border); border-radius: .45rem; background: var(--residents-surface); color: var(--residents-text); }
 .residents-directory-page .app-pagination-button.active { border-color: var(--residents-primary); background: var(--residents-primary); color: #fff; }
@@ -7068,7 +7103,7 @@ html[data-theme='dark'] .residents-error-banner { background: #3a2229; color: #f
   .residents-directory-page .app-pagination-row { display: flex; flex-wrap: wrap; gap: .5rem; }
   .residents-directory-page .app-pagination-row { margin-right: .75rem; margin-left: .75rem; }
   .residents-directory-page .app-pagination { width: 100%; margin-left: 0; overflow-x: auto; }
-  .residents-directory-page .app-pagination-list { justify-content: flex-start; }
+  .residents-directory-page .app-pagination-list { justify-content: center; }
   .residents-directory-page .app-pagination-button { min-width: 2.4rem; min-height: 2.4rem; }
   .residents-surface { padding: .75rem 0; }
 }
@@ -7354,9 +7389,9 @@ html[data-theme='dark'] .login-form-panel .login-alert.alert-danger {
 .health-record-icon-button:hover { border-color: var(--record-primary); color: var(--record-primary); }
 .health-record-mobile-list { display: none; }
 .health-record-table-footer { padding: 0 .85rem .75rem; border-top: 1px solid var(--record-border); }
-.health-record-table-footer .app-pagination-row { justify-content: flex-start; gap: .8rem; margin: 0; padding-top: .75rem; color: var(--record-muted); font-size: .78rem; }
-.health-record-table-footer .app-pagination { margin-left: auto; }
-.health-record-table-footer .app-pagination-button { min-width: 2.35rem; min-height: 2.35rem; border-color: var(--record-border); border-radius: .45rem; background: var(--record-surface); color: var(--record-text); }
+.health-record-table-footer .app-pagination-row { justify-content: center; gap: .6rem; margin: 0; padding-top: .75rem; color: var(--record-muted); font-size: .78rem; }
+.health-record-table-footer .app-pagination { margin: 0; }
+.health-record-table-footer .app-pagination-button { min-width: 2.35rem; min-height: 2.35rem; border-color: var(--record-border); border-radius: .45rem; background: var(--record-surface); color: var(--record-text); font-size: .82rem; font-weight: 600; }
 .health-record-table-footer .app-pagination-button.active { border-color: var(--record-primary); background: var(--record-primary); color: #fff; }
 .health-record-table-footer .app-pagination-size { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
 .health-record-table-footer .app-pagination-size select { min-height: 2.3rem; padding: .25rem 1.6rem .25rem .4rem; border: 1px solid var(--record-border); border-radius: .4rem; background: var(--record-surface); color: var(--record-text); font: inherit; }
@@ -7514,7 +7549,7 @@ html[data-theme='dark'] .health-record-detail-page .health-record-menu button:la
   .health-record-table-footer { padding: .75rem; }
   .health-record-table-footer .app-pagination-row { flex-wrap: wrap; }
   .health-record-table-footer .app-pagination-summary { flex-basis: calc(100% - 1rem); }
-  .health-record-table-footer .app-pagination { margin-left: 0; }
+  .health-record-table-footer .app-pagination { margin: 0; }
   .health-record-profile-main { align-items: flex-start; }
   .health-record-profile-avatar { width: 3.4rem; height: 3.4rem; }
   .health-record-profile-copy h1 { font-size: 1.2rem; }

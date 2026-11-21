@@ -897,7 +897,7 @@ const DashboardPage = () => {
           {isBhw ? (
             <>
               <Link className="dashboard-action dashboard-action-primary" to="/residents/new"><DashboardIcon name="users" size={16} />Add resident</Link>
-              <Link className="dashboard-action" to="/health-records"><DashboardIcon name="clinical" size={16} />Clinical record</Link>
+              <Link className="dashboard-action" to="/health-records"><DashboardIcon name="clinical" size={16} />Health records</Link>
               <Link className="dashboard-action" to="/senior-citizens/new"><DashboardIcon name="senior" size={16} />Register senior</Link>
               <Link className="dashboard-action" to="/nutrition"><DashboardIcon name="child" size={16} />Operation Timbang</Link>
             </>

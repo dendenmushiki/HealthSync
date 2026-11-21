@@ -28,6 +28,7 @@ const NutritionRecordsPage = () => {
   useEffect(()=>{const timer=window.setTimeout(()=>{setParam('search',search);},300); return()=>window.clearTimeout(timer);},[search]); // eslint-disable-line react-hooks/exhaustive-deps
   const load=useCallback(async()=>{setLoading(true);setError('');try{const response=await listNutritionRecords({search:searchParam,type:type==='All'?undefined:type,status,from,to,latestOnly,sort,order,page,pageSize});if(response.success){setItems(response.data.items||[]);setCounts(response.data.counts||{});setTotal(response.data.total||0)}}catch(error){console.error('Unable to load nutrition records.',error);setError(error)}finally{setLoading(false)}},[searchParam,type,status,from,to,latestOnly,sort,order,page,pageSize]);
   useEffect(()=>{load()},[load]);
+  useEffect(()=>{window.addEventListener('healthsync:sync-complete',load);return()=>window.removeEventListener('healthsync:sync-complete',load)},[load]);
   useEffect(()=>{
     const recordParam=searchParams.get('record');
     if(!recordParam||drawer)return;

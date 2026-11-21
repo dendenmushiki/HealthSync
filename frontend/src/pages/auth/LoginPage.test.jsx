@@ -53,3 +53,18 @@ test('disables repeated submissions and announces authentication errors', async 
   expect(screen.getByLabelText('Password')).toHaveAttribute('aria-describedby', 'login-error');
   expect(screen.getByRole('button', { name: /login/i })).toBeEnabled();
 });
+
+test('shows the credential message when invalid credentials reject with HTTP 401', async () => {
+  const logError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const login = jest.fn().mockRejectedValue({
+    response: { status: 401, data: { message: 'Invalid credentials' } },
+  });
+  renderLoginPage(login);
+
+  fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'bhw-user' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'incorrect' } });
+  fireEvent.submit(screen.getByRole('form', { name: 'HEALTHSYNC PORTAL' }));
+
+  expect(await screen.findByText('Please check your username and password.')).toBeInTheDocument();
+  logError.mockRestore();
+});

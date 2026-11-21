@@ -5,6 +5,8 @@ const { writeAudit } = require('../services/auditService');
 const { isStoredProfilePhoto } = require('../middleware/profilePhotoUpload');
 const { validatePassword } = require('../services/passwordPolicy');
 const { ensureAccountSecuritySchema, readPreferences, defaultPreferences } = require('../services/accountSecurityService');
+const { ensureUserManagementSchema } = require('../services/userManagementService');
+const { validateUserContactInfo } = require('../services/userProfileValidation');
 
 const ensureUserPhotoColumn = async () => {
   const [columns] = await pool.query("SHOW COLUMNS FROM users LIKE 'profile_photo'");
@@ -17,10 +19,11 @@ const updateAdminSettings = async (req, res) => {
   try {
     await ensureUserPhotoColumn();
     await ensureAccountSecuritySchema();
-    const { full_name, username, current_password, new_password, profile_photo } = req.body;
+    await ensureUserManagementSchema();
+    const { full_name, username, contact_number, email, current_password, new_password, profile_photo } = req.body;
 
     const [rows] = await pool.query(
-      'SELECT user_id, full_name, username, password, role, profile_photo FROM users WHERE user_id = ? LIMIT 1',
+      'SELECT user_id, full_name, username, contact_number, email, password, role, profile_photo FROM users WHERE user_id = ? LIMIT 1',
       [req.user.user_id]
     );
     if (!rows.length) {
@@ -33,6 +36,19 @@ const updateAdminSettings = async (req, res) => {
     }
     const nextUsername = username !== undefined ? username.trim() : current.username;
     const nextFullName = full_name !== undefined ? full_name.trim() : current.full_name;
+    const contactInfo = validateUserContactInfo({
+      ...(contact_number !== undefined ? { contact_number } : {}),
+      ...(email !== undefined ? { email } : {}),
+    });
+    if (Object.keys(contactInfo.fieldErrors).length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Check the highlighted personal information fields.',
+        fieldErrors: contactInfo.fieldErrors,
+      });
+    }
+    const nextContactNumber = contact_number !== undefined ? contactInfo.contact_number : current.contact_number;
+    const nextEmail = email !== undefined ? contactInfo.email : current.email;
     const nextPhoto = profile_photo !== undefined ? (String(profile_photo).trim() || null) : current.profile_photo;
     const usernameChanged = nextUsername !== current.username;
     const passwordChanged = Boolean(new_password);
@@ -67,8 +83,8 @@ const updateAdminSettings = async (req, res) => {
       ? await bcrypt.hash(String(new_password), 10)
       : current.password;
     await pool.query(
-      `UPDATE users SET full_name = ?, username = ?, password = ?, profile_photo = ?${passwordChanged ? ', token_version = token_version + 1, must_change_password = 0, password_changed_at = UTC_TIMESTAMP(), temp_password_expires_at = NULL' : ''} WHERE user_id = ?`,
-      [nextFullName, nextUsername, nextPassword, nextPhoto, current.user_id]
+      `UPDATE users SET full_name = ?, username = ?, contact_number = ?, email = ?, password = ?, profile_photo = ?${passwordChanged ? ', token_version = token_version + 1, must_change_password = 0, password_changed_at = UTC_TIMESTAMP(), temp_password_expires_at = NULL' : ''} WHERE user_id = ?`,
+      [nextFullName, nextUsername, nextContactNumber, nextEmail, nextPassword, nextPhoto, current.user_id]
     );
     if (passwordChanged) {
       await pool.query(
@@ -83,15 +99,15 @@ const updateAdminSettings = async (req, res) => {
       module: 'account-settings',
       table_name: 'users',
       record_id: current.user_id,
-      old_data: { full_name: current.full_name, username: current.username, profile_photo: current.profile_photo },
-      new_data: { full_name: nextFullName, username: nextUsername, profile_photo: nextPhoto, password_changed: Boolean(new_password) },
+      old_data: { full_name: current.full_name, username: current.username, contact_number: current.contact_number, email: current.email, profile_photo: current.profile_photo },
+      new_data: { full_name: nextFullName, username: nextUsername, contact_number: nextContactNumber, email: nextEmail, profile_photo: nextPhoto, password_changed: Boolean(new_password) },
       status: 'SUCCESS'
     });
 
     return res.json({
       success: true,
       message: 'Account settings updated successfully',
-      data: { user_id: current.user_id, full_name: nextFullName, username: nextUsername, role: current.role, profile_photo: nextPhoto }
+      data: { user_id: current.user_id, full_name: nextFullName, username: nextUsername, contact_number: nextContactNumber, email: nextEmail, role: current.role, profile_photo: nextPhoto }
     });
   } catch (error) {
     logger.error('updateAdminSettings error', error);
@@ -105,7 +121,13 @@ const updateAdminSettings = async (req, res) => {
 const getAccountSettings = async (req, res) => {
   try {
     await ensureAccountSecuritySchema();
+    await ensureUserManagementSchema();
     const preferences = await readPreferences(req.user.user_id);
+    const [[profile]] = await pool.query(
+      'SELECT user_id, full_name, username, contact_number, email FROM users WHERE user_id = ? LIMIT 1',
+      [req.user.user_id]
+    );
+    if (!profile) return res.status(404).json({ success: false, message: 'Account not found.' });
     const [history] = await pool.query(
       "SELECT id, session_id, ip_address, user_agent, CASE WHEN status = 'ACTIVE' AND expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP() THEN 'EXPIRED' ELSE status END AS status, occurred_at, ended_at FROM user_login_history WHERE user_id = ? ORDER BY occurred_at DESC LIMIT 20",
       [req.user.user_id]
@@ -113,6 +135,7 @@ const getAccountSettings = async (req, res) => {
     return res.json({
       success: true,
       data: {
+        profile,
         preferences,
         loginHistory: history.map((entry) => ({ ...entry, current: entry.session_id === req.user.jti })),
       },

@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const logger = require('../services/logger');
 const { getManilaToday } = require('../services/manilaDateService');
+const { writeAudit } = require('../services/auditService');
 
 function isCalendarDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
@@ -286,7 +287,25 @@ const saveFhsisRemark = async (req, res) => {
     }
     const value = remark.trim();
     if (!value) {
+      const [[existing]] = await connection.query(
+        'SELECT report_period, indicator_key, remark, updated_by, updated_at FROM report_remarks WHERE report_period = ? AND indicator_key = ?',
+        [reportPeriodValue, indicatorKey]
+      );
       await connection.query('DELETE FROM report_remarks WHERE report_period = ? AND indicator_key = ?', [reportPeriodValue, indicatorKey]);
+      if (existing) {
+        await writeAudit({
+          user_id: req.user.user_id,
+          action: 'DELETE',
+          module: 'reports',
+          description: 'Deleted an FHSIS report remark.',
+          table_name: 'report_remarks',
+          targetType: 'report_remark',
+          targetId: `${reportPeriodValue}:${indicatorKey}`,
+          targetLabel: indicatorKey,
+          old_data: existing,
+          connection,
+        });
+      }
       return res.json({ success: true, data: { indicatorKey, remark: '' } });
     }
     await connection.query(`

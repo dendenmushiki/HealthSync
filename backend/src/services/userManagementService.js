@@ -6,6 +6,8 @@ const ensureUserManagementSchema = async () => {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       const additions = [
+        ['contact_number', 'VARCHAR(32) NULL'],
+        ['email', 'VARCHAR(254) NULL'],
         ['is_active', 'BOOLEAN NOT NULL DEFAULT TRUE'],
         ['token_version', 'INT NOT NULL DEFAULT 0'],
         ['must_change_password', 'TINYINT(1) NOT NULL DEFAULT 0'],

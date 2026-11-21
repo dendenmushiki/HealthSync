@@ -37,6 +37,7 @@ const response = {
 };
 
 beforeEach(() => {
+  jest.clearAllMocks();
   window.history.replaceState({}, '', '/residents');
   getResidents.mockResolvedValue(response);
 });
@@ -61,4 +62,13 @@ test('directory searches, filters, sorts, and page size persist in the URL', asy
 
   fireEvent.change(screen.getByLabelText('Rows per page for residents'), { target: { value: '25' } });
   await waitFor(() => expect(new URLSearchParams(window.location.search).get('pageSize')).toBe('25'));
+});
+
+test('refreshes the resident list when offline changes finish synchronizing', async () => {
+  render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
+  await waitFor(() => expect(getResidents).toHaveBeenCalledTimes(1));
+
+  window.dispatchEvent(new CustomEvent('healthsync:sync-complete'));
+
+  await waitFor(() => expect(getResidents).toHaveBeenCalledTimes(2));
 });

@@ -5,6 +5,12 @@ DROP PROCEDURE IF EXISTS migrate_healthsync_user_management;
 DELIMITER $$
 CREATE PROCEDURE migrate_healthsync_user_management()
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'contact_number') THEN
+    ALTER TABLE users ADD COLUMN contact_number VARCHAR(32) NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'email') THEN
+    ALTER TABLE users ADD COLUMN email VARCHAR(254) NULL;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'is_active') THEN
     ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
   END IF;

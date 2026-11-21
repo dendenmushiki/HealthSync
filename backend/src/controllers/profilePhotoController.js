@@ -46,7 +46,7 @@ const deleteResidentPhoto = async (req, res) => {
 const uploadUserPhoto = async (req, res) => {
   try {
     await ensureUserPhotoColumn();
-    const [rows] = await pool.query('SELECT user_id, full_name, username, role, profile_photo FROM users WHERE user_id = ?', [req.user.user_id]);
+    const [rows] = await pool.query('SELECT user_id, full_name, username, contact_number, email, role, profile_photo FROM users WHERE user_id = ?', [req.user.user_id]);
     if (!rows.length) {
       await removeProfilePhotoFile(req.profilePhotoPath);
       return res.status(404).json({ success: false, message: 'Account not found' });
@@ -65,7 +65,7 @@ const uploadUserPhoto = async (req, res) => {
 const deleteUserPhoto = async (req, res) => {
   try {
     await ensureUserPhotoColumn();
-    const [rows] = await pool.query('SELECT user_id, full_name, username, role, profile_photo FROM users WHERE user_id = ?', [req.user.user_id]);
+    const [rows] = await pool.query('SELECT user_id, full_name, username, contact_number, email, role, profile_photo FROM users WHERE user_id = ?', [req.user.user_id]);
     if (!rows.length) return res.status(404).json({ success: false, message: 'Account not found' });
     await pool.query('UPDATE users SET profile_photo = NULL WHERE user_id = ?', [req.user.user_id]);
     await removeProfilePhotoFile(rows[0].profile_photo);

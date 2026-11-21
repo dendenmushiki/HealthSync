@@ -112,6 +112,11 @@ const ResidentsPage = () => {
   useEffect(() => { fetchResidents(); }, [fetchResidents]);
 
   useEffect(() => {
+    window.addEventListener('healthsync:sync-complete', fetchResidents);
+    return () => window.removeEventListener('healthsync:sync-complete', fetchResidents);
+  }, [fetchResidents]);
+
+  useEffect(() => {
     const handleShortcut = (event) => {
       const target = event.target;
       const isEditable = typeof target?.matches === 'function' && target.matches('input, textarea, select, [contenteditable="true"]');

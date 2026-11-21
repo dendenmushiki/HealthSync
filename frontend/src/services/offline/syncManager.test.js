@@ -290,7 +290,7 @@ test('requires attention when the idempotency service reports an unknown server 
   const item = {
     offlineOperationId: '123e4567-e89b-42d3-a456-426614174000',
     userId: '7',
-    operation: 'CREATE',
+    operation: 'UPDATE',
     table: 'health_records',
     status: 'PENDING',
     request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
@@ -309,6 +309,71 @@ test('requires attention when the idempotency service reports an unknown server 
   expect(item.lastError).toContain('outcome is unknown');
   await runSync();
   expect(api.request).toHaveBeenCalledTimes(1);
+});
+
+test('replays an uncertain create with the same key and stores the table record ID', async () => {
+  const item = {
+    offlineOperationId: '123e4567-e89b-42d3-a456-426614174000',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'adult_bmi_records',
+    status: 'PENDING',
+    request: {
+      method: 'POST',
+      url: '/adult-bmi',
+      data: { resident_id: 5, date_recorded: '2026-11-21', height_cm: 170, weight_kg: 65 },
+    },
+    localRecord: { resident_id: 5, record_type: 'Adult BMI' },
+  };
+  queue = [item];
+  api.request
+    .mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: { errorCode: 'IDEMPOTENCY_OUTCOME_UNKNOWN' },
+      },
+    })
+    .mockResolvedValueOnce({
+      data: { success: true, data: { bmi_id: 91, resident_id: 5 } },
+    });
+
+  await runSync();
+
+  expect(item.status).toBe('PENDING');
+  expect(item.retryCount).toBe(1);
+  await runSync();
+
+  expect(api.request).toHaveBeenCalledTimes(2);
+  expect(api.request.mock.calls.map(([request]) => request.headers['X-Idempotency-Key']))
+    .toEqual([item.offlineOperationId, item.offlineOperationId]);
+  expect(item.status).toBe('SYNCED');
+  expect(item.serverRecordId).toBe(91);
+  expect(item.localRecord.id).toBe(91);
+});
+
+test('rechecks older uncertain create entries using their original idempotency key', async () => {
+  const item = {
+    offlineOperationId: '123e4567-e89b-42d3-a456-426614174000',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'residents',
+    status: 'CONFLICT',
+    retryCount: 1,
+    request: { method: 'POST', url: '/residents', data: { first_name: 'Offline', last_name: 'Resident' } },
+    localRecord: { first_name: 'Offline', last_name: 'Resident', resident_id: 'offline:resident' },
+  };
+  queue = [item];
+  api.request.mockResolvedValue({
+    data: { success: true, data: { resident_id: 37, first_name: 'Offline', last_name: 'Resident' } },
+  });
+
+  await runSync();
+
+  expect(api.request).toHaveBeenCalledWith(expect.objectContaining({
+    headers: expect.objectContaining({ 'X-Idempotency-Key': item.offlineOperationId }),
+  }));
+  expect(item.status).toBe('SYNCED');
+  expect(item.serverRecordId).toBe(37);
 });
 
 test('marks unknown generic sync outcomes for review instead of retrying them', async () => {

@@ -43,7 +43,7 @@ const login = async (req, res) => {
         await ensureOfflineSecuritySchema();
 
         const [rows] = await pool.query(
-            `SELECT user_id, full_name, username, password, role, is_active, profile_photo, token_version,
+            `SELECT user_id, full_name, username, contact_number, email, password, role, is_active, profile_photo, token_version,
                 must_change_password, offline_pin_setup_required, offline_pin_hash, offline_pin_version,
                 temp_password_expires_at, failed_login_attempts, locked_until,
                 (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked,
@@ -245,6 +245,8 @@ const login = async (req, res) => {
                     user_id: user.user_id,
                     full_name: user.full_name,
                     username: user.username,
+                    contact_number: user.contact_number,
+                    email: user.email,
                     role: normalizeRoleLabel(user.role),
                     profile_photo: user.profile_photo,
                     must_change_password: Boolean(user.must_change_password),
@@ -284,7 +286,7 @@ const changeForcedPassword = async (req, res) => {
         }
 
         const [rows] = await pool.query(
-            'SELECT user_id, full_name, username, role, profile_photo, password, must_change_password, offline_pin_setup_required, offline_pin_hash, offline_pin_version, token_version FROM users WHERE user_id = ? LIMIT 1',
+            'SELECT user_id, full_name, username, contact_number, email, role, profile_photo, password, must_change_password, offline_pin_setup_required, offline_pin_hash, offline_pin_version, token_version FROM users WHERE user_id = ? LIMIT 1',
             [req.user.user_id]
         );
         if (!rows.length) return res.status(404).json({ success: false, message: 'Account not found.' });
@@ -369,6 +371,8 @@ const changeForcedPassword = async (req, res) => {
                     user_id: user.user_id,
                     full_name: user.full_name,
                     username: user.username,
+                    contact_number: user.contact_number,
+                    email: user.email,
                     role: normalizeRoleLabel(user.role),
                     profile_photo: user.profile_photo,
                     must_change_password: false,
@@ -446,7 +450,7 @@ const me = async (req, res) => {
         await ensureAccountSecuritySchema();
         await ensureOfflineSecuritySchema();
         const [rows] = await pool.query(
-            `SELECT u.user_id, u.full_name, u.username, u.role, u.profile_photo, u.created_at,
+            `SELECT u.user_id, u.full_name, u.username, u.contact_number, u.email, u.role, u.profile_photo, u.created_at,
                 u.offline_pin_setup_required, u.offline_pin_hash, u.offline_pin_version,
                 d.pin_hash, d.pin_version
              FROM users u LEFT JOIN offline_devices d

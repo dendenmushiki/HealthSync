@@ -14,7 +14,15 @@ const ROLES = [
   { value: 'official', label: 'Official', description: 'Views dashboards, reports, and nutrition monitoring.' },
   { value: 'bhw', label: 'BHW', description: 'Records resident and health data for the barangay.' },
 ];
-const EMPTY_NEW_USER = { full_name: '', username: '', role: 'bhw', password_mode: 'generated', password: '' };
+const EMPTY_NEW_USER = {
+  full_name: '',
+  username: '',
+  contact_number: '',
+  email: '',
+  role: 'bhw',
+  password_mode: 'generated',
+  password: '',
+};
 const PASSWORD_RULES = [
   ['length', 'At least 18 characters'],
   ['uppercase', 'One uppercase letter'],
@@ -737,6 +745,8 @@ const UserManagementPage = () => {
       const response = await api.post('/users', {
         full_name: newForm.full_name.trim(),
         username: newForm.username.trim(),
+        contact_number: newForm.contact_number.trim(),
+        email: newForm.email.trim(),
         role: newForm.role,
         password_mode: newForm.password_mode,
         ...(newForm.password_mode === 'manual' ? { password: newForm.password } : {}),
@@ -777,6 +787,7 @@ const UserManagementPage = () => {
     if (drawerMode === 'new') {
       const passwordValid = newForm.password_mode !== 'manual' || Object.values(normalizePassword(newForm.password)).every(Boolean);
       const formValid = newForm.full_name.trim().length >= 2 && /^[A-Za-z0-9._-]{3,32}$/.test(newForm.username.trim())
+        && newForm.contact_number.trim().length > 0 && newForm.email.trim().length > 0
         && newUsernameCheck.available === true && passwordValid;
       return (
         <UserDrawer title="Add user" onClose={requestCloseDrawer} returnFocusRef={triggerRef} className="users-add-drawer">
@@ -790,6 +801,18 @@ const UserManagementPage = () => {
               <label htmlFor="new-full-name">Full name</label>
               <input id="new-full-name" autoComplete="name" maxLength="120" value={newForm.full_name} onChange={(event) => updateNewForm('full_name', event.target.value)} aria-invalid={Boolean(newErrors.full_name)} />
               {newErrors.full_name && <small className="users-field-error">{newErrors.full_name}</small>}
+            </div>
+            <div className="users-form-field">
+              <label htmlFor="new-contact-number">Contact number</label>
+              <input id="new-contact-number" type="tel" autoComplete="tel" maxLength="32" required value={newForm.contact_number} onChange={(event) => updateNewForm('contact_number', event.target.value)} aria-invalid={Boolean(newErrors.contact_number)} />
+              {newErrors.contact_number && <small className="users-field-error">{newErrors.contact_number}</small>}
+              {!newErrors.contact_number && <small className="users-field-hint">Required for every new account.</small>}
+            </div>
+            <div className="users-form-field">
+              <label htmlFor="new-email">Email address</label>
+              <input id="new-email" type="email" autoComplete="email" maxLength="254" required value={newForm.email} onChange={(event) => updateNewForm('email', event.target.value)} aria-invalid={Boolean(newErrors.email)} />
+              {newErrors.email && <small className="users-field-error">{newErrors.email}</small>}
+              {!newErrors.email && <small className="users-field-hint">Required for every new account.</small>}
             </div>
             <div className="users-form-field">
               <div className="users-field-label-row"><label htmlFor="new-username">Username</label>
@@ -912,6 +935,8 @@ const UserManagementPage = () => {
             ) : <>
               <dl className="users-detail-list">
                 <div><dt>Full name</dt><dd>{detail.full_name}</dd></div><div><dt>Username</dt><dd>@{detail.username}</dd></div>
+                <div><dt>Contact number</dt><dd>{detail.contact_number || 'Not provided'}</dd></div>
+                <div><dt>Email address</dt><dd>{detail.email || 'Not provided'}</dd></div>
                 <div><dt>Role</dt><dd><RoleBadge role={detail.role} /></dd></div>
                 <div><dt>Created</dt><dd><RelativeDate value={detail.created_at} empty="Not recorded" /></dd></div>
                 <div><dt>Created by</dt><dd>{detail.created_by_name || 'System setup'}</dd></div>

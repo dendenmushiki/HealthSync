@@ -2,6 +2,7 @@ import offlineQueue from './offlineQueueService';
 import api from '../api/apiClient';
 
 const runningPromises = new Map();
+const MAX_UNKNOWN_CREATE_RETRIES = 3;
 const IDEMPOTENT_QUEUED_TABLES = new Set([
   'residents',
   'health_records',
@@ -17,12 +18,30 @@ const IDEMPOTENT_QUEUED_TABLES = new Set([
   'report_remarks',
 ]);
 
-function getServerRecordId(responseData) {
+const SERVER_RECORD_ID_FIELDS = {
+  residents: ['resident_id', 'id'],
+  health_records: ['health_record_id', 'record_id', 'id'],
+  child_health_records: ['id'],
+  operation_timbang: ['timbang_id', 'operation_timbang_id', 'id'],
+  adolescent_bmi_records: ['adolescent_bmi_id', 'record_id', 'id'],
+  adult_bmi_records: ['bmi_id', 'adult_bmi_id', 'record_id', 'id'],
+  senior_citizen_records: ['senior_id', 'record_id', 'id'],
+  patient_clinical_records: ['id'],
+  child_records: ['id'],
+  maternal_records: ['id'],
+  immunization_records: ['id'],
+  report_remarks: ['id'],
+};
+
+function getServerRecordId(responseData, table) {
   const data = responseData?.data;
   const record = data?.record || data;
-  return data?.serverRecordId || data?.resident_id || record?.id || record?.resident_id ||
-    record?.senior_id || record?.record_id || record?.timbang_id || record?.bmi_id ||
-    record?.adolescent_bmi_id || record?.health_record_id || record?.server_record_id || null;
+  const fields = ['serverRecordId', ...(SERVER_RECORD_ID_FIELDS[table] || ['id']), 'server_record_id'];
+  for (const field of fields) {
+    if (data?.[field] !== undefined && data[field] !== null) return data[field];
+    if (record?.[field] !== undefined && record[field] !== null) return record[field];
+  }
+  return null;
 }
 
 function getServerRecord(responseData) {
@@ -111,7 +130,19 @@ export function runSync() {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return result;
   try {
     const session = getActiveSession();
-    const pending = (await offlineQueue.getPendingOperations(session.userId))
+    const queued = await offlineQueue.getQueueItems(session.userId);
+    const retryableConflicts = queued.filter((item) => (
+      item.status === 'CONFLICT' &&
+      item.operation === 'CREATE' &&
+      Boolean(item.request) &&
+      IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
+      (!item.lastErrorCode || item.lastErrorCode === 'IDEMPOTENCY_OUTCOME_UNKNOWN') &&
+      Number(item.retryCount || 0) < MAX_UNKNOWN_CREATE_RETRIES
+    ));
+    const pending = [
+      ...(await offlineQueue.getPendingOperations(session.userId)),
+      ...retryableConflicts,
+    ]
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     if (pending.some((item) => String(item.userId) !== session.userId)) {
       throw new Error('A queued change is not owned by the active account and was not synchronized.');
@@ -130,6 +161,7 @@ export function runSync() {
           status: 'SYNCING',
           syncStartedAt: new Date().toISOString(),
           lastError: null,
+          lastErrorCode: null,
         }, session.userId);
         window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));
         let syncResponse = item.serverResponse;
@@ -151,7 +183,7 @@ export function runSync() {
           assertActiveSession(session);
           if (!response?.data?.success) throw new Error(response?.data?.message || 'Server did not accept this change.');
           syncResponse = response.data;
-          serverRecordId = getServerRecordId(response.data);
+          serverRecordId = getServerRecordId(response.data, item.table);
           await offlineQueue.updateOperationStatus(item.offlineOperationId, {
             syncComplete: true,
             serverResponse: syncResponse,
@@ -183,6 +215,7 @@ export function runSync() {
           serverRecordId,
           syncedAt: new Date().toISOString(),
           lastError: null,
+          lastErrorCode: null,
           syncStartedAt: null,
         };
         if (item.localRecord) {
@@ -210,13 +243,23 @@ export function runSync() {
         }
         result.failed += 1;
         const errorCode = err?.response?.data?.errorCode;
+        const current = await offlineQueue.getOperation(item.offlineOperationId);
+        const retryCount = (current?.retryCount || 0) + 1;
+        // Create requests use atomic idempotency keys, so replaying this same request cannot duplicate a saved record.
+        const safelyReplayableCreate = item.operation === 'CREATE' &&
+          Boolean(item.request) &&
+          IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
+          retryCount <= MAX_UNKNOWN_CREATE_RETRIES;
         const canSafelyRetry = IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
-          (isNetworkFailure(err) || errorCode === 'IDEMPOTENCY_RETRY_SAFE');
+          (isNetworkFailure(err) || errorCode === 'IDEMPOTENCY_RETRY_SAFE' ||
+            (errorCode === 'IDEMPOTENCY_OUTCOME_UNKNOWN' && safelyReplayableCreate));
         const requiresReview = ['IDEMPOTENCY_OUTCOME_UNKNOWN', 'IDEMPOTENCY_KEY_CONFLICT', 'IDEMPOTENCY_KEY_REUSE']
           .includes(errorCode) || (!canSafelyRetry && Number(err?.response?.status) >= 500);
         const friendly = canSafelyRetry
           ? errorCode === 'IDEMPOTENCY_RETRY_SAFE'
             ? err.response.data.message
+            : errorCode === 'IDEMPOTENCY_OUTCOME_UNKNOWN'
+              ? 'The server response was uncertain. HealthSync will safely check again using the same operation key.'
             : 'The connection was interrupted. The next sync attempt will reuse the same idempotency key.'
           : requiresReview
             ? 'The server outcome is unknown. This change will not be retried automatically; verify whether it was saved before taking further action.'
@@ -225,13 +268,12 @@ export function runSync() {
           operationId: item.offlineOperationId,
           errorCode: err?.response?.data?.errorCode || 'SYNC_FAILED',
         });
-        const current = await offlineQueue.getOperation(item.offlineOperationId);
-        const retryCount = (current && current.retryCount) ? current.retryCount + 1 : 1;
         assertActiveSession(session);
         await offlineQueue.updateOperationStatus(item.offlineOperationId, {
           status: canSafelyRetry ? 'PENDING' : requiresReview ? 'CONFLICT' : 'FAILED',
           retryCount,
           lastError: friendly,
+          lastErrorCode: errorCode || null,
           syncStartedAt: null,
         }, session.userId);
         window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));

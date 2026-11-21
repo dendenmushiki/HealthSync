@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { normalizeUserRole, normalizeUserStatus, isProtectedSystemUser, generateTemporaryPassword } = require('../src/controllers/userController');
 const { validatePassword } = require('../src/services/passwordPolicy');
+const { validateUserContactInfo } = require('../src/services/userProfileValidation');
 
 const readRouteFile = (fileName) => fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', fileName), 'utf8');
 
@@ -34,6 +35,30 @@ test('generated temporary passwords meet policy and avoid look-alike characters'
   assert.equal(validatePassword(password).valid, true);
   assert.ok(password.length >= 18);
   assert.doesNotMatch(password, /[O0l1]/);
+});
+
+test('new user contact details require a valid phone number and email address', () => {
+  const valid = validateUserContactInfo({
+    contact_number: '+63 917-123-4567',
+    email: 'Staff.Example@healthsync.test',
+  }, { required: true });
+  assert.deepEqual(valid, {
+    contact_number: '+63 917-123-4567',
+    email: 'staff.example@healthsync.test',
+    fieldErrors: {},
+  });
+
+  const invalid = validateUserContactInfo({ contact_number: '123', email: 'not-an-email' }, { required: true });
+  assert.ok(invalid.fieldErrors.contact_number);
+  assert.ok(invalid.fieldErrors.email);
+});
+
+test('existing user contact details may be left blank or cleared', () => {
+  assert.deepEqual(validateUserContactInfo({ contact_number: '', email: '' }), {
+    contact_number: null,
+    email: null,
+    fieldErrors: {},
+  });
 });
 
 test('official accounts are restricted to dashboard, report, and settings access', () => {

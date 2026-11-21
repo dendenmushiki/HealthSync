@@ -59,6 +59,16 @@ const applyPreferences = (preferences) => {
 };
 
 const isSame = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const isValidContactNumber = (value) => {
+  const phone = value.trim();
+  if (!phone) return true;
+  const digits = phone.replace(/\D/g, '');
+  return phone.length <= 32 && /^\+?[0-9][0-9\s().-]*$/.test(phone) && digits.length >= 7 && digits.length <= 15;
+};
+const isValidEmail = (value) => {
+  const email = value.trim();
+  return !email || (email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+};
 
 const SettingCard = ({ title, description, children, className = '' }) => (
   <section className={`settings-card ${className}`}>
@@ -109,8 +119,19 @@ const AdminSettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [toastType, setToastType] = useState('success');
-  const [profile, setProfile] = useState({ full_name: user?.full_name || '', username: user?.username || '', current_password: '' });
-  const [savedProfile, setSavedProfile] = useState({ full_name: user?.full_name || '', username: user?.username || '' });
+  const [profile, setProfile] = useState({
+    full_name: user?.full_name || '',
+    username: user?.username || '',
+    contact_number: user?.contact_number || '',
+    email: user?.email || '',
+    current_password: '',
+  });
+  const [savedProfile, setSavedProfile] = useState({
+    full_name: user?.full_name || '',
+    username: user?.username || '',
+    contact_number: user?.contact_number || '',
+    email: user?.email || '',
+  });
   const [preferences, setPreferences] = useState(readCachedPreferences);
   const [savedPreferences, setSavedPreferences] = useState(readCachedPreferences);
   const [loginHistory, setLoginHistory] = useState([]);
@@ -152,8 +173,12 @@ const AdminSettingsPage = () => {
   const [revokePassword, setRevokePassword] = useState('');
   const [toast, setToast] = useState('');
   const [usernameError, setUsernameError] = useState('');
+  const [profileErrors, setProfileErrors] = useState({});
   const photoUrl = photoPreview || getProfilePhotoUrl(user?.profile_photo);
-  const profileChanged = profile.full_name.trim() !== savedProfile.full_name || profile.username.trim() !== savedProfile.username;
+  const profileChanged = profile.full_name.trim() !== savedProfile.full_name
+    || profile.username.trim() !== savedProfile.username
+    || profile.contact_number.trim() !== savedProfile.contact_number
+    || profile.email.trim().toLowerCase() !== savedProfile.email.trim().toLowerCase();
   const preferencesChanged = !isSame(preferences, savedPreferences);
   const dirty = profileChanged || preferencesChanged;
   const hasUnsavedChanges = dirty || Boolean(photoFile);
@@ -186,6 +211,15 @@ const AdminSettingsPage = () => {
         };
         setPreferences(nextPreferences);
         setSavedPreferences(nextPreferences);
+        const accountProfile = response.data.data.profile || {};
+        const nextProfile = {
+          full_name: accountProfile.full_name || '',
+          username: accountProfile.username || '',
+          contact_number: accountProfile.contact_number || '',
+          email: accountProfile.email || '',
+        };
+        setProfile({ ...nextProfile, current_password: '' });
+        setSavedProfile(nextProfile);
         localStorage.setItem('hs_preferences', JSON.stringify(nextPreferences));
         setLoginHistory(response.data.data.loginHistory || []);
       } catch (loadError) {
@@ -346,6 +380,8 @@ const AdminSettingsPage = () => {
   const handleSaveChanges = async () => {
     setError('');
     setUsernameError('');
+    setProfileErrors({});
+    const fieldErrors = {};
     if (profile.full_name.trim().length < 2) {
       setError('Full name must be at least 2 characters.');
       changeSection('profile');
@@ -353,6 +389,13 @@ const AdminSettingsPage = () => {
     }
     if (profile.username.trim().length < 3) {
       setUsernameError('Username must be at least 3 characters.');
+      changeSection('profile');
+      return;
+    }
+    if (!isValidContactNumber(profile.contact_number)) fieldErrors.contact_number = 'Enter a valid contact number.';
+    if (!isValidEmail(profile.email)) fieldErrors.email = 'Enter a valid email address.';
+    if (Object.keys(fieldErrors).length) {
+      setProfileErrors(fieldErrors);
       changeSection('profile');
       return;
     }
@@ -367,11 +410,18 @@ const AdminSettingsPage = () => {
         const response = await api.put('/admin-settings', {
           full_name: profile.full_name.trim(),
           username: profile.username.trim(),
+          contact_number: profile.contact_number.trim(),
+          email: profile.email.trim(),
           ...(profile.username.trim() !== savedProfile.username ? { current_password: profile.current_password } : {}),
         });
         if (!response.data?.success) throw new Error(response.data?.message || 'Unable to save profile.');
         updateUser(response.data.data);
-        const nextProfile = { full_name: profile.full_name.trim(), username: profile.username.trim() };
+        const nextProfile = {
+          full_name: profile.full_name.trim(),
+          username: profile.username.trim(),
+          contact_number: response.data.data.contact_number || '',
+          email: response.data.data.email || '',
+        };
         setProfile({ ...nextProfile, current_password: '' });
         setSavedProfile(nextProfile);
       }
@@ -387,6 +437,8 @@ const AdminSettingsPage = () => {
       showToast('Settings saved.');
     } catch (saveError) {
       const serverMessage = saveError.response?.data?.message || saveError.message || 'Failed to save settings.';
+      const fieldErrors = saveError.response?.data?.fieldErrors;
+      if (fieldErrors) setProfileErrors(fieldErrors);
       if (saveError.response?.status === 409) setUsernameError(serverMessage);
       else setError(saveError);
       showToast(getFriendlyError(saveError), 'error');
@@ -404,6 +456,7 @@ const AdminSettingsPage = () => {
     setPhotoError('');
     setError('');
     setUsernameError('');
+    setProfileErrors({});
   };
 
   const handlePasswordChange = async (event) => {
@@ -683,10 +736,12 @@ const AdminSettingsPage = () => {
                     </div>
                   </div>
                 </SettingCard>
-                <SettingCard title="Personal information" description="Keep your name and username up to date.">
+                <SettingCard title="Personal information" description="Keep your contact details and account information up to date.">
                   <div className="settings-fields-grid">
                     <div className="settings-field"><label htmlFor="settings-full-name">Full name</label><input id="settings-full-name" className="form-control" value={profile.full_name} onChange={(event) => setProfile((current) => ({ ...current, full_name: event.target.value }))} required minLength={2} aria-describedby="settings-full-name-hint" /><span id="settings-full-name-hint" className="settings-field-hint">At least 2 characters.</span></div>
                     <div className="settings-field"><label htmlFor="settings-username">Username</label><input id="settings-username" className="form-control" value={profile.username} onChange={(event) => { setUsernameError(''); setProfile((current) => ({ ...current, username: event.target.value })); }} required minLength={3} aria-invalid={Boolean(usernameError)} aria-describedby={usernameError ? 'settings-username-error' : 'settings-username-hint'} />{usernameError ? <span id="settings-username-error" className="settings-inline-error">{usernameError}</span> : <span id="settings-username-hint" className="settings-field-hint">At least 3 characters. Availability is checked when saved.</span>}</div>
+                    <div className="settings-field"><label htmlFor="settings-contact-number">Contact number</label><input id="settings-contact-number" className="form-control" type="tel" autoComplete="tel" maxLength="32" value={profile.contact_number} onChange={(event) => { setProfileErrors((current) => ({ ...current, contact_number: '' })); setProfile((current) => ({ ...current, contact_number: event.target.value })); }} aria-invalid={Boolean(profileErrors.contact_number)} aria-describedby="settings-contact-number-hint" /><span id="settings-contact-number-hint" className={profileErrors.contact_number ? 'settings-inline-error' : 'settings-field-hint'}>{profileErrors.contact_number || 'Optional for existing accounts. Include country code when applicable.'}</span></div>
+                    <div className="settings-field"><label htmlFor="settings-email">Email address</label><input id="settings-email" className="form-control" type="email" autoComplete="email" maxLength="254" value={profile.email} onChange={(event) => { setProfileErrors((current) => ({ ...current, email: '' })); setProfile((current) => ({ ...current, email: event.target.value })); }} aria-invalid={Boolean(profileErrors.email)} aria-describedby="settings-email-hint" /><span id="settings-email-hint" className={profileErrors.email ? 'settings-inline-error' : 'settings-field-hint'}>{profileErrors.email || 'Optional for existing accounts.'}</span></div>
                   </div>
                   {profile.username.trim() !== savedProfile.username && <div className="settings-field settings-current-password-field"><label htmlFor="settings-current-password-profile">Current password (required to change username)</label><input id="settings-current-password-profile" className="form-control" type="password" autoComplete="current-password" value={profile.current_password} onChange={(event) => setProfile((current) => ({ ...current, current_password: event.target.value }))} /></div>}
                 </SettingCard>

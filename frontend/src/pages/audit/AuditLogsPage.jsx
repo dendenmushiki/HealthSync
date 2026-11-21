@@ -367,8 +367,6 @@ const AuditLogsPage = () => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState({ today: 0, failed_24h: 0, active_users_24h: 0, admin_actions_7d: 0 });
-  const [summaryError, setSummaryError] = useState('');
-  const [attention, setAttention] = useState([]);
   const [options, setOptions] = useState({ actions: [], modules: [], actors: [] });
   const [optionsError, setOptionsError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -463,16 +461,12 @@ const AuditLogsPage = () => {
   const summaryTo = queryParams.get('to') || '';
   useEffect(() => {
     let active = true;
-    setSummaryError('');
     getAuditSummary({ from: summaryFrom, to: summaryTo })
       .then((response) => {
         if (!response?.success) throw new Error(response?.message || 'Unable to load audit insights.');
-        if (active) {
-          setSummary(response.data?.counts || {});
-          setAttention(response.data?.attention || []);
-        }
+        if (active) setSummary(response.data?.counts || {});
       })
-      .catch(() => { if (active) setSummaryError('Security insights could not be loaded. Refresh to try again.'); });
+      .catch((requestError) => { if (active) console.error('Unable to load audit summary.', requestError); });
     return () => { active = false; };
   }, [summaryFrom, summaryTo, refreshKey]);
 
@@ -601,9 +595,6 @@ const AuditLogsPage = () => {
   }, [items]);
   const first = total ? (page - 1) * pageSize + 1 : 0;
   const last = Math.min(page * pageSize, total);
-  const printDateRange = searchParams.get('from') || searchParams.get('to')
-    ? `${searchParams.get('from')?.slice(0, 10) || 'Beginning'} – ${searchParams.get('to')?.slice(0, 10) || 'Present'}`
-    : 'All time';
   const selectedEventFilters = useMemo(() => ({ ...queryFilterParams, sort: searchParams.get('sort') || 'newest' }), [queryFilterParams, searchParams]);
   const dataRows = (group) => group.items.map((item) => (
     <tr key={item.audit_id} className={`audit-data-row ${item.result === 'failure' ? 'is-failed' : ''} audit-severity-row-${item.severity || 'info'}`}
@@ -632,14 +623,13 @@ const AuditLogsPage = () => {
 
   return (
     <div className="audit-logs-page">
-      <header className="audit-page-header" data-generated-at={exactDate(new Date())} data-date-range={printDateRange}>
+      <header className="audit-page-header">
         <div><span className="audit-eyebrow">SYSTEM ACTIVITY</span><div className="audit-title-line"><h1>Audit logs</h1><span className="audit-read-only" title="Audit events are append-only and cannot be edited or deleted."><span aria-hidden="true">🔒</span> Read-only</span></div>
           <p>A read-only record of sign-ins, changes, and administrative actions. <span className="audit-header-total">{total} matching events</span></p></div>
         <div className="audit-header-actions">
           <button type="button" className="audit-button audit-export-button" onClick={exportCsv} disabled={exporting}>{exporting ? 'Preparing…' : '⇩ Export CSV'}</button>
-          <button type="button" className="audit-button audit-print-button" onClick={() => window.print()}>Print</button>
           <details className="audit-mobile-more"><summary className="audit-icon-button" aria-label="More audit log actions">⋯</summary>
-            <div><button type="button" onClick={exportCsv} disabled={exporting}>{exporting ? 'Preparing…' : 'Export CSV'}</button><button type="button" onClick={() => window.print()}>Print</button></div>
+            <div><button type="button" onClick={exportCsv} disabled={exporting}>{exporting ? 'Preparing…' : 'Export CSV'}</button></div>
           </details>
           <button type="button" className="audit-icon-button audit-refresh-button" aria-label="Refresh audit logs" title={`Updated ${relativeDate(updatedAt)}`} onClick={() => setRefreshKey((value) => value + 1)}>
             <span aria-hidden="true">↻</span><span className="audit-refresh-label">Updated {relativeDate(updatedAt)}</span>
@@ -656,13 +646,6 @@ const AuditLogsPage = () => {
         ].map((chip) => <button key={chip.key} type="button" className={`audit-summary-chip ${chip.warning ? 'is-warning' : ''}`} onClick={() => setSummaryFilter(chip.key)}>
           <strong>{chip.value}</strong><span>{chip.label}</span>
         </button>)}
-      </section>
-
-      <section className="audit-attention" aria-label="Security insights">
-        <div><span className="audit-attention-icon" aria-hidden="true">{summaryError || attention.length ? '!' : '✓'}</span><strong>{summaryError ? 'Insights unavailable' : attention.length ? 'Needs attention' : 'No unusual activity'}</strong></div>
-        {summaryError ? <p className="audit-insight-error" role="alert">{summaryError}</p> : attention.length ? <ul>{attention.slice(0, 5).map((item, index) => <li key={`${item.type}-${item.eventId || index}`}>
-          <span>{item.message}</span><button type="button" onClick={() => updateParams({ actions: item.filter.action, result: item.filter.result || null, page: 1 })}>View events</button>
-        </li>)}</ul> : <p>No unusual sign-in patterns or recent account-security changes were found in this date range.</p>}
       </section>
 
       <section className="audit-surface" aria-label="Audit event records">

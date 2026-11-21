@@ -581,11 +581,6 @@ const ReportsPage = () => {
     URL.revokeObjectURL(url);
   }, [exportScope, expanded, metadata, period, periodLabel, range.from, range.to, remarks, searchParams, summary, tables]);
 
-  const printReport = () => {
-    setExpanded(Object.fromEntries(REPORT_SECTIONS.map(({ id }) => [id, true])));
-    window.setTimeout(() => window.print(), 50);
-  };
-
   const setPeriod = (value) => {
     const today = todayManila();
     const defaults = value === 'month'
@@ -649,7 +644,6 @@ const ReportsPage = () => {
             </select>
           </label>
           <button type="button" className="fhsis-button-secondary" onClick={() => exportRows()} disabled={loading || Boolean(error) || !report}>Export CSV</button>
-          <button type="button" className="fhsis-button-primary" onClick={printReport} disabled={loading || Boolean(error) || !report}>Print report</button>
         </div>
       </header>
 

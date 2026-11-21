@@ -22,6 +22,7 @@ jest.mock('../../services/api/apiClient', () => ({
   default: {
     get: jest.fn(),
     post: jest.fn(),
+    put: jest.fn(),
   },
 }));
 
@@ -29,6 +30,9 @@ const user = {
   user_id: 7,
   username: 'test-user',
   role: 'bhw',
+  full_name: 'Test User',
+  contact_number: '09171234567',
+  email: 'test@example.com',
   device_id: 'device-1',
   offline_pin_enrolled: false,
 };
@@ -36,10 +40,18 @@ const user = {
 beforeEach(() => {
   jest.clearAllMocks();
   api.post.mockResolvedValue({ data: { success: true } });
+  api.put.mockResolvedValue({ data: { success: true, data: {} } });
   api.get.mockImplementation((path) => {
     if (path === '/admin-settings/account') {
       return Promise.resolve({
-        data: { success: true, data: { preferences: {}, loginHistory: [] } },
+        data: {
+          success: true,
+          data: {
+            profile: { full_name: user.full_name, username: user.username, contact_number: user.contact_number, email: user.email },
+            preferences: {},
+            loginHistory: [],
+          },
+        },
       });
     }
     if (path === '/auth/devices') {
@@ -47,6 +59,59 @@ beforeEach(() => {
     }
     return Promise.resolve({ data: { success: true, data: {} } });
   });
+});
+
+test('loads and saves contact number and email from Profile settings', async () => {
+  const updateUser = jest.fn();
+  api.put.mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        user_id: user.user_id,
+        full_name: user.full_name,
+        username: user.username,
+        contact_number: '+63 917-555-0101',
+        email: 'updated@example.com',
+      },
+    },
+  });
+  render(
+    <MemoryRouter
+      initialEntries={['/admin-settings?tab=profile']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <AuthContext.Provider value={{
+        user,
+        updateUser,
+        logout: jest.fn(),
+        unlockOfflineAccess: jest.fn(),
+      }}>
+        <AdminSettingsPage />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+
+  const contactInput = await screen.findByLabelText('Contact number');
+  const emailInput = screen.getByLabelText('Email address');
+  expect(contactInput).toHaveValue(user.contact_number);
+  expect(emailInput).toHaveValue(user.email);
+
+  fireEvent.change(contactInput, { target: { value: '+63 917-555-0101' } });
+  fireEvent.change(emailInput, { target: { value: 'updated@example.com' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+  await waitFor(() => {
+    expect(api.put).toHaveBeenCalledWith('/admin-settings', {
+      full_name: user.full_name,
+      username: user.username,
+      contact_number: '+63 917-555-0101',
+      email: 'updated@example.com',
+    });
+  });
+  expect(updateUser).toHaveBeenCalledWith(expect.objectContaining({
+    contact_number: '+63 917-555-0101',
+    email: 'updated@example.com',
+  }));
 });
 
 test('asks for the account password only after PIN confirmation and account PIN setup', async () => {

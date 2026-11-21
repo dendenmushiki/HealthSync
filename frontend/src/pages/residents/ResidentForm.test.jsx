@@ -10,6 +10,8 @@ import {
   getResidentProvinces,
   getResidentRegions
 } from '../../services/api/residentService';
+import { enqueueOperation } from '../../services/offline/offlineQueueService';
+import { healthCheck, isOffline } from '../../services/offline/networkService';
 
 jest.mock('../../services/api/residentService', () => ({
   createResident: jest.fn(),
@@ -23,11 +25,24 @@ jest.mock('../../services/api/residentService', () => ({
   uploadResidentPhoto: jest.fn()
 }));
 
+jest.mock('../../services/offline/offlineQueueService', () => ({
+  enqueueOperation: jest.fn(),
+  updateOperationStatus: jest.fn()
+}));
+
+jest.mock('../../services/offline/networkService', () => ({
+  healthCheck: jest.fn(),
+  isOffline: jest.fn()
+}));
+
 beforeEach(() => {
   getResidentRegions.mockResolvedValue({ data: [] });
   getResidentProvinces.mockResolvedValue({ data: [] });
   getResidentCitiesMunicipalities.mockResolvedValue({ data: [] });
   getResidentBarangays.mockResolvedValue({ data: [] });
+  enqueueOperation.mockResolvedValue({ offlineOperationId: 'offline-resident-1' });
+  healthCheck.mockResolvedValue(false);
+  isOffline.mockReturnValue(true);
 });
 
 test('edit form pre-fills a birthdate returned as a timestamp', async () => {
@@ -125,6 +140,37 @@ test('shows inline validation when required resident fields are missing', async 
 
   expect(await screen.findByText('First name is required.')).toBeInTheDocument();
   expect(screen.getByLabelText('First name *')).toHaveAttribute('aria-invalid', 'true');
+});
+
+test('announces an offline resident after adding it to the sync queue', async () => {
+  const queueChanged = jest.fn();
+  window.addEventListener('healthsync:queue-changed', queueChanged);
+
+  render(
+    <AuthContext.Provider value={{ user: { user_id: 7 } }}>
+      <MemoryRouter initialEntries={['/residents/new']}>
+        <Routes>
+          <Route path="/residents/new" element={<ResidentForm />} />
+          <Route path="/sync-status" element={<div>Sync Status</div>} />
+        </Routes>
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  fireEvent.change(await screen.findByLabelText('First name *'), { target: { value: 'Offline' } });
+  fireEvent.change(screen.getByLabelText('Last name *'), { target: { value: 'Resident' } });
+  fireEvent.change(screen.getByLabelText('Birthdate *'), { target: { value: '2000-01-01' } });
+  fireEvent.change(screen.getByLabelText('Sex *'), { target: { value: 'female' } });
+  fireEvent.submit(document.getElementById('resident-form'));
+
+  expect(await screen.findByText('Sync Status')).toBeInTheDocument();
+  expect(enqueueOperation).toHaveBeenCalledWith(expect.objectContaining({
+    operation: 'CREATE',
+    table: 'residents',
+    userId: 7,
+  }));
+  expect(queueChanged).toHaveBeenCalledTimes(1);
+  window.removeEventListener('healthsync:queue-changed', queueChanged);
 });
 
 test('asks before leaving when a resident form has unsaved changes', async () => {
