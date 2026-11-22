@@ -5,11 +5,17 @@ const SITIOS = require('../config/sitios');
 const { resolveResidentLocation } = require('../services/psgcService');
 const { ensureResidentSchema } = require('../services/residentSchemaService');
 const { getManilaToday } = require('../services/manilaDateService');
+const dashboardSummaryCache = require('../services/dashboardSummaryCache');
+const {
+  ensureSeniorCitizenRecord,
+  reconcileSeniorCitizenRegistry,
+} = require('../services/seniorCitizenAutoRegistrationService');
 
-const CIVIL_STATUSES = new Set(['Single', 'Married', 'Widowed', 'Separated', 'Divorced', 'Annulled', 'Unknown']);
+const CIVIL_STATUSES = new Set(['Single', 'Married', 'Widowed', 'Separated', 'Annulled']);
 const RESIDENT_STATUSES = new Set(['Active', 'Inactive', 'Transferred', 'Deceased']);
-const SEXES = new Set(['male', 'female']);
+const SEXES = new Set(['male', 'female', 'others']);
 const SORTS = {
+  id: 'r.resident_id ASC',
   name: 'r.last_name ASC, r.first_name ASC',
   age: 'r.birthdate ASC, r.last_name ASC, r.first_name ASC',
   newest: 'r.created_at DESC, r.resident_id DESC',
@@ -18,13 +24,39 @@ const SORTS = {
   status: 'r.resident_status ASC, r.last_name ASC, r.first_name ASC'
 };
 
+const LATEST_NUTRITION_STATUS_SQL = `CASE
+  WHEN r.birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, r.birthdate, CURDATE()) <= 5 THEN (
+    SELECT COALESCE(NULLIF(ota.wflh_status, ''), NULLIF(ota.wfa_status, ''), NULLIF(ota.hfa_status, ''))
+    FROM operation_timbang ot
+    LEFT JOIN operation_timbang_assessments ota ON ota.timbang_id = ot.timbang_id
+    WHERE ot.resident_id = r.resident_id
+    ORDER BY ot.date_recorded DESC, ot.timbang_id DESC LIMIT 1
+  )
+  WHEN r.birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, r.birthdate, CURDATE()) <= 19 THEN (
+    SELECT abr.bmi_for_age_category FROM adolescent_bmi_records abr
+    WHERE abr.resident_id = r.resident_id
+    ORDER BY abr.record_date DESC, abr.record_id DESC LIMIT 1
+  )
+  ELSE (
+    SELECT adult.bmi_category FROM adult_bmi_records adult
+    WHERE adult.resident_id = r.resident_id
+    ORDER BY adult.date_recorded DESC, adult.bmi_id DESC LIMIT 1
+  )
+END`;
+
 const RESIDENT_SELECT_SQL = `
   SELECT r.resident_id, r.first_name, r.middle_name, r.last_name, r.suffix,
     r.household_no, r.address, r.region_code, r.province_code, r.city_municipality_code, r.barangay_code,
     r.contact_no, r.philhealth_id_no, r.is_4ps, r.category_flags,
     r.sitio, r.created_by, u.full_name AS created_by_name, r.birthdate, r.sex,
     r.civil_status, r.occupation, r.resident_status, r.pregnant, r.lactating,
-    r.profile_photo, r.created_at
+    ${LATEST_NUTRITION_STATUS_SQL} AS nutrition_status,
+    r.profile_photo, r.created_at,
+    COALESCE(
+      (SELECT MAX(a.created_at) FROM audit_logs a
+       WHERE a.module = 'residents' AND a.table_name = 'residents' AND a.record_id = r.resident_id),
+      r.created_at
+    ) AS last_updated
   FROM residents r
   LEFT JOIN users u ON u.user_id = r.created_by
 `;
@@ -75,6 +107,8 @@ function parseCategoryFlags(value) {
 }
 
 function getClassificationWhere(classification) {
+  if (classification === 'Children') return 'TIMESTAMPDIFF(YEAR, r.birthdate, ?) <= 12';
+  if (classification === 'Adults') return 'TIMESTAMPDIFF(YEAR, r.birthdate, ?) BETWEEN 13 AND 59';
   if (classification === 'Senior Citizen') return 'TIMESTAMPDIFF(YEAR, r.birthdate, ?) >= 60';
   if (classification === 'PWD') return "JSON_CONTAINS(COALESCE(r.category_flags, JSON_ARRAY()), JSON_QUOTE('PWD'))";
   if (classification === '4Ps Member' || classification === '4Ps') return 'r.is_4ps = 1';
@@ -84,7 +118,7 @@ function getClassificationWhere(classification) {
 }
 
 function buildWhere(query) {
-  const { search, q, sex, status, sitio, classification, min_age, max_age, min_age_months, max_age_months } = query;
+  const { search, q, sex, status, sitio, classification, nutritionStatus, min_age, max_age, min_age_months, max_age_months } = query;
   const term = search || q;
   const where = ['1 = 1'];
   const params = [];
@@ -139,10 +173,16 @@ function buildWhere(query) {
     where.push('r.sitio = ?');
     params.push(String(sitio));
   }
+  if (nutritionStatus === 'Not assessed') {
+    where.push(`${LATEST_NUTRITION_STATUS_SQL} IS NULL`);
+  } else if (nutritionStatus) {
+    where.push(`LOWER(${LATEST_NUTRITION_STATUS_SQL}) = LOWER(?)`);
+    params.push(nutritionStatus);
+  }
   const classificationWhere = getClassificationWhere(classification);
   if (classificationWhere) {
     where.push(classificationWhere);
-    if (classification === 'Senior Citizen') params.push(asOfDate);
+    if (['Children', 'Adults', 'Senior Citizen'].includes(classification)) params.push(asOfDate);
   }
   return { sql: `WHERE ${where.join(' AND ')}`, params };
 }
@@ -151,6 +191,7 @@ function applySort(sort, order) {
   const selected = SORTS[sort] ? sort : 'name';
   const descending = order === 'desc';
   const expressions = {
+    id: `r.resident_id ${descending ? 'DESC' : 'ASC'}`,
     name: `r.last_name ${descending ? 'DESC' : 'ASC'}, r.first_name ${descending ? 'DESC' : 'ASC'}`,
     age: `r.birthdate ${descending ? 'ASC' : 'DESC'}, r.last_name ASC, r.first_name ASC`,
     newest: `r.created_at ${descending ? 'ASC' : 'DESC'}, r.resident_id ${descending ? 'ASC' : 'DESC'}`,
@@ -166,9 +207,121 @@ function addDerivedFields(row) {
   return { ...row, age, senior_citizen: age !== null && age >= 60, category_flags: parseCategoryFlags(row.category_flags) };
 }
 
+function getMonthStart(today, offset = 0) {
+  const [year, month] = today.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 10);
+}
+
+function getMonthlyTrend(currentValue, previousValue) {
+  const current = Number(currentValue || 0);
+  const previous = Number(previousValue || 0);
+  if (previous <= 0) return null;
+  return {
+    current,
+    previous,
+    changePercent: Math.round(((current - previous) / previous) * 1000) / 10
+  };
+}
+
+const getResidentStats = async (req, res) => {
+  try {
+    await ensureResidentSchema();
+    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
+    const today = getManilaToday();
+    const currentMonthStart = getMonthStart(today);
+    const nextMonthStart = getMonthStart(today, 1);
+    const previousMonthStart = getMonthStart(today, -1);
+    const [statsRows] = await pool.query(`
+      SELECT COUNT(*) AS total,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) BETWEEN 0 AND 12 THEN 1 ELSE 0 END) AS children,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) BETWEEN 13 AND 59 THEN 1 ELSE 0 END) AS adults,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) >= 60 THEN 1 ELSE 0 END) AS seniors,
+        SUM(CASE WHEN TRIM(COALESCE(first_name, '')) <> '' AND TRIM(COALESCE(last_name, '')) <> ''
+          AND birthdate IS NOT NULL AND LOWER(TRIM(COALESCE(sex, ''))) IN ('male', 'female', 'others') THEN 1 ELSE 0 END) AS complete_records,
+        SUM(CASE WHEN ${LATEST_NUTRITION_STATUS_SQL} IS NULL THEN 1 ELSE 0 END) AS not_assessed,
+        SUM(CASE WHEN DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS total_current_month,
+        SUM(CASE WHEN DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS total_previous_month,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) BETWEEN 0 AND 12
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS children_current_month,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) BETWEEN 0 AND 12
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS children_previous_month,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) BETWEEN 13 AND 59
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS adults_current_month,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) BETWEEN 13 AND 59
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS adults_previous_month,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) >= 60
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS seniors_current_month,
+        SUM(CASE WHEN birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, birthdate, ?) >= 60
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) >= ?
+          AND DATE(CONVERT_TZ(created_at, @@session.time_zone, '+08:00')) < ? THEN 1 ELSE 0 END) AS seniors_previous_month
+      FROM residents r
+    `, [
+      today, today, today,
+      currentMonthStart, nextMonthStart, previousMonthStart, currentMonthStart,
+      today, currentMonthStart, nextMonthStart, today, previousMonthStart, currentMonthStart,
+      today, currentMonthStart, nextMonthStart, today, previousMonthStart, currentMonthStart,
+      today, currentMonthStart, nextMonthStart, today, previousMonthStart, currentMonthStart
+    ]);
+    const stats = statsRows[0] || {};
+    const total = Number(stats.total || 0);
+    const completeRecords = Number(stats.complete_records || 0);
+
+    const [genderResult, nutritionResult] = await Promise.all([
+      pool.query(`SELECT DISTINCT LOWER(TRIM(sex)) AS value FROM residents
+        WHERE sex IS NOT NULL AND TRIM(sex) <> '' ORDER BY value`),
+      pool.query(`SELECT DISTINCT current_status.nutrition_status AS value
+        FROM (SELECT ${LATEST_NUTRITION_STATUS_SQL} AS nutrition_status FROM residents r) current_status
+        WHERE current_status.nutrition_status IS NOT NULL
+        ORDER BY current_status.nutrition_status`)
+    ]);
+    const genderRows = genderResult[0];
+    const nutritionRows = nutritionResult[0];
+    const nutritionStatuses = nutritionRows.map((row) => row.value);
+    if (Number(stats.not_assessed || 0) > 0) nutritionStatuses.push('Not assessed');
+
+    return res.json({
+      success: true,
+      data: {
+        total,
+        children: Number(stats.children || 0),
+        adults: Number(stats.adults || 0),
+        seniors: Number(stats.seniors || 0),
+        recordCompleteness: total ? Math.round((completeRecords / total) * 1000) / 10 : null,
+        completeRecords,
+        requiredFields: ['first_name', 'last_name', 'birthdate', 'sex'],
+        trends: {
+          total: getMonthlyTrend(stats.total_current_month, stats.total_previous_month),
+          children: getMonthlyTrend(stats.children_current_month, stats.children_previous_month),
+          adults: getMonthlyTrend(stats.adults_current_month, stats.adults_previous_month),
+          seniors: getMonthlyTrend(stats.seniors_current_month, stats.seniors_previous_month)
+        },
+        barangayName: process.env.BARANGAY_NAME?.trim() || null,
+        filterOptions: {
+          sitios: SITIOS,
+          genders: genderRows.map((row) => row.value),
+          nutritionStatuses
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('getResidentStats error', error);
+    return res.status(500).json({ success: false, message: 'Unable to load resident statistics.' });
+  }
+};
+
+const getResidentSitios = async (req, res) => res.json({ success: true, data: SITIOS });
+
 const listResidents = async (req, res) => {
   try {
     await ensureResidentSchema();
+    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const page = normalizePage(req.query.page, 1);
     const requestedPageSize = req.query.pageSize ?? req.query.limit;
     const limit = Math.min(normalizePage(requestedPageSize, 10), 100);
@@ -188,6 +341,7 @@ const listResidents = async (req, res) => {
 const getResident = async (req, res) => {
   try {
     await ensureResidentSchema();
+    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const [rows] = await pool.query(`${RESIDENT_SELECT_SQL} WHERE r.resident_id = ?`, [req.params.id]);
     if (!rows.length) return res.status(404).json({ success: false, message: 'Resident not found' });
     return res.json({ success: true, data: addDerivedFields(rows[0]) });
@@ -200,7 +354,7 @@ const getResident = async (req, res) => {
 function validateResidentInput(body, existing = null) {
   const birthdate = body.birthdate !== undefined ? body.birthdate : existing?.birthdate;
   const sex = body.sex !== undefined ? body.sex : existing?.sex;
-  const civilStatus = body.civil_status !== undefined ? body.civil_status : (existing?.civil_status || 'Unknown');
+  const civilStatus = body.civil_status !== undefined ? body.civil_status : (existing?.civil_status || '');
   const residentStatus = body.resident_status !== undefined ? body.resident_status : (existing?.resident_status || 'Active');
   const firstName = String(body.first_name ?? existing?.first_name ?? '').trim();
   const lastName = String(body.last_name ?? existing?.last_name ?? '').trim();
@@ -212,8 +366,10 @@ function validateResidentInput(body, existing = null) {
   if (!lastName) errors.last_name = 'Last name is required.';
   else if (lastName.length < 2 || lastName.length > 100) errors.last_name = 'Last name must be between 2 and 100 characters.';
   if (!birthdate || !isValidBirthdate(String(birthdate).slice(0, 10))) errors.birthdate = 'Enter a valid birthdate that is not in the future.';
-  if (!SEXES.has(String(sex || '').toLowerCase())) errors.sex = 'Select a valid sex.';
-  if (!CIVIL_STATUSES.has(civilStatus)) errors.civil_status = 'Select a valid civil status.';
+  if (!SEXES.has(String(sex || '').toLowerCase())) errors.sex = 'Select a valid gender.';
+  if ((body.civil_status !== undefined || !existing) && !CIVIL_STATUSES.has(civilStatus)) {
+    errors.civil_status = 'Please select a valid civil status.';
+  }
   if (!RESIDENT_STATUSES.has(residentStatus)) errors.resident_status = 'Select a valid resident status.';
   if (contactNumber) {
     const normalizedNumber = contactNumber.replace(/[\s()-]/g, '');
@@ -267,6 +423,8 @@ function residentValues(body, existing, userId, location) {
   const existingFlags = parseCategoryFlags(existing?.category_flags);
   const categories = existingFlags.filter((item) => !['Senior', 'Senior Citizen', 'Pregnant', 'Lactating', 'PWD'].includes(item));
   if (normalizeBoolean(body.pwd, existingFlags.includes('PWD'))) categories.push('PWD');
+  const birthdate = body.birthdate ?? existing?.birthdate;
+  if (calculateAge(birthdate) !== null && calculateAge(birthdate) >= 60) categories.push('Senior');
   return [
     body.first_name ?? existing?.first_name,
     body.middle_name !== undefined ? body.middle_name || null : existing?.middle_name,
@@ -285,7 +443,7 @@ function residentValues(body, existing, userId, location) {
     body.sitio !== undefined ? String(body.sitio).trim() || null : existing?.sitio,
     body.birthdate ?? existing?.birthdate,
     body.sex !== undefined ? String(body.sex).toLowerCase() : existing?.sex,
-    body.civil_status !== undefined ? body.civil_status : (existing?.civil_status || 'Unknown'),
+    body.civil_status !== undefined ? body.civil_status : (existing?.civil_status || ''),
     body.occupation !== undefined ? body.occupation || null : existing?.occupation,
     body.resident_status !== undefined ? body.resident_status : (existing?.resident_status || 'Active'),
     normalizeBoolean(body.pregnant, existing?.pregnant || 0),
@@ -317,6 +475,29 @@ const createResident = async (req, res) => {
         civil_status, occupation, resident_status, pregnant, lactating, profile_photo, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, residentValues(req.body, null, req.user?.user_id, location));
+    dashboardSummaryCache.clear();
+    const autoSeniorRecord = await ensureSeniorCitizenRecord(connection, {
+      resident_id: result.insertId,
+      birthdate: req.body.birthdate,
+      contact_no: req.body.contact_no,
+      category_flags: residentValues(req.body, null, req.user?.user_id, location)[13],
+    }, { userId: req.user?.user_id });
+    if (autoSeniorRecord) {
+      await writeAudit({
+        user_id: req.user?.user_id,
+        action: 'CREATE',
+        module: 'senior_citizens',
+        table_name: 'senior_citizen_records',
+        record_id: autoSeniorRecord.senior_id,
+        new_data: {
+          resident_id: result.insertId,
+          senior_citizen_id: autoSeniorRecord.senior_citizen_id,
+          date_registered: getManilaToday(),
+          automatically_registered: true,
+        },
+        connection: req.idempotencyConnection,
+      });
+    }
     await writeAudit({
       user_id: req.user?.user_id,
       action: 'CREATE',
@@ -359,6 +540,30 @@ const updateResident = async (req, res) => {
         occupation = ?, resident_status = ?, pregnant = ?, lactating = ?, profile_photo = ?, created_by = COALESCE(?, created_by)
       WHERE resident_id = ?
     `, [...residentValues(req.body, existing, req.user?.user_id, location), req.params.id]);
+    dashboardSummaryCache.clear();
+    const updatedBirthdate = req.body.birthdate ?? existing.birthdate;
+    const updateConnection = req.idempotencyConnection || pool;
+    const autoSeniorRecord = await ensureSeniorCitizenRecord(updateConnection, {
+      resident_id: req.params.id,
+      birthdate: updatedBirthdate,
+      contact_no: req.body.contact_no ?? existing.contact_no,
+      category_flags: residentValues(req.body, existing, req.user?.user_id, location)[13],
+    }, { userId: req.user?.user_id });
+    if (autoSeniorRecord) {
+      await writeAudit({
+        user_id: req.user?.user_id,
+        action: 'CREATE',
+        module: 'senior_citizens',
+        table_name: 'senior_citizen_records',
+        record_id: autoSeniorRecord.senior_id,
+        new_data: {
+          resident_id: req.params.id,
+          senior_citizen_id: autoSeniorRecord.senior_citizen_id,
+          date_registered: getManilaToday(),
+          automatically_registered: true,
+        },
+      });
+    }
     await writeAudit({ user_id: req.user?.user_id, action: 'UPDATE', module: 'residents', table_name: 'residents', record_id: req.params.id, old_data: existing, new_data: req.body });
     const [rows] = await pool.query(`${RESIDENT_SELECT_SQL} WHERE r.resident_id = ?`, [req.params.id]);
     return res.json({ success: true, data: addDerivedFields(rows[0]) });
@@ -401,6 +606,7 @@ const deleteResident = async (req, res) => {
     }
     await connection.query('DELETE FROM residents WHERE resident_id = ?', [id]);
     await connection.commit();
+    dashboardSummaryCache.clear();
 
     await writeAudit({
       user_id: userId,
@@ -420,4 +626,4 @@ const deleteResident = async (req, res) => {
   }
 };
 
-module.exports = { listResidents, getResident, createResident, updateResident, deleteResident };
+module.exports = { listResidents, getResidentStats, getResidentSitios, getResident, createResident, updateResident, deleteResident, validateResidentInput };

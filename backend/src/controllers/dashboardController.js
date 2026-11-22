@@ -7,12 +7,11 @@ const pool = require('../config/database');
 const logger = require('../services/logger');
 const SITIOS = require('../config/sitios');
 const { getManilaToday: getManilaDate } = require('../services/manilaDateService');
+const dashboardSummaryCache = require('../services/dashboardSummaryCache');
 
 /**
  * Get dashboard summary statistics
  */
-const dashboardCache = new Map();
-
 function getManilaToday() {
   const text = getManilaDate();
   const [year, month, day] = text.split('-').map(Number);
@@ -27,6 +26,123 @@ function addMonths(year, month, delta) {
   const date = new Date(Date.UTC(year, month - 1 + delta, 1));
   return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 };
 }
+
+async function getRecentActivityItems() {
+  const [rows] = await pool.query(`
+    SELECT * FROM (
+      SELECT hr.health_record_id AS record_id, hr.resident_id, r.first_name, r.last_name,
+        'clinical' AS record_type, 'Clinical record' AS record_label,
+        COALESCE(NULLIF(hr.assessment,''), NULLIF(hr.chief_complaint,''), NULLIF(hr.notes,''), 'Clinical record') AS summary,
+        DATE_FORMAT(hr.record_date,'%Y-%m-%d') AS record_date, u.full_name AS recorded_by_name,
+        COALESCE(hr.updated_at, hr.created_at) AS activity_at
+      FROM health_records hr
+      JOIN residents r ON r.resident_id=hr.resident_id
+      LEFT JOIN users u ON u.user_id=hr.recorded_by
+
+      UNION ALL SELECT pcr.id, pcr.resident_id, r.first_name, r.last_name,
+        'clinical_form', 'Clinical record',
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pcr.record_data,'$.assessment')),''),
+          NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pcr.record_data,'$.chief_complaint')),''), 'Clinical record'),
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pcr.record_data,'$.visit_date')),''),
+          DATE_FORMAT(pcr.created_at,'%Y-%m-%d')), u.full_name,
+        COALESCE(pcr.updated_at, pcr.created_at)
+      FROM patient_clinical_records pcr
+      JOIN residents r ON r.resident_id=pcr.resident_id
+      LEFT JOIN users u ON u.user_id=pcr.recorded_by
+
+      UNION ALL SELECT chr.id, chr.resident_id, r.first_name, r.last_name,
+        'child_health', 'Child health record',
+        COALESCE(NULLIF(chr.assessment,''), NULLIF(chr.findings,''), NULLIF(chr.plan,''), 'Child health record'),
+        DATE_FORMAT(chr.record_date,'%Y-%m-%d'), u.full_name,
+        COALESCE(chr.updated_at, chr.created_at)
+      FROM child_health_records chr
+      JOIN residents r ON r.resident_id=chr.resident_id
+      LEFT JOIN users u ON u.user_id=chr.recorded_by
+
+      UNION ALL SELECT cr.id, cr.resident_id, r.first_name, r.last_name,
+        'child', 'Child record',
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(cr.record_data,'$.assessment')),''),
+          NULLIF(JSON_UNQUOTE(JSON_EXTRACT(cr.record_data,'$.chief_complaint')),''), 'Child record'),
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(cr.record_data,'$.visit_date')),''),
+          DATE_FORMAT(cr.created_at,'%Y-%m-%d')), u.full_name,
+        COALESCE(cr.updated_at, cr.created_at)
+      FROM child_records cr
+      JOIN residents r ON r.resident_id=cr.resident_id
+      LEFT JOIN users u ON u.user_id=cr.recorded_by
+
+      UNION ALL SELECT ot.timbang_id, ot.resident_id, r.first_name, r.last_name,
+        'operation_timbang', 'Operation Timbang',
+        CONCAT_WS(' · ', CONCAT(COALESCE(ot.weight_kg,'-'),' kg'), NULLIF(ota.wflh_status,'')),
+        DATE_FORMAT(ot.date_recorded,'%Y-%m-%d'), u.full_name, ot.created_at
+      FROM operation_timbang ot
+      JOIN residents r ON r.resident_id=ot.resident_id
+      LEFT JOIN users u ON u.user_id=ot.recorded_by
+      LEFT JOIN operation_timbang_assessments ota ON ota.timbang_id=ot.timbang_id
+
+      UNION ALL SELECT mr.id, mr.resident_id, r.first_name, r.last_name,
+        'maternal', 'Maternal record',
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(mr.record_data,'$.assessment')),''),
+          NULLIF(JSON_UNQUOTE(JSON_EXTRACT(mr.record_data,'$.chief_complaint')),''), 'Maternal record'),
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(mr.record_data,'$.visit_date')),''),
+          DATE_FORMAT(mr.created_at,'%Y-%m-%d')), u.full_name,
+        COALESCE(mr.updated_at, mr.created_at)
+      FROM maternal_records mr
+      JOIN residents r ON r.resident_id=mr.resident_id
+      LEFT JOIN users u ON u.user_id=mr.recorded_by
+
+      UNION ALL SELECT ir.id, ir.resident_id, r.first_name, r.last_name,
+        'immunization', 'Immunization record',
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ir.record_data,'$.vaccine_summary')),''), 'Vaccine record'),
+        COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ir.record_data,'$.visit_date')),''),
+          DATE_FORMAT(ir.created_at,'%Y-%m-%d')), u.full_name,
+        COALESCE(ir.updated_at, ir.created_at)
+      FROM immunization_records ir
+      JOIN residents r ON r.resident_id=ir.resident_id
+      LEFT JOIN users u ON u.user_id=ir.recorded_by
+
+      UNION ALL SELECT abr.record_id, abr.resident_id, r.first_name, r.last_name,
+        'adolescent_bmi', 'Adolescent BMI assessment',
+        CONCAT_WS(' · ', CONCAT(COALESCE(abr.bmi,'-'),' BMI'), NULLIF(abr.bmi_for_age_category,'')),
+        DATE_FORMAT(abr.record_date,'%Y-%m-%d'), u.full_name, abr.created_at
+      FROM adolescent_bmi_records abr
+      JOIN residents r ON r.resident_id=abr.resident_id
+      LEFT JOIN users u ON u.user_id=abr.recorded_by
+
+      UNION ALL SELECT abr.bmi_id, abr.resident_id, r.first_name, r.last_name,
+        'adult_bmi', 'Adult BMI assessment',
+        CONCAT_WS(' · ', CONCAT(COALESCE(abr.bmi,'-'),' BMI'), NULLIF(abr.bmi_category,'')),
+        DATE_FORMAT(abr.date_recorded,'%Y-%m-%d'), u.full_name, abr.created_at
+      FROM adult_bmi_records abr
+      JOIN residents r ON r.resident_id=abr.resident_id
+      LEFT JOIN users u ON u.user_id=abr.recorded_by
+    ) activity
+    ORDER BY activity_at DESC, record_id DESC
+    LIMIT 8
+  `);
+
+  return (rows || []).map((row) => ({
+    id: `${row.record_type}-${row.record_id}`,
+    residentId: row.resident_id,
+    residentName: [row.first_name, row.last_name].filter(Boolean).join(' ').trim(),
+    type: row.record_type,
+    label: row.record_label,
+    summary: row.summary,
+    recordedBy: row.recorded_by_name || 'Unknown user',
+    date: row.record_date,
+    createdAt: row.activity_at,
+  }));
+}
+
+const getRecentActivity = async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const data = await getRecentActivityItems();
+    return res.json({ success: true, data });
+  } catch (err) {
+    logger.error('getRecentActivity error', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
 
 function resolveRange(query) {
   const today = getManilaToday();
@@ -53,8 +169,8 @@ const getSummary = async (req, res) => {
   try {
     const resolved = resolveRange(req.query);
     const cacheKey = `${resolved.range}:${resolved.from}:${resolved.to}`;
-    const cached = dashboardCache.get(cacheKey);
-    if (cached && Date.now() - cached.generatedAtMs < 45000) return res.json({ success: true, data: cached.data });
+    const cached = dashboardSummaryCache.get(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
 
     const today = getManilaToday();
     const currentMonth = monthStart(today.year, today.month);
@@ -145,6 +261,12 @@ const getSummary = async (req, res) => {
     months.forEach((month) => { trendMap[month] = { month, clinical: 0, child: 0, maternal: 0, immunization: 0 }; });
     trendRows.forEach((row) => { if (trendMap[row.month]) trendMap[row.month][row.record_type] = Number(row.count || 0); });
 
+    const chartMonths = Array.from({ length: 12 }, (_, index) => {
+      const value = addMonths(today.year, today.month, index - 11);
+      return `${value.year}-${String(value.month).padStart(2, '0')}`;
+    });
+    const chartStart = `${chartMonths[0]}-01`;
+
     const [sitioRows] = await pool.query(`SELECT sitio, COUNT(*) AS count FROM residents
       WHERE sitio IS NOT NULL AND TRIM(sitio)<>'' GROUP BY sitio ORDER BY count DESC, sitio ASC`);
     const sitio = (sitioRows || []).map((row) => ({ label: row.sitio, count: Number(row.count), isNoSitio: false }));
@@ -179,25 +301,63 @@ const getSummary = async (req, res) => {
       UNION SELECT resident_id FROM adult_bmi_records WHERE LOWER(COALESCE(bmi_category,'')) IN ('underweight','overweight','obese')
     ) risk`);
 
-    const [recentRows] = await pool.query(`
-      SELECT * FROM (
-        SELECT hr.health_record_id AS record_id, hr.resident_id, r.first_name, r.last_name, 'clinical' AS record_type,
-          'Clinical record' AS record_label, COALESCE(NULLIF(hr.assessment,''),NULLIF(hr.chief_complaint,''),NULLIF(hr.notes,''),'Clinical record') AS summary,
-          DATE_FORMAT(hr.record_date,'%Y-%m-%d') AS record_date, u.full_name AS recorded_by_name, hr.created_at
-        FROM health_records hr JOIN residents r ON r.resident_id=hr.resident_id LEFT JOIN users u ON u.user_id=hr.recorded_by
-        UNION ALL SELECT ot.timbang_id, ot.resident_id, r.first_name, r.last_name, 'child', 'Operation Timbang',
-          CONCAT_WS(' · ', CONCAT(COALESCE(ot.weight_kg,'-'),' kg'), COALESCE(ota.wflh_status,'')), DATE_FORMAT(ot.date_recorded,'%Y-%m-%d'), u.full_name, ot.created_at
-        FROM operation_timbang ot JOIN residents r ON r.resident_id=ot.resident_id LEFT JOIN users u ON u.user_id=ot.recorded_by LEFT JOIN operation_timbang_assessments ota ON ota.timbang_id=ot.timbang_id
-        UNION ALL SELECT mr.id, mr.resident_id, r.first_name, r.last_name, 'maternal', 'Maternal record',
-          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(mr.record_data,'$.assessment')),JSON_UNQUOTE(JSON_EXTRACT(mr.record_data,'$.chief_complaint')),'Maternal record'),
-          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(mr.record_data,'$.visit_date')),DATE_FORMAT(mr.created_at,'%Y-%m-%d')), u.full_name, mr.created_at
-        FROM maternal_records mr JOIN residents r ON r.resident_id=mr.resident_id LEFT JOIN users u ON u.user_id=mr.recorded_by
-        UNION ALL SELECT ir.id, ir.resident_id, r.first_name, r.last_name, 'immunization', 'Immunization record',
-          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ir.record_data,'$.vaccine_summary')),'Vaccine record'),
-          COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ir.record_data,'$.visit_date')),DATE_FORMAT(ir.created_at,'%Y-%m-%d')), u.full_name, ir.created_at
-        FROM immunization_records ir JOIN residents r ON r.resident_id=ir.resident_id LEFT JOIN users u ON u.user_id=ir.recorded_by
-      ) activity ORDER BY created_at DESC LIMIT 8
-    `);
+    const recentActivity = await getRecentActivityItems();
+
+    const [nutritionTrendRows] = await pool.query(`
+      SELECT DATE_FORMAT(ot.date_recorded,'%Y-%m') AS month, LOWER(TRIM(ota.wfa_status)) AS category, COUNT(*) AS count
+      FROM operation_timbang ot
+      JOIN residents r ON r.resident_id=ot.resident_id
+      JOIN operation_timbang_assessments ota ON ota.timbang_id=ot.timbang_id
+      WHERE ot.date_recorded >= ? AND ot.date_recorded <= ?
+        AND TIMESTAMPDIFF(MONTH,r.birthdate,ot.date_recorded) BETWEEN 0 AND 59
+        AND ota.wfa_status IS NOT NULL AND TRIM(ota.wfa_status)<>''
+      GROUP BY month, category
+    `, [chartStart, today.text]);
+    const [timbangMonthlyRows] = await pool.query(`
+      SELECT DATE_FORMAT(ot.date_recorded,'%Y-%m') AS month, COUNT(DISTINCT ot.timbang_id) AS count
+      FROM operation_timbang ot
+      JOIN residents r ON r.resident_id=ot.resident_id
+      WHERE ot.date_recorded >= ? AND ot.date_recorded <= ?
+        AND TIMESTAMPDIFF(MONTH,r.birthdate,ot.date_recorded) BETWEEN 0 AND 59
+      GROUP BY month
+    `, [chartStart, today.text]);
+    const [recentResidentRows] = await pool.query(`
+      SELECT resident_id, first_name, middle_name, last_name, sex, resident_status,
+        TIMESTAMPDIFF(YEAR,birthdate,?) AS age,
+        DATE_FORMAT(CONVERT_TZ(created_at, @@session.time_zone, '+08:00'), '%Y-%m-%d') AS registered_on
+      FROM residents
+      ORDER BY created_at DESC, resident_id DESC
+      LIMIT 5
+    `, [today.text]);
+
+    const nutritionTrendByMonth = {};
+    chartMonths.forEach((month) => {
+      nutritionTrendByMonth[month] = { month, assessed: 0, normal: 0, underweight: 0, overweight: 0 };
+    });
+    nutritionTrendRows.forEach((row) => {
+      const month = nutritionTrendByMonth[row.month];
+      if (!month) return;
+      const count = Number(row.count || 0);
+      if (row.category === 'normal') month.normal += count;
+      else if (row.category.includes('underweight')) month.underweight += count;
+      else if (row.category === 'overweight' || row.category === 'obese') month.overweight += count;
+      else return;
+      month.assessed += count;
+    });
+    const nutritionTrend = chartMonths.map((month) => {
+      const row = nutritionTrendByMonth[month];
+      const percent = (count) => row.assessed ? Number(((count / row.assessed) * 100).toFixed(1)) : 0;
+      return {
+        month,
+        assessed: row.assessed,
+        normal: percent(row.normal),
+        underweight: percent(row.underweight),
+        overweight: percent(row.overweight)
+      };
+    });
+    const timbangMonthlyByMonth = {};
+    timbangMonthlyRows.forEach((row) => { timbangMonthlyByMonth[row.month] = Number(row.count || 0); });
+    const timbangMonthly = chartMonths.map((month) => ({ month, count: timbangMonthlyByMonth[month] || 0 }));
 
     const [[noContactRow]] = await pool.query(`SELECT COUNT(*) AS count FROM residents WHERE contact_no IS NULL OR TRIM(contact_no)=''`);
     const under5 = Number(residentAudit.under5 || 0);
@@ -219,6 +379,7 @@ const getSummary = async (req, res) => {
 
     const generatedAt = new Date().toISOString();
     const data = {
+      barangayName: process.env.BARANGAY_NAME?.trim() || null,
       generatedAt,
       range: resolved,
       kpis: {
@@ -231,6 +392,7 @@ const getSummary = async (req, res) => {
       population:{ ageSex:(ageSexRows || []).map((row)=>({ ageGroup:row.age_group, sex:row.sex || 'unspecified', count:Number(row.count || 0) })), male:Number(residentAudit.male || 0), female:Number(residentAudit.female || 0), unspecified:Number(residentAudit.unspecified || 0) },
       groups:{ senior:Number(residentAudit.age60_plus || 0), pwd:Number(residentAudit.pwd || 0), fourPs:Number(residentAudit.fourps || 0), pregnant:Number(residentAudit.pregnant || 0), lactating:Number(residentAudit.lactating || 0), status:{ Active:Number(residentAudit.active || 0), Inactive:Number(residentAudit.inactive || 0), Transferred:Number(residentAudit.transferred || 0), Deceased:Number(residentAudit.deceased || 0) } },
       recordsTrend: months.map((month) => trendMap[month]),
+      nutritionTrend,
       nutrition:{
         child:normalizeNutrition(childNutrition), adolescent:normalizeNutrition(adolescentNutrition), adult:normalizeNutrition(adultNutrition),
         assessed:{ child:timbangRows.length, adolescent:adolescentNutrition.reduce((sum,row)=>sum+Number(row.count || 0),0), adult:adultNutrition.reduce((sum,row)=>sum+Number(row.count || 0),0) },
@@ -238,11 +400,20 @@ const getSummary = async (req, res) => {
       },
       sitio,
       timbang:{ eligible:eligibleThisYear, weighed:weighedThisYear, coveragePercent:eligibleThisYear>0 ? Math.min(100,Math.round((weighedThisYear/eligibleThisYear)*100)) : 0, byResult:timbangRows.reduce((result,row)=>{ [row.wfa_status,row.hfa_status,row.wflh_status].forEach((value)=>{ if(value) result[value]=(result[value]||0)+1; }); return result; },{}) },
+      timbangMonthly,
       attention:attention.sort((a,b)=>{ const severityRank={high:0,medium:1,low:2}; return severityRank[a.severity]-severityRank[b.severity]; }).slice(0,5),
-      recentActivity:(recentRows || []).map((row)=>({ id:`${row.record_type}-${row.record_id}`, residentId:row.resident_id, residentName:`${row.first_name||''} ${row.last_name||''}`.trim(), type:row.record_type, label:row.record_label, summary:row.summary, recordedBy:row.recorded_by_name||'Unknown user', date:row.record_date, createdAt:row.created_at })),
+      recentResidents:(recentResidentRows || []).map((row) => ({
+        id: row.resident_id,
+        name: [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' '),
+        age: row.age === null ? null : Number(row.age),
+        sex: row.sex || null,
+        status: row.resident_status || 'Unknown',
+        registeredOn: row.registered_on
+      })),
+      recentActivity,
       sync:{ pending:0, failed:0, lastSync:null }
     };
-    dashboardCache.set(cacheKey,{ generatedAtMs:Date.now(), data });
+    dashboardSummaryCache.set(cacheKey, data);
     return res.json({ success:true, data });
   } catch (err) {
     logger.error('getSummary error', err);
@@ -403,6 +574,7 @@ const getAdminSummary = async (req, res) => {
 
 module.exports = {
   getSummary,
+  getRecentActivity,
   getNutritionStats,
   getBMIStats,
   getAdminSummary

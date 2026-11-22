@@ -1,11 +1,30 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../services/api/apiClient';
+import { getResidents } from '../../services/api/residentService';
 import idb from '../../services/offline/indexedDbService';
 import syncManager from '../../services/offline/syncManager';
 import useSyncStatus from '../../services/offline/useSyncStatus';
 import { AuthContext } from '../../context/AuthContext';
 import StatusBanner from '../../components/common/StatusBanner';
+import PageBanner from '../../components/common/PageBanner';
+import {
+  Accessibility,
+  Activity,
+  ArrowRight,
+  Baby,
+  BarChart3,
+  Bell,
+  CalendarDays,
+  Check,
+  ClipboardList,
+  Clock3,
+  FileText,
+  HeartPulse,
+  RefreshCw,
+  TriangleAlert,
+  Users,
+} from 'lucide-react';
 
 const rangeLabels = {
   this_month: 'This month',
@@ -15,18 +34,20 @@ const rangeLabels = {
   custom: 'Custom range',
 };
 
-const recordSeries = [
-  { key: 'clinical', label: 'Clinical', color: 'chart-clinical' },
-  { key: 'child', label: 'Child growth', color: 'chart-child' },
-  { key: 'maternal', label: 'Maternal', color: 'chart-maternal' },
-  { key: 'immunization', label: 'Immunization', color: 'chart-immunization' },
-];
-
+const RECENT_ACTIVITY_POLL_INTERVAL_MS = 15000;
 const populationGroups = ['0-4', '5-19', '20-59', '60+'];
-const nutritionTypes = [
-  { key: 'child', label: 'Child growth', shortLabel: 'Child growth' },
-  { key: 'adolescent', label: 'Adolescent BMI', shortLabel: 'Adolescent' },
-  { key: 'adult', label: 'Adult BMI', shortLabel: 'Adult' },
+const nutritionTrendSeries = [
+  { key: 'normal', label: 'Normal', color: 'nutrition-line-normal' },
+  { key: 'underweight', label: 'Underweight', color: 'nutrition-line-underweight' },
+  { key: 'overweight', label: 'Overweight / obese', color: 'nutrition-line-overweight' },
+];
+const nutritionStatusGroups = [
+  { key: 'normal', label: 'Normal' },
+  { key: 'underweight', label: 'Underweight' },
+  { key: 'severely-underweight', label: 'Severely Underweight' },
+  { key: 'overweight', label: 'Overweight' },
+  { key: 'obese', label: 'Obese' },
+  { key: 'other', label: 'Other' },
 ];
 
 const toCount = (value) => {
@@ -40,19 +61,16 @@ const formatCount = (value) => {
   return count === null ? '—' : count.toLocaleString();
 };
 
-const greeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+const formatPercent = (value) => {
+  const percent = toCount(value);
+  return percent === null ? '—' : `${percent.toLocaleString([], { maximumFractionDigits: 1 })}%`;
 };
 
-const formatTime = (value) => {
-  if (!value) return 'Not updated yet';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Not updated yet'
-    : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const greeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Mayad-ayad nga Agahon';
+  if (hour < 18) return 'Mayad-ayad nga Hapon';
+  return 'Mayad-ayad nga Gabi-e';
 };
 
 const formatActivityDate = (value) => {
@@ -61,6 +79,14 @@ const formatActivityDate = (value) => {
   return Number.isNaN(date.getTime())
     ? 'Date unavailable'
     : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+const formatResidentDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const isValidSummary = (data) => (
@@ -74,35 +100,24 @@ const isValidSummary = (data) => (
 );
 
 function DashboardIcon({ name, size = 18 }) {
-  const paths = {
-    users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
-    senior: 'M12 21v-9M8 12l4-9 4 9-4 3-4-3zM4 21h16',
-    child: 'M12 3v18M3 12h18M8 7l-2-2M16 7l2-2',
-    records: 'M7 3h10a2 2 0 0 1 2 2v16H5V5a2 2 0 0 1 2-2zM9 8h6M9 12h6M9 16h4',
-    nutrition: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78zM3 12h4l2-3 3 6 2-3h7',
-    refresh: 'M20 7h-5V2M4 17h5v5M6 6a8 8 0 0 1 13.66-1L20 7M4 17l-.66 2A8 8 0 0 0 18 20',
-    clinical: 'M4 3h16v18H4zM8 8h8M8 12h8M8 16h5',
-    activity: 'M3 12h4l2-5 4 10 2-5h6',
-    arrow: 'M5 12h14M13 6l6 6-6 6',
-    check: 'M20 6L9 17l-5-5',
+  const icons = {
+    users: Users,
+    senior: Accessibility,
+    child: Baby,
+    records: FileText,
+    nutrition: HeartPulse,
+    refresh: RefreshCw,
+    clinical: ClipboardList,
+    activity: Activity,
+    chart: BarChart3,
+    alert: TriangleAlert,
+    bell: Bell,
+    clock: Clock3,
+    arrow: ArrowRight,
+    check: Check,
   };
-
-  return (
-    <svg
-      className="dashboard-svg-icon"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[name] || paths.activity} />
-    </svg>
-  );
+  const Icon = icons[name] || Activity;
+  return <Icon className="dashboard-svg-icon" size={size} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function useCountUp(value) {
@@ -145,12 +160,10 @@ function KpiCard({ label, value, context, icon, tone, to, index }) {
   const animatedValue = useCountUp(value);
   const content = (
     <>
-      <span className="dashboard-kpi-topline">
-        <span className={`dashboard-kpi-icon dashboard-tone-${tone}`} aria-hidden="true">
-          <DashboardIcon name={icon} size={17} />
-        </span>
-        <span className="dashboard-kpi-label">{label}</span>
+      <span className={`dashboard-kpi-icon dashboard-tone-${tone}`} aria-hidden="true">
+        <DashboardIcon name={icon} size={17} />
       </span>
+      <span className="dashboard-kpi-label">{label}</span>
       <strong className="dashboard-kpi-value" aria-label={`${label}: ${formatCount(value)}`}>
         {animatedValue}
       </strong>
@@ -170,103 +183,32 @@ function EmptyChart({ children = 'No data available for this view.' }) {
 
 function AgePopulationChart({ ageSex = [] }) {
   const data = populationGroups.map((group) => {
-    const counts = { male: 0, female: 0, unspecified: 0 };
+    let total = 0;
     (Array.isArray(ageSex) ? ageSex : []).forEach((row) => {
       if (row.ageGroup !== group) return;
-      const sex = String(row.sex || 'unspecified').toLowerCase();
-      const key = sex === 'male' || sex === 'female' ? sex : 'unspecified';
-      counts[key] += toCount(row.count) || 0;
+      total += toCount(row.count) || 0;
     });
-    return { group, ...counts, total: counts.male + counts.female + counts.unspecified };
+    return { group, total };
   }).filter((row) => row.total > 0);
   const maximum = Math.max(...data.map((row) => row.total), 0);
 
   if (!data.length) return <EmptyChart>No resident age data is available yet.</EmptyChart>;
 
   return (
-    <div className="dashboard-age-chart">
-      <div className="dashboard-chart-legend">
-        <span><i className="legend-male" />Male</span>
-        <span><i className="legend-female" />Female</span>
-        {data.some((row) => row.unspecified > 0) && <span><i className="legend-unspecified" />Unspecified</span>}
-      </div>
-      <div className="dashboard-age-rows" role="list" aria-label="Resident population by age group and sex">
-        {data.map((row, index) => (
-          <div className="dashboard-age-row" key={row.group} role="listitem">
-            <span className="dashboard-age-label">{row.group} years</span>
-            <div className="dashboard-age-track" aria-hidden="true">
-              {['male', 'female', 'unspecified'].map((key) => (
-                row[key] > 0 && (
-                  <span
-                    key={key}
-                    className={`dashboard-age-segment age-${key}`}
-                    style={{
-                      width: `${(row[key] / maximum) * 100}%`,
-                      animationDelay: `${index * 80}ms`,
-                    }}
-                  />
-                )
-              ))}
-            </div>
-            <strong>{formatCount(row.total)}</strong>
+    <div className="dashboard-age-chart" role="list" aria-label="Residents by age group">
+      {data.map((row, index) => (
+        <div className="dashboard-age-row" key={row.group} role="listitem">
+          <span className="dashboard-age-label">{row.group} years</span>
+          <div className="dashboard-age-track" aria-hidden="true">
+            <span
+              className="dashboard-age-bar"
+              style={{ width: `${(row.total / maximum) * 100}%`, animationDelay: `${index * 80}ms` }}
+            />
           </div>
-        ))}
-      </div>
+          <strong>{formatCount(row.total)}</strong>
+        </div>
+      ))}
       <p className="dashboard-chart-footnote">Completed age; residents without a birthdate are not charted.</p>
-    </div>
-  );
-}
-
-function AreaPopulationChart({ sitios = [], isBhw }) {
-  const data = [...(Array.isArray(sitios) ? sitios : [])]
-    .map((item) => ({ ...item, count: toCount(item.count) }))
-    .filter((item) => item.count !== null && item.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5);
-  const maximum = Math.max(...data.map((item) => item.count), 0);
-
-  if (!data.length) return <EmptyChart>No sitio population data is available yet.</EmptyChart>;
-
-  return (
-    <div className="dashboard-area-chart">
-      {data.map((item, index) => {
-        const label = item.isNoSitio ? 'No sitio recorded' : item.label;
-        const content = (
-          <>
-            <span className="dashboard-area-name" title={label}>{label}</span>
-            <span className="dashboard-area-track" aria-hidden="true">
-              <span
-                className="dashboard-area-bar"
-                style={{
-                  width: `${(item.count / maximum) * 100}%`,
-                  animationDelay: `${index * 70}ms`,
-                }}
-              />
-            </span>
-            <strong>{formatCount(item.count)}</strong>
-          </>
-        );
-        return isBhw
-          ? <Link className="dashboard-area-row" key={label} to={item.isNoSitio ? '/residents?sitio=no-sitio' : `/residents?sitio=${encodeURIComponent(item.label)}`}>{content}</Link>
-          : <div className="dashboard-area-row" key={label}>{content}</div>;
-      })}
-      <p className="dashboard-chart-footnote">Top {data.length} recorded areas.</p>
-    </div>
-  );
-}
-
-function PopulationChart({ population = {}, sitios = [], isBhw }) {
-  const [view, setView] = useState('age');
-
-  return (
-    <div className="dashboard-population-chart">
-      <div className="dashboard-chart-switch" role="group" aria-label="Population chart">
-        <button type="button" className={view === 'age' ? 'is-selected' : ''} aria-pressed={view === 'age'} onClick={() => setView('age')}>Age &amp; sex</button>
-        <button type="button" className={view === 'area' ? 'is-selected' : ''} aria-pressed={view === 'area'} onClick={() => setView('area')}>By area</button>
-      </div>
-      {view === 'age'
-        ? <AgePopulationChart ageSex={population.ageSex} />
-        : <AreaPopulationChart sitios={sitios} isBhw={isBhw} />}
     </div>
   );
 }
@@ -280,129 +222,178 @@ function monthLabel(value) {
     : date.toLocaleDateString([], { month: 'short', ...(month === 1 ? { year: '2-digit' } : {}) });
 }
 
-function RecordsTrendChart({ data = [] }) {
+function NutritionTrendChart({ data = [] }) {
   const rows = Array.isArray(data) ? data : [];
-  const [hidden, setHidden] = useState([]);
-  const series = recordSeries.filter((item) => rows.some((row) => (toCount(row[item.key]) || 0) > 0));
-  const visibleSeries = series.filter((item) => !hidden.includes(item.key));
-  const max = Math.max(
-    ...rows.flatMap((row) => visibleSeries.map((item) => toCount(row[item.key]) || 0)),
-    0,
-  );
-
-  const chart = { width: 640, height: 190, left: 36, right: 12, top: 14, bottom: 30 };
-  const plotWidth = chart.width - chart.left - chart.right;
-  const plotHeight = chart.height - chart.top - chart.bottom;
-  const scaleMax = max || 1;
-  const plotted = rows.map((row, index) => ({
-    ...row,
-    x: chart.left + (rows.length === 1 ? plotWidth / 2 : (index / (rows.length - 1)) * plotWidth),
-    yFor: (value) => chart.top + plotHeight - ((toCount(value) || 0) / scaleMax) * plotHeight,
-    label: monthLabel(row.month),
-  }));
-
-  if (!rows.length || !series.length) {
-    return <EmptyChart>No health records were recorded in the selected period.</EmptyChart>;
+  if (!rows.some((row) => (toCount(row.assessed) || 0) > 0)) {
+    return <EmptyChart>No Operation Timbang nutrition assessments are available for the past 12 months.</EmptyChart>;
   }
 
-  const step = Math.max(1, Math.ceil(rows.length / 6));
-  const horizontalLabels = [0, 1, 2, 3].map((index) => Math.round((max || 0) * (index / 3)));
+  const chart = { width: 640, height: 190, left: 40, right: 12, top: 16, bottom: 30 };
+  const plotWidth = chart.width - chart.left - chart.right;
+  const plotHeight = chart.height - chart.top - chart.bottom;
+  const xFor = (index) => chart.left + (rows.length === 1 ? plotWidth / 2 : (index / (rows.length - 1)) * plotWidth);
+  const yFor = (value) => chart.top + plotHeight - ((toCount(value) || 0) / 100) * plotHeight;
+  const segments = [];
+  let segment = [];
+  rows.forEach((row, index) => {
+    if ((toCount(row.assessed) || 0) > 0) {
+      segment.push({ row, index });
+    } else if (segment.length) {
+      segments.push(segment);
+      segment = [];
+    }
+  });
+  if (segment.length) segments.push(segment);
 
   return (
-    <div className="dashboard-records-chart">
-      <div className="dashboard-trend-legend" aria-label="Toggle health record categories">
-        {series.map((item) => (
-          <button
-            type="button"
-            key={item.key}
-            className={hidden.includes(item.key) ? 'is-hidden' : ''}
-            aria-pressed={!hidden.includes(item.key)}
-            disabled={!hidden.includes(item.key) && visibleSeries.length === 1}
-            onClick={() => setHidden((current) => (
-              current.includes(item.key)
-                ? current.filter((key) => key !== item.key)
-                : [...current, item.key]
-            ))}
-          >
-            <i className={item.color} />
-            {item.label}
-          </button>
+    <div className="dashboard-nutrition-trend">
+      <div className="dashboard-nutrition-trend-legend" aria-label="Weight-for-age classifications">
+        {nutritionTrendSeries.map((series) => (
+          <span key={series.key}><i className={series.color} />{series.label}</span>
         ))}
       </div>
       <div className="dashboard-trend-canvas">
         <svg
           viewBox="0 0 640 190"
           role="img"
-          aria-label={`Monthly health records: ${rows.map((row) => `${row.month}, ${recordSeries.map((item) => `${item.label} ${formatCount(row[item.key])}`).join(', ')}`).join('; ')}`}
+          aria-label={`Monthly child weight-for-age classifications: ${rows.filter((row) => (toCount(row.assessed) || 0) > 0).map((row) => `${row.month}, ${nutritionTrendSeries.map((series) => `${series.label} ${formatPercent(row[series.key])}`).join(', ')}`).join('; ')}`}
         >
-          {horizontalLabels.map((label, index) => {
-            const y = 160 - (index / 3) * 146;
+          {[100, 75, 50, 25, 0].map((value) => {
+            const y = yFor(value);
             return (
-              <g key={`${label}-${index}`}>
-                <line x1="36" x2="628" y1={y} y2={y} className="dashboard-chart-gridline" />
-                <text x="30" y={y + 3} textAnchor="end" className="dashboard-chart-axis-label">{formatCount(label)}</text>
+              <g key={value}>
+                <line x1={chart.left} x2={chart.width - chart.right} y1={y} y2={y} className="dashboard-chart-gridline" />
+                <text x={chart.left - 7} y={y + 3} textAnchor="end" className="dashboard-chart-axis-label">{value}%</text>
               </g>
             );
           })}
-          {visibleSeries.map((item) => {
-            const points = plotted.map((point) => `${point.x},${point.yFor(point[item.key])}`).join(' ');
-            return (
-              <g key={item.key}>
-                <polyline points={points} className={`dashboard-trend-line ${item.color}`} pathLength="1" />
-                {plotted.map((point) => (
-                  (toCount(point[item.key]) || 0) > 0 && (
-                    <circle
-                      key={`${item.key}-${point.month}`}
-                      cx={point.x}
-                      cy={point.yFor(point[item.key])}
-                      r="3"
-                      className={`dashboard-trend-point ${item.color}`}
-                    >
-                      <title>{`${item.label}, ${point.month}: ${formatCount(point[item.key])}`}</title>
-                    </circle>
-                  )
-                ))}
-              </g>
-            );
-          })}
-          {plotted.map((point, index) => (
-            index % step === 0 || index === plotted.length - 1
-              ? <text key={point.month} x={point.x} y="181" textAnchor="middle" className="dashboard-chart-axis-label">{point.label}</text>
-              : null
+          {nutritionTrendSeries.map((series) => (
+            <g key={series.key}>
+              {segments.filter((points) => points.length > 1).map((points) => (
+                <polyline
+                  key={`${series.key}-${points[0].row.month}`}
+                  points={points.map(({ row, index }) => `${xFor(index)},${yFor(row[series.key])}`).join(' ')}
+                  className={`dashboard-nutrition-trend-line ${series.color}`}
+                />
+              ))}
+              {segments.flat().map(({ row, index }) => (
+                <circle
+                  key={`${series.key}-${row.month}`}
+                  cx={xFor(index)}
+                  cy={yFor(row[series.key])}
+                  r="3"
+                  className={`dashboard-nutrition-trend-point ${series.color}`}
+                >
+                  <title>{`${monthLabel(row.month)} · ${series.label}: ${formatPercent(row[series.key])} of ${formatCount(row.assessed)} assessments`}</title>
+                </circle>
+              ))}
+            </g>
+          ))}
+          {rows.map((row, index) => (
+            <text key={row.month} x={xFor(index)} y="181" textAnchor="middle" className="dashboard-chart-axis-label">
+              {monthLabel(row.month)}
+            </text>
           ))}
         </svg>
       </div>
-      <table className="dashboard-visually-hidden">
-        <caption>Health records by month and record category</caption>
-        <thead><tr><th>Month</th>{recordSeries.map((item) => <th key={item.key}>{item.label}</th>)}</tr></thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.month}>
-              <th>{row.month}</th>
-              {recordSeries.map((item) => <td key={item.key}>{formatCount(row[item.key])}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <p className="dashboard-chart-footnote">Share of recorded weight-for-age assessments each month.</p>
     </div>
   );
 }
 
-function classificationTone(category) {
-  const value = String(category || '').toLowerCase();
-  if (value.includes('normal') || value.includes('tall')) return 'normal';
-  if (value.includes('obese') || value.includes('severe')) return 'high';
-  if (value.includes('overweight') || value.includes('underweight') || value.includes('thinness') || value.includes('stunted') || value.includes('wasted')) return 'watch';
+function OperationTimbangMonthlyChart({ data = [], timbang = {} }) {
+  const rows = Array.isArray(data) ? data : [];
+  const maximum = Math.max(...rows.map((row) => toCount(row.count) || 0), 0);
+  const coverageSummary = `${formatCount(timbang.weighed)} of ${formatCount(timbang.eligible)} eligible children measured this year · ${formatPercent(timbang.coveragePercent)} coverage`;
+  if (!rows.length) return <EmptyChart>No Operation Timbang records are available for the past 12 months.</EmptyChart>;
+  if (!maximum) {
+    return (
+      <div className="dashboard-timbang-monthly">
+        <EmptyChart>No Operation Timbang records are available for the past 12 months.</EmptyChart>
+        <p className="dashboard-chart-footnote">{coverageSummary}</p>
+      </div>
+    );
+  }
+
+  const chart = { width: 640, height: 190, left: 40, right: 12, top: 18, bottom: 30 };
+  const plotWidth = chart.width - chart.left - chart.right;
+  const plotHeight = chart.height - chart.top - chart.bottom;
+  const tickStep = Math.max(1, Math.ceil(maximum / 4));
+  const scaleMax = Math.ceil(maximum / tickStep) * tickStep;
+  const slotWidth = plotWidth / rows.length;
+  const barWidth = Math.min(28, slotWidth * 0.62);
+  const yFor = (value) => chart.top + plotHeight - ((toCount(value) || 0) / scaleMax) * plotHeight;
+
+  return (
+    <div className="dashboard-timbang-monthly">
+      <div className="dashboard-trend-canvas">
+        <svg
+          viewBox="0 0 640 190"
+          role="img"
+          aria-label={`Monthly Operation Timbang records: ${rows.map((row) => `${row.month}: ${formatCount(row.count)}`).join(', ')}`}
+        >
+          {Array.from({ length: 5 }, (_, index) => {
+            const value = scaleMax - (tickStep * index);
+            const y = yFor(value);
+            return (
+              <g key={value}>
+                <line x1={chart.left} x2={chart.width - chart.right} y1={y} y2={y} className="dashboard-chart-gridline" />
+                <text x={chart.left - 7} y={y + 3} textAnchor="end" className="dashboard-chart-axis-label">{formatCount(value)}</text>
+              </g>
+            );
+          })}
+          {rows.map((row, index) => {
+            const count = toCount(row.count) || 0;
+            const x = chart.left + (index * slotWidth) + ((slotWidth - barWidth) / 2);
+            const y = yFor(count);
+            return (
+              <g key={row.month}>
+                {count > 0 && (
+                  <>
+                    <rect x={x} y={y} width={barWidth} height={chart.top + plotHeight - y} rx="3" className="dashboard-timbang-bar" />
+                    <text x={x + (barWidth / 2)} y={y - 5} textAnchor="middle" className="dashboard-timbang-value">{formatCount(count)}</text>
+                  </>
+                )}
+                <text x={chart.left + (index * slotWidth) + (slotWidth / 2)} y="181" textAnchor="middle" className="dashboard-chart-axis-label">
+                  {monthLabel(row.month)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <p className="dashboard-chart-footnote">{coverageSummary}</p>
+    </div>
+  );
+}
+
+function nutritionStatusKey(category) {
+  const value = String(category || '').trim().toLowerCase();
+  if (value.includes('normal')) return 'normal';
+  if (value.includes('obese')) return 'obese';
+  if (value.includes('overweight')) return 'overweight';
+  if (value.includes('severe') && (value.includes('underweight') || value.includes('thinness') || value.includes('wast'))) {
+    return 'severely-underweight';
+  }
+  if (value.includes('underweight') || value.includes('thinness') || value.includes('wast')) return 'underweight';
   return 'other';
 }
 
-function NutritionDonut({ rows }) {
-  const data = (Array.isArray(rows) ? rows : [])
-    .map((row) => ({ ...row, count: toCount(row.count) }))
-    .filter((row) => row.count !== null && row.count > 0);
+function NutritionDonut({ nutrition }) {
+  const counts = Object.fromEntries(nutritionStatusGroups.map(({ key }) => [key, 0]));
+  ['child', 'adolescent', 'adult'].forEach((group) => {
+    (Array.isArray(nutrition?.[group]) ? nutrition[group] : []).forEach((row) => {
+      const count = toCount(row.count);
+      if (count === null || count <= 0) return;
+      counts[nutritionStatusKey(row.category)] += count;
+    });
+  });
+  const data = nutritionStatusGroups
+    .map((group) => ({ ...group, count: counts[group.key] }))
+    .filter((group) => group.count > 0);
   const total = data.reduce((sum, item) => sum + item.count, 0);
-  const circumference = 2 * Math.PI * 37;
-  const signature = data.map((item) => `${item.category}:${item.count}`).join('|');
+  const circumference = 2 * Math.PI * 38;
+  const signature = data.map((item) => `${item.key}:${item.count}`).join('|');
   const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
@@ -411,7 +402,7 @@ function NutritionDonut({ rows }) {
     return () => window.cancelAnimationFrame(frameId);
   }, [signature]);
 
-  if (!total) return <EmptyChart>No classified records are available for this method.</EmptyChart>;
+  if (!total) return <EmptyChart>No nutritional status assessments are available.</EmptyChart>;
 
   let offset = 0;
   const segments = data.map((item) => {
@@ -423,16 +414,16 @@ function NutritionDonut({ rows }) {
 
   return (
     <div className="dashboard-nutrition-visual">
-      <div className="dashboard-donut" role="img" aria-label={`${formatCount(total)} classified records`}>
+      <div className="dashboard-donut" role="img" aria-label={`${formatCount(total)} total nutritional assessments`}>
         <svg viewBox="0 0 100 100" aria-hidden="true">
-          <circle className="dashboard-donut-track" cx="50" cy="50" r="37" />
+          <circle className="dashboard-donut-track" cx="50" cy="50" r="38" />
           {segments.map((item, index) => (
             <circle
-              key={item.category}
-              className={`dashboard-donut-segment status-${classificationTone(item.category)}`}
+              key={item.key}
+              className={`dashboard-donut-segment nutrition-status-${item.key}`}
               cx="50"
               cy="50"
-              r="37"
+              r="38"
               transform="rotate(-90 50 50)"
               style={{
                 strokeDasharray: revealed ? `${item.length} ${circumference - item.length}` : `0 ${circumference}`,
@@ -440,96 +431,36 @@ function NutritionDonut({ rows }) {
                 transitionDelay: `${index * 70}ms`,
               }}
             >
-              <title>{`${item.category}: ${formatCount(item.count)}`}</title>
+              <title>{`${item.label}: ${formatCount(item.count)}`}</title>
             </circle>
           ))}
         </svg>
-        <span><strong>{formatCount(total)}</strong><small>records</small></span>
+        <span><strong>{formatCount(total)}</strong><small>total</small></span>
       </div>
       <ul className="dashboard-nutrition-legend">
-        {segments.slice(0, 5).map((item) => (
-          <li key={item.category}>
-            <i className={`status-${classificationTone(item.category)}`} />
-            <span title={item.category}>{item.category}</span>
-            <strong>{formatCount(item.count)}</strong>
+        {segments.filter((item) => item.key !== 'other').map((item) => (
+          <li key={item.key}>
+            <i className={`nutrition-status-${item.key}`} />
+            <span title={item.label}>{item.label}</span>
+            <strong title={`${formatCount(item.count)} assessments`}>{formatPercent((item.count / total) * 100)}</strong>
           </li>
         ))}
-        {segments.length > 5 && <li className="dashboard-more-categories">+{segments.length - 5} other classifications</li>}
+        {segments.some((item) => item.key === 'other') && (
+          <li className="dashboard-nutrition-legend-other">
+            <i className="nutrition-status-other" />
+            <span>Other classifications</span>
+            <strong>{formatPercent((counts.other / total) * 100)}</strong>
+          </li>
+        )}
       </ul>
     </div>
   );
 }
 
 function NutritionChart({ nutrition = {} }) {
-  const data = nutrition && typeof nutrition === 'object' ? nutrition : {};
-  const firstPopulated = nutritionTypes.find((type) => (
-    Array.isArray(data[type.key])
-    && data[type.key].some((item) => (toCount(item.count) || 0) > 0)
-  ))?.key || 'child';
-  const [selected, setSelected] = useState(firstPopulated);
-  const activeType = nutritionTypes.find((type) => type.key === selected) || nutritionTypes[0];
-
   return (
     <div className="dashboard-nutrition-chart">
-      <div className="dashboard-chart-switch" role="group" aria-label="Nutritional assessment method">
-        {nutritionTypes.map((type) => (
-          <button
-            type="button"
-            key={type.key}
-            className={selected === type.key ? 'is-selected' : ''}
-            aria-pressed={selected === type.key}
-            onClick={() => setSelected(type.key)}
-          >
-            {type.shortLabel}
-          </button>
-        ))}
-      </div>
-      <NutritionDonut rows={data[activeType.key]} />
-      <p className="dashboard-chart-footnote">
-        {activeType.key === 'child'
-          ? 'Operation Timbang growth status; children aged 0–59 months.'
-          : `${activeType.label} classifications are shown separately.`}
-      </p>
-    </div>
-  );
-}
-
-function CoverageRing({ percent }) {
-  const value = toCount(percent);
-  if (value === null) return <div className="dashboard-ring-unavailable">—</div>;
-  const normalized = Math.min(100, Math.max(0, value));
-
-  return (
-    <div className="dashboard-coverage-ring" role="img" aria-label={`${formatCount(normalized)} percent coverage`}>
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle className="dashboard-ring-track" cx="50" cy="50" r="40" />
-        <circle
-          className="dashboard-ring-progress"
-          cx="50"
-          cy="50"
-          r="40"
-          style={{ '--ring-offset': `${251.33 - ((normalized / 100) * 251.33)}px` }}
-        />
-      </svg>
-      <strong>{formatCount(normalized)}<small>%</small></strong>
-    </div>
-  );
-}
-
-function OperationTimbangCard({ timbang = {} }) {
-  const eligible = toCount(timbang.eligible);
-  const weighed = toCount(timbang.weighed);
-
-  return (
-    <div className="dashboard-timbang-summary">
-      <CoverageRing percent={timbang.coveragePercent} />
-      <div className="dashboard-timbang-copy">
-        <strong>{formatCount(weighed)} <span>of</span> {formatCount(eligible)}</strong>
-        <p>eligible children aged 0–59 months weighed this year</p>
-      </div>
-      {eligible === 0 && (
-        <p className="dashboard-chart-footnote dashboard-timbang-results">No eligible children recorded for this year.</p>
-      )}
+      <NutritionDonut nutrition={nutrition && typeof nutrition === 'object' ? nutrition : {}} />
     </div>
   );
 }
@@ -579,14 +510,21 @@ function RecentActivity({ items = [], isBhw }) {
   return (
     <ul className="dashboard-activity-list">
       {visible.map((item) => {
+        const icon = ['child', 'child_health'].includes(item.type)
+          ? 'child'
+          : ['clinical', 'clinical_form'].includes(item.type)
+            ? 'clinical'
+            : ['maternal', 'operation_timbang', 'adolescent_bmi', 'adult_bmi'].includes(item.type)
+              ? 'nutrition'
+              : 'records';
         const activity = (
           <>
             <span className={`dashboard-activity-icon activity-${item.type || 'other'}`} aria-hidden="true">
-              <DashboardIcon name={item.type === 'child' ? 'child' : item.type === 'clinical' ? 'clinical' : item.type === 'maternal' ? 'nutrition' : 'records'} size={16} />
+              <DashboardIcon name={icon} size={16} />
             </span>
             <span className="dashboard-activity-copy">
               <strong>{item.label || 'Health record'}</strong>
-              <small>{item.recordedBy || 'Unknown user'}</small>
+              <small>{item.residentName || item.recordedBy || 'Unknown resident'}</small>
             </span>
             <time dateTime={item.createdAt || undefined}>{formatActivityDate(item.createdAt || item.date)}</time>
           </>
@@ -603,48 +541,49 @@ function RecentActivity({ items = [], isBhw }) {
   );
 }
 
-function DashboardUpdates({ attention = [], recentActivity = [], isBhw }) {
-  const priorities = Array.isArray(attention) ? attention : [];
-  const activity = Array.isArray(recentActivity) ? recentActivity : [];
-  const [view, setView] = useState(priorities.length ? 'attention' : 'activity');
-
-  if (!isBhw) {
-    return <RecentActivity items={activity} isBhw={false} />;
-  }
+function RecentResidentsTable({ items = [], isBhw }) {
+  const residents = (Array.isArray(items) ? items : []).slice(0, 5);
+  if (!residents.length) return <EmptyChart>No resident registrations are available.</EmptyChart>;
 
   return (
-    <div className="dashboard-updates">
-      <div className="dashboard-chart-switch" role="group" aria-label="Community updates">
-        <button
-          type="button"
-          className={view === 'attention' ? 'is-selected' : ''}
-          aria-pressed={view === 'attention'}
-          onClick={() => setView('attention')}
-        >
-          Needs attention
-          {priorities.length > 0 && <span>{priorities.length}</span>}
-        </button>
-        <button
-          type="button"
-          className={view === 'activity' ? 'is-selected' : ''}
-          aria-pressed={view === 'activity'}
-          onClick={() => setView('activity')}
-        >
-          Recent activity
-        </button>
-      </div>
-      {view === 'attention'
-        ? <AttentionList items={priorities} isBhw />
-        : <RecentActivity items={activity} isBhw />}
+    <div className="dashboard-registration-table-wrap">
+      <table className="dashboard-registration-table">
+        <thead>
+          <tr><th scope="col">Name</th><th scope="col">Age</th><th scope="col">Gender</th><th scope="col">Date registered</th><th scope="col">Status</th></tr>
+        </thead>
+        <tbody>
+          {residents.map((resident) => {
+            const name = resident.name || 'Unnamed resident';
+            const nameCell = isBhw
+              ? <Link to={`/residents/${resident.id}`} title={name}>{name}</Link>
+              : <span title={name}>{name}</span>;
+            return (
+              <tr key={resident.id}>
+                <th scope="row">{nameCell}</th>
+                <td>{resident.age === null || resident.age === undefined ? '—' : formatCount(resident.age)}</td>
+                <td>{String(resident.sex || '').toLowerCase() === 'male' ? 'M' : String(resident.sex || '').toLowerCase() === 'female' ? 'F' : '—'}</td>
+                <td>{formatResidentDate(resident.registeredOn)}</td>
+                <td><span className={`dashboard-resident-status status-${String(resident.status || '').toLowerCase()}`}>{resident.status || 'Unknown'}</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function ChartCard({ title, subtitle, className = '', children, index = 0 }) {
+function ChartCard({ title, subtitle, icon = 'records', className = '', children, index = 0 }) {
   return (
     <article className={`dashboard-chart-card dashboard-entrance dashboard-delay-${index} ${className}`}>
       <header className="dashboard-card-heading">
-        <div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
+        <div className="dashboard-card-title">
+          <DashboardIcon name={icon} size={16} />
+          <div className="dashboard-card-title-copy">
+            <h2>{title}</h2>
+            {subtitle && <p>{subtitle}</p>}
+          </div>
+        </div>
       </header>
       {children}
     </article>
@@ -658,7 +597,7 @@ function DashboardLoadingSkeleton() {
         {[0, 1, 2, 3, 4].map((item) => <div className="dashboard-skeleton dashboard-skeleton-kpi" key={item} />)}
       </div>
       <div className="dashboard-skeleton-charts">
-        {[0, 1, 2, 3, 4].map((item) => <div className="dashboard-skeleton dashboard-skeleton-card" key={item} />)}
+        {[0, 1, 2, 3, 4, 5, 6].map((item) => <div className="dashboard-skeleton dashboard-skeleton-card" key={item} />)}
       </div>
     </div>
   );
@@ -671,6 +610,7 @@ const DashboardPage = () => {
   const customFrom = searchParams.get('from') || '';
   const customTo = searchParams.get('to') || '';
   const [stats, setStats] = useState(null);
+  const [liveRecentActivity, setLiveRecentActivity] = useState(null);
   const [statsKey, setStatsKey] = useState('');
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState(null);
@@ -683,7 +623,6 @@ const DashboardPage = () => {
   const sharedSync = useSyncStatus();
   const refreshSync = sharedSync.refresh;
   const setDashboardRequestFailed = sharedSync.setDashboardRequestFailed;
-  const syncQueue = { pending: sharedSync.pending, failed: sharedSync.failed };
   const isBhw = String(user?.role || '').toLowerCase().replace(/[-_\s]+/g, '_') === 'bhw';
   const queryKey = JSON.stringify([user?.user_id || 'current', range, customFrom, customTo]);
   const queryKeyRef = useRef(queryKey);
@@ -711,6 +650,28 @@ const DashboardPage = () => {
     }
   }, [refreshSync]);
 
+  const loadRecentResidents = useCallback(async () => {
+    if (!isBhw) return null;
+    try {
+      const response = await getResidents({ page: 1, limit: 5, sort: 'newest', order: 'asc' });
+      const rows = response?.data?.items;
+      if (response?.success !== true || !Array.isArray(rows)) {
+        throw new Error('The residents response did not contain a resident list.');
+      }
+      return rows.map((resident) => ({
+        id: resident.resident_id,
+        name: [resident.first_name, resident.middle_name, resident.last_name, resident.suffix].filter(Boolean).join(' '),
+        age: resident.age === null || resident.age === undefined ? null : Number(resident.age),
+        sex: resident.sex || null,
+        status: resident.resident_status || 'Unknown',
+        registeredOn: resident.created_at || null,
+      }));
+    } catch (residentError) {
+      console.error('Unable to load recent resident registrations.', residentError);
+      return null;
+    }
+  }, [isBhw]);
+
   const fetchDashboard = useCallback(async (background = false) => {
     const requestKey = queryKeyRef.current;
     const requestId = requestIdRef.current + 1;
@@ -733,7 +694,14 @@ const DashboardPage = () => {
         throw new Error('The dashboard response did not contain a valid community summary.');
       }
 
-      setStats(data);
+      let summaryData = data;
+      if (isBhw) {
+        const recentResidents = await loadRecentResidents();
+        if (requestId !== requestIdRef.current || requestKey !== queryKeyRef.current) return;
+        if (recentResidents !== null) summaryData = { ...data, recentResidents };
+      }
+
+      setStats(summaryData);
       setStatsKey(requestKey);
       statsKeyRef.current = requestKey;
       setRequestError(null);
@@ -749,12 +717,15 @@ const DashboardPage = () => {
       setLastUpdated(new Date());
       try {
         const cachedSummary = {
-          ...data,
-          recentActivity: Array.isArray(data.recentActivity)
-            ? data.recentActivity.map(({ id, type, label, recordedBy, date, createdAt }) => ({
+          ...summaryData,
+          recentActivity: Array.isArray(summaryData.recentActivity)
+            ? summaryData.recentActivity.map(({ id, residentId, residentName, type, label, summary, recordedBy, date, createdAt }) => ({
               id,
+              residentId,
+              residentName,
               type,
               label,
+              summary,
               recordedBy,
               date,
               createdAt,
@@ -781,7 +752,13 @@ const DashboardPage = () => {
         const cached = await idb.getFromStore('syncMetadata', cacheKey);
         if (requestId !== requestIdRef.current || requestKey !== queryKeyRef.current) return;
         if (cached?.value && isValidSummary(cached.value)) {
-          setStats(cached.value);
+          let cachedData = cached.value;
+          if (isBhw) {
+            const recentResidents = await loadRecentResidents();
+            if (requestId !== requestIdRef.current || requestKey !== queryKeyRef.current) return;
+            if (recentResidents !== null) cachedData = { ...cachedData, recentResidents };
+          }
+          setStats(cachedData);
           setStatsKey(requestKey);
           statsKeyRef.current = requestKey;
           setLastUpdated(cached.savedAt || null);
@@ -806,7 +783,7 @@ const DashboardPage = () => {
         loadSync();
       }
     }
-  }, [customFrom, customTo, loadSync, range, setDashboardRequestFailed]);
+  }, [customFrom, customTo, isBhw, loadRecentResidents, loadSync, range, setDashboardRequestFailed]);
 
   useEffect(() => {
     fetchDashboard();
@@ -833,6 +810,46 @@ const DashboardPage = () => {
     const timer = window.setTimeout(() => fetchDashboard(true), delay);
     return () => window.clearTimeout(timer);
   }, [fetchDashboard, retryCount, sharedSync.dashboardRequestFailed]);
+
+  useEffect(() => {
+    let active = true;
+    let requestInFlight = false;
+    setLiveRecentActivity(null);
+
+    const refreshRecentActivity = async () => {
+      if (!active || requestInFlight || !navigator.onLine || document.visibilityState === 'hidden') return;
+      requestInFlight = true;
+      try {
+        const response = await api.get('/dashboard/recent-activity');
+        const activities = response.data?.data;
+        if (response.data?.success !== true || !Array.isArray(activities)) {
+          throw new Error('The recent activity response did not contain an activity list.');
+        }
+        if (active) setLiveRecentActivity(activities);
+      } catch (activityError) {
+        if (active) console.error('Unable to refresh recent dashboard activities.', activityError);
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshRecentActivity();
+    };
+    const interval = window.setInterval(refreshRecentActivity, RECENT_ACTIVITY_POLL_INTERVAL_MS);
+    window.addEventListener('focus', refreshRecentActivity);
+    window.addEventListener('online', refreshRecentActivity);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    refreshRecentActivity();
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshRecentActivity);
+      window.removeEventListener('online', refreshRecentActivity);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [user?.user_id]);
 
   useEffect(() => {
     if (connectionUnavailable) wasUnavailableRef.current = true;
@@ -871,71 +888,42 @@ const DashboardPage = () => {
   const kpis = currentStats?.kpis || {};
   const senior = kpis.seniorCitizens || {};
   const children = kpis.childrenUnder5 || {};
-  const records = kpis.recordsThisMonth || {};
+  const normalChildAssessments = Array.isArray(currentStats?.nutrition?.child)
+    ? currentStats.nutrition.child
+      .filter((item) => String(item.category || '').toLowerCase() === 'normal')
+      .reduce((total, item) => total + (toCount(item.count) || 0), 0)
+    : null;
   const firstName = user?.first_name
     || user?.firstName
     || user?.full_name?.split(' ')?.[0]
     || user?.name?.split(' ')?.[0]
     || 'Health Worker';
-  const syncLabel = connectionUnavailable
-    ? 'Offline'
-    : syncQueue.failed > 0
-      ? `${syncQueue.failed} failed`
-      : syncQueue.pending > 0
-        ? `${syncQueue.pending} pending`
-        : 'Synced';
-
   return (
     <main className="dashboard-page">
-      <header className="dashboard-header">
-        <div className="dashboard-header-copy">
-          <p className="dashboard-date">{new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
-          <h1>{greeting()}, {firstName}</h1>
-          <p className="dashboard-subtitle">Community health overview <span aria-hidden="true">·</span> Barangay Estancia, Kalibo, Aklan</p>
-        </div>
-        <nav className="dashboard-quick-actions" aria-label="Dashboard quick actions">
-          {isBhw ? (
-            <>
-              <Link className="dashboard-action dashboard-action-primary" to="/residents/new"><DashboardIcon name="users" size={16} />Add resident</Link>
-              <Link className="dashboard-action" to="/health-records"><DashboardIcon name="clinical" size={16} />Health records</Link>
-              <Link className="dashboard-action" to="/senior-citizens/new"><DashboardIcon name="senior" size={16} />Register senior</Link>
-              <Link className="dashboard-action" to="/nutrition"><DashboardIcon name="child" size={16} />Operation Timbang</Link>
-            </>
-          ) : (
-            <Link className="dashboard-action dashboard-action-primary" to="/reports"><DashboardIcon name="records" size={16} />View reports</Link>
-          )}
-        </nav>
-      </header>
-
-      <div className="dashboard-toolbar">
-        <label className="dashboard-range-control">
-          <span>Reporting period</span>
-          <select value={range} onChange={(event) => updateRange(event.target.value)} aria-label="Reporting period">
-            {Object.entries(rangeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </label>
-        {range === 'custom' && (
-          <div className="dashboard-custom-range">
-            <label><span>From</span><input type="date" value={customFrom} onChange={(event) => updateCustom('from', event.target.value)} /></label>
-            <label><span>To</span><input type="date" value={customTo} onChange={(event) => updateCustom('to', event.target.value)} /></label>
+      <PageBanner
+        className="page-banner-dashboard"
+        icon={HeartPulse}
+        eyebrow={new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+        title={`${greeting()}, ${firstName}`}
+        subtitle={currentStats?.barangayName ? `Community health overview · Barangay ${currentStats.barangayName}` : 'Community health overview'}
+        actions={(
+          <div className="dashboard-banner-range">
+            <label className="dashboard-range-control">
+              <CalendarDays size={16} strokeWidth={1.8} aria-hidden="true" />
+              <span>Reporting period</span>
+              <select value={range} onChange={(event) => updateRange(event.target.value)} aria-label="Reporting period">
+                {Object.entries(rangeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            {range === 'custom' && (
+              <div className="dashboard-custom-range">
+                <label><span>From</span><input type="date" value={customFrom} onChange={(event) => updateCustom('from', event.target.value)} /></label>
+                <label><span>To</span><input type="date" value={customTo} onChange={(event) => updateCustom('to', event.target.value)} /></label>
+              </div>
+            )}
           </div>
         )}
-        <div className="dashboard-refresh">
-          <span className={`dashboard-sync-status ${connectionUnavailable || syncQueue.failed ? 'is-warning' : ''}`}>
-            <i aria-hidden="true" />
-            {syncLabel}
-          </span>
-          <span className="dashboard-updated" aria-live="polite">Updated {formatTime(lastUpdated)}</span>
-          <button type="button" onClick={() => fetchDashboard(true)} aria-label="Refresh dashboard" title="Refresh dashboard" disabled={requestInFlight}>
-            <DashboardIcon name="refresh" size={17} />
-          </button>
-          {(syncQueue.pending > 0 || syncQueue.failed > 0) && (
-            <button type="button" className="dashboard-sync-button" onClick={syncNow} disabled={offline}>
-              Sync now
-            </button>
-          )}
-        </div>
-      </div>
+      />
 
       {connectionUnavailable && (
         <StatusBanner
@@ -967,93 +955,114 @@ const DashboardPage = () => {
               index={0}
             />
             <KpiCard
+              label="Children monitored"
+              value={children.weighedThisYear}
+              context={toCount(children.eligibleThisYear) !== null
+                ? `Of ${formatCount(children.eligibleThisYear)} age-eligible children weighed this year`
+                : 'Distinct children weighed this year'}
+              icon="child"
+              tone="teal"
+              to={isBhw ? '/nutrition' : undefined}
+              index={1}
+            />
+            <KpiCard
+              label="Normal child assessments"
+              value={normalChildAssessments}
+              context="Weight-for-length/height classifications"
+              icon="nutrition"
+              tone="green"
+              to={isBhw ? '/nutrition' : undefined}
+              index={2}
+            />
+            <KpiCard
+              label="Nutrition risk cases"
+              value={kpis.nutritionCases}
+              context="Residents with a recorded nutrition risk"
+              icon="nutrition"
+              tone="amber"
+              to={isBhw ? '/nutrition' : undefined}
+              index={3}
+            />
+            <KpiCard
               label="Registered seniors"
               value={senior.value}
               context={toCount(senior.unregistered) !== null ? `${formatCount(senior.unregistered)} age-eligible not registered` : 'Senior registry'}
               icon="senior"
               tone="teal"
               to={isBhw ? '/senior-citizens' : undefined}
-              index={1}
-            />
-            <KpiCard
-              label="Children under 5"
-              value={children.value}
-              context={toCount(children.weighedThisYear) !== null && toCount(children.eligibleThisYear) !== null
-                ? `${formatCount(children.weighedThisYear)} of ${formatCount(children.eligibleThisYear)} weighed this year`
-                : 'Ages 0–59 months'}
-              icon="child"
-              tone="green"
-              to={isBhw ? '/nutrition' : undefined}
-              index={2}
-            />
-            <KpiCard
-              label="Health records"
-              value={records.value}
-              context={rangeLabels[range] || 'Selected period'}
-              icon="records"
-              tone="violet"
-              to={isBhw ? '/health-records' : undefined}
-              index={3}
-            />
-            <KpiCard
-              label="Nutrition follow-up"
-              value={kpis.nutritionCases}
-              context="Residents with a recorded nutrition risk"
-              icon="nutrition"
-              tone="amber"
-              to={isBhw ? '/nutrition' : undefined}
               index={4}
             />
           </section>
 
           <section className="dashboard-analytics-grid" aria-label="Community health analytics">
             <ChartCard
-              title="Population distribution"
-              subtitle="Resident counts from the registry"
-              className="dashboard-population-card"
-              index={5}
-            >
-              <PopulationChart population={currentStats.population} sitios={currentStats.sitio} isBhw={isBhw} />
-            </ChartCard>
-
-            <ChartCard
-              title="Health records trend"
-              subtitle={rangeLabels[range] || 'Selected period'}
-              className="dashboard-trend-card"
-              index={6}
-            >
-              <RecordsTrendChart data={currentStats.recordsTrend} />
-            </ChartCard>
-
-            <ChartCard
-              title="Nutrition classifications"
-              subtitle="Assessment methods shown separately"
+              title="Nutritional Status Distribution"
+              subtitle="Recorded classifications"
+              icon="nutrition"
               className="dashboard-nutrition-card"
-              index={7}
+              index={6}
             >
               <NutritionChart nutrition={currentStats.nutrition} />
             </ChartCard>
 
             <ChartCard
-              title="Operation Timbang"
-              subtitle="Annual coverage · ages 0–59 months"
-              className="dashboard-timbang-card"
-              index={8}
+              title="Monthly Nutrition Trends"
+              subtitle="Weight-for-age status · past 12 months"
+              icon="activity"
+              className="dashboard-trend-card"
+              index={7}
             >
-              <OperationTimbangCard timbang={currentStats.timbang} />
+              <NutritionTrendChart data={currentStats.nutritionTrend} />
             </ChartCard>
 
             <ChartCard
-              title={isBhw ? 'Community updates' : 'Recent activity'}
-              subtitle={isBhw ? 'Priority items and latest records' : 'Latest recorded health activity'}
-              className="dashboard-updates-card"
+              title="Operation Timbang Statistics"
+              subtitle="Monthly child assessments"
+              icon="chart"
+              className="dashboard-timbang-card"
+              index={8}
+            >
+              <OperationTimbangMonthlyChart data={currentStats.timbangMonthly} timbang={currentStats.timbang} />
+            </ChartCard>
+
+            <ChartCard
+              title="Age Group Distribution"
+              subtitle="Residents by recorded age"
+              icon="users"
+              className="dashboard-age-card"
               index={9}
             >
-              <DashboardUpdates
-                attention={currentStats.attention}
-                recentActivity={currentStats.recentActivity}
-                isBhw={isBhw}
-              />
+              <AgePopulationChart ageSex={currentStats.population?.ageSex} />
+            </ChartCard>
+
+            <ChartCard
+              title="Recent Resident Registrations"
+              subtitle="Newest resident records"
+              icon="users"
+              className="dashboard-registrations-card"
+              index={10}
+            >
+              <RecentResidentsTable items={currentStats.recentResidents} isBhw={isBhw} />
+            </ChartCard>
+
+            <ChartCard
+              title="Health Alerts and Notifications"
+              subtitle={`${Array.isArray(currentStats.attention) ? currentStats.attention.length : 0} items need review`}
+              icon="bell"
+              className="dashboard-alerts-card"
+              index={11}
+            >
+              <AttentionList items={currentStats.attention} isBhw={isBhw} />
+            </ChartCard>
+
+            <ChartCard
+              title="Recent Activities"
+              subtitle="Latest recorded health events"
+              icon="clock"
+              className="dashboard-activities-card"
+              index={12}
+            >
+              <RecentActivity items={liveRecentActivity ?? currentStats.recentActivity} isBhw={isBhw} />
             </ChartCard>
           </section>
         </>

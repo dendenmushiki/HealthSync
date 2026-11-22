@@ -101,6 +101,8 @@ const getCachedResidents = async (params = {}) => {
     if (params.sex && String(resident.sex).toLowerCase() !== String(params.sex).toLowerCase()) return false;
     if (params.sitio && resident.sitio !== params.sitio) return false;
     const age = calculateResidentAge(resident);
+    if (params.classification === 'Children' && (age === null || age > 12)) return false;
+    if (params.classification === 'Adults' && (age === null || age < 13 || age > 59)) return false;
     const ageMonths = calculateAgeInMonths(resident.birthdate, asOfDate);
     if (params.min_age !== undefined && params.min_age !== '' && (age === null || age < Number(params.min_age))) return false;
     if (params.max_age !== undefined && params.max_age !== '' && (age === null || age > Number(params.max_age))) return false;
@@ -114,6 +116,10 @@ const getCachedResidents = async (params = {}) => {
     if (['4Ps Member', '4Ps'].includes(params.classification) && ![true, 1, '1', 'true'].includes(resident.is_4ps)) return false;
     if (params.classification === 'Pregnant' && !resident.pregnant) return false;
     if (params.classification === 'Lactating' && !resident.lactating) return false;
+    if (params.nutritionStatus) {
+      const nutritionStatus = String(resident.nutrition_status || resident.nutritionStatus || '').toLowerCase();
+      if (params.nutritionStatus === 'Not assessed' ? nutritionStatus !== '' : nutritionStatus.toLowerCase() !== params.nutritionStatus.toLowerCase()) return false;
+    }
     return true;
   });
 
@@ -170,6 +176,16 @@ export async function getResidents(params = {}) {
     }
     throw error;
   }
+}
+
+export async function getResidentStats() {
+  const response = await api.get('/residents/stats');
+  return response.data;
+}
+
+export async function getResidentSitios() {
+  const response = await api.get('/residents/sitios');
+  return response.data;
 }
 
 export async function getAllResidents(params = {}) {

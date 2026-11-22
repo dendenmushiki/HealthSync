@@ -1,15 +1,33 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Activity,
+  ArrowLeft,
+  CalendarDays,
+  Check,
+  Circle,
+  ChevronRight,
+  ClipboardList,
+  Copy as CopyIcon,
+  House,
+  MoreHorizontal,
+  Pencil,
+  Printer,
+  Stethoscope,
+  Trash2,
+  TriangleAlert,
+  UserRound,
+} from 'lucide-react';
 import { deleteResident, getResident, getResidentSummary } from '../../services/api/residentService';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 
 const TABS = [
-  ['overview', 'Overview'],
-  ['records', 'Health Records'],
-  ['visits', 'Visit History'],
-  ['activity', 'Activity Log']
+  ['overview', 'Overview', 'person'],
+  ['records', 'Health Records', 'clipboard'],
+  ['visits', 'Visit History', 'calendar'],
+  ['activity', 'Activity Log', 'activity']
 ];
 
 const RECORD_TYPES = [
@@ -19,28 +37,28 @@ const RECORD_TYPES = [
   ['immunization', 'Immunization Record', 'Immunization details, screening, and growth measurements.', 'Immunization']
 ];
 
-const ICON_PATHS = {
-  person: 'M20 21a8 8 0 0 0-16 0 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
-  home: 'M3 10.5 12 3l9 7.5 M5 9v12h14V9 M9 21v-7h6v7',
-  medical: 'M12 3v18 M3 12h18',
-  clipboard: 'M9 4h6 M9 3h6v3H9z M6 5H4v16h16V5h-2 M8 11h8 M8 15h8',
-  activity: 'M3 12h4l3-8 4 16 3-8h4',
-  calendar: 'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16',
-  alert: 'M12 3 2.8 20h18.4L12 3z M12 9v5 M12 17h.01',
-  check: 'm5 12 4 4L19 6',
-  more: 'M5 12h.01 M12 12h.01 M19 12h.01',
-  copy: 'M8 8V4h12v12h-4 M4 8h12v12H4z',
-  chevron: 'm9 18 6-6-6-6',
-  edit: 'm14 5 5 5 M4 20l4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16z',
-  printer: 'M6 9V3h12v6 M6 18H4V9h16v9h-2 M6 14h12v7H6z M17 11h.01',
-  trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 14h10l1-14 M9 7V4h6v3'
+const ICONS = {
+  person: UserRound,
+  home: House,
+  medical: Stethoscope,
+  clipboard: ClipboardList,
+  activity: Activity,
+  calendar: CalendarDays,
+  alert: TriangleAlert,
+  check: Check,
+  circle: Circle,
+  more: MoreHorizontal,
+  copy: CopyIcon,
+  chevron: ChevronRight,
+  edit: Pencil,
+  printer: Printer,
+  trash: Trash2,
 };
 
-const Icon = ({ name, className = '' }) => (
-  <svg className={`resident-details-icon ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={ICON_PATHS[name] || ICON_PATHS.medical} />
-  </svg>
-);
+const Icon = ({ name, className = '', size = 18 }) => {
+  const LucideIcon = ICONS[name] || Activity;
+  return <LucideIcon className={`resident-details-icon ${className}`} size={size} strokeWidth={1.8} aria-hidden="true" />;
+};
 
 const formatDate = (value, options = {}) => {
   if (!value) return null;
@@ -134,7 +152,7 @@ const InfoCard = ({ title, icon, fields }) => (
 const StatusBadge = ({ status }) => {
   const normalized = String(status || 'Active').toLowerCase();
   const className = ['inactive', 'deceased', 'transferred'].includes(normalized) ? 'muted' : 'active';
-  return <span className={`resident-status-badge resident-status-${className}`}><span aria-hidden="true">{className === 'active' ? '✓' : '•'}</span>{capitalize(status || 'Active')}</span>;
+  return <span className={`resident-status-badge resident-status-${className}`}><Icon name={className === 'active' ? 'check' : 'circle'} size={14} />{capitalize(status || 'Active')}</span>;
 };
 
 const ConfirmDeleteModal = ({ name, busy, onCancel, onConfirm }) => {
@@ -216,7 +234,7 @@ const ResidentDetails = () => {
           const cached = await getResident(id);
           if (cached?.success && cached.data) {
             setSummary(createEmptySummary(cached.data));
-            setOfflineNotice('Offline view: only resident details previously loaded on this device are available.');
+            setOfflineNotice('Offline view: only classifications previously loaded on this device are available.');
             return;
           }
         } catch (offlineError) {
@@ -323,7 +341,7 @@ const ResidentDetails = () => {
   if (loadError || !resident) {
     return <main className="resident-details-page">
       <section className="resident-load-error" role="alert">
-        <span className="resident-error-symbol" aria-hidden="true">{loadError?.notFound ? '!' : '↻'}</span>
+        <span className="resident-error-symbol"><Icon name={loadError?.notFound ? 'alert' : 'activity'} /></span>
         <h1>{loadError?.notFound ? 'Resident not found' : 'Unable to load resident'}</h1>
         <p>{loadError?.message || 'The requested resident could not be found.'}</p>
         <div className="resident-error-actions"><button className="resident-primary-button" type="button" onClick={loadSummary}>Try again</button><Link className="resident-secondary-button" to="/residents">Back to Residents</Link></div>
@@ -351,7 +369,11 @@ const ResidentDetails = () => {
 
   return (
     <main className="resident-details-page">
-      <nav className="resident-breadcrumb" aria-label="Breadcrumb"><Link to="/residents">Residents</Link><span aria-hidden="true">/</span><span aria-current="page">{formatBreadcrumbName(resident)}</span></nav>
+      <nav className="resident-breadcrumb" aria-label="Breadcrumb">
+        <Link to="/residents"><ArrowLeft size={16} strokeWidth={1.8} aria-hidden="true" />Residents</Link>
+        <span className="resident-breadcrumb-divider" aria-hidden="true">/</span>
+        <span aria-current="page">{formatBreadcrumbName(resident)}</span>
+      </nav>
       {offlineNotice && <div className="resident-offline-notice" role="status">{offlineNotice}</div>}
 
       <section className="resident-profile-card resident-detail-print" aria-label="Resident profile summary">
@@ -360,8 +382,9 @@ const ResidentDetails = () => {
             ? <img className="resident-profile-avatar" src={getProfilePhotoUrl(resident.profile_photo)} alt={`${fullName} profile`} />
             : <div className={`resident-profile-avatar resident-profile-avatar-initials resident-avatar-color-${avatarColor}`} aria-label={`${fullName} initials`}>{initials}</div>}
           <div className="resident-profile-copy">
+            <span className="resident-profile-eyebrow">Resident profile</span>
             <div className="resident-name-status"><h1>{fullName}</h1><StatusBadge status={status} /></div>
-            <p className="resident-profile-meta">{age === null ? 'Age not provided' : `${age} ${age === 1 ? 'year' : 'years'}`}<span aria-hidden="true">·</span>{capitalize(resident.sex) || 'Sex not provided'}{resident.occupation && <><span aria-hidden="true">·</span>{capitalize(resident.occupation)}</>}</p>
+            <p className="resident-profile-meta">{age === null ? 'Age not provided' : `${age} ${age === 1 ? 'year' : 'years'}`}<span aria-hidden="true">·</span>{capitalize(resident.sex) || 'Gender not provided'}{resident.occupation && <><span aria-hidden="true">·</span>{capitalize(resident.occupation)}</>}</p>
             {categories.length > 0 && <div className="resident-category-chips" aria-label="Resident categories">{categories.map((category) => <span className="resident-category-chip" key={category}>{category}</span>)}</div>}
           </div>
         </div>
@@ -377,10 +400,11 @@ const ResidentDetails = () => {
         </div>
         <div className="resident-quick-facts">
           {[
-            ['Household No.', resident.household_no],
-            ['PhilHealth ID', resident.philhealth_id_no],
-            ['Contact No.', formatPhone(resident.contact_no)]
-          ].map(([label, value]) => <div className="resident-quick-fact" key={label}>
+            ['Household No.', resident.household_no, 'home'],
+            ['PhilHealth ID', resident.philhealth_id_no, 'medical'],
+            ['Contact No.', formatPhone(resident.contact_no), 'activity']
+          ].map(([label, value, icon]) => <div className="resident-quick-fact" key={label}>
+            <span className="resident-quick-fact-icon"><Icon name={icon} size={16} /></span>
             <span>{label}</span>
             <strong className={label === 'PhilHealth ID' ? 'resident-mono-value' : ''}>{value || <i>Not provided</i>}</strong>
             {value && <CopyButton value={value} label={label} onCopied={showToast} />}
@@ -389,7 +413,7 @@ const ResidentDetails = () => {
       </section>
 
       <div className="resident-detail-tabs" role="tablist" aria-label="Resident details" onKeyDown={handleTabKeyDown}>
-        {TABS.map(([tab, title]) => <button key={tab} type="button" id={`resident-tab-${tab}`} role="tab" aria-selected={activeTab === tab} aria-controls={activeTab === tab ? `resident-panel-${tab}` : undefined} tabIndex={activeTab === tab ? 0 : -1} className={`resident-detail-tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setTab(tab)}>{title}</button>)}
+        {TABS.map(([tab, title, icon]) => <button key={tab} type="button" id={`resident-tab-${tab}`} role="tab" aria-selected={activeTab === tab} aria-controls={activeTab === tab ? `resident-panel-${tab}` : undefined} tabIndex={activeTab === tab ? 0 : -1} className={`resident-detail-tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setTab(tab)}><Icon name={icon} size={16} />{title}</button>)}
       </div>
 
       {activeTab === 'overview' && <section id="resident-panel-overview" role="tabpanel" aria-labelledby="resident-tab-overview" className="resident-details-overview-layout resident-overview-print">
@@ -397,7 +421,7 @@ const ResidentDetails = () => {
           <InfoCard title="Personal Information" icon="person" fields={[
             <InfoField key="name" label="Full name" value={fullName} editHref={editHref} />,
             <InfoField key="birthdate" label="Date of birth" value={birthdate ? `${birthdate}${age === null ? '' : ` (${age} yrs)`}` : null} editHref={editHref} />,
-            <InfoField key="sex" label="Sex" value={capitalize(resident.sex)} editHref={editHref} />,
+            <InfoField key="sex" label="Gender" value={capitalize(resident.sex)} editHref={editHref} />,
             <InfoField key="civil-status" label="Civil status" value={capitalize(resident.civil_status)} editHref={editHref} />,
             <InfoField key="occupation" label="Occupation" value={capitalize(resident.occupation)} editHref={editHref} />
           ]} />
@@ -410,7 +434,6 @@ const ResidentDetails = () => {
           <InfoCard title="Medical & Administrative" icon="medical" fields={[
             <InfoField key="philhealth" label="PhilHealth ID" value={resident.philhealth_id_no} editHref={editHref} copy={resident.philhealth_id_no} onCopied={showToast} mono />,
             <InfoField key="status" label="Resident status" value={capitalize(status)} />,
-            <InfoField key="categories" label="Classification" value={categories.length ? categories.join(', ') : null} editHref={editHref} />,
             <InfoField key="created-by" label="Created by" value={resident.created_by_name || null} />
           ]} />
         </div>

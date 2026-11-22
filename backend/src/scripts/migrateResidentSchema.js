@@ -41,6 +41,36 @@ dotenv.config();
       }
     }
 
+    const demographicColumns = columns.filter((column) => ['sex', 'civil_status'].includes(column.Field));
+    const sexColumn = demographicColumns.find((column) => column.Field === 'sex');
+    if (sexColumn?.Type.toLowerCase().startsWith('enum(')) {
+      const values = [];
+      const enumValuePattern = /'((?:''|[^'])*)'/g;
+      let match = enumValuePattern.exec(sexColumn.Type);
+      while (match) {
+        values.push(match[1].replace(/''/g, "'"));
+        match = enumValuePattern.exec(sexColumn.Type);
+      }
+      if (!values.some((value) => value.toLowerCase() === 'others')) {
+        values.push('others');
+        const nullability = sexColumn.Null === 'YES' ? 'NULL' : 'NOT NULL';
+        const defaultClause = sexColumn.Default === null
+          ? (sexColumn.Null === 'YES' ? ' DEFAULT NULL' : '')
+          : ` DEFAULT '${String(sexColumn.Default).replace(/'/g, "''")}'`;
+        await conn.query(
+          `ALTER TABLE residents MODIFY COLUMN sex ENUM(${values.map((value) => `'${value.replace(/'/g, "''")}'`).join(', ')}) ${nullability}${defaultClause}`
+        );
+      }
+    }
+
+    const civilStatusColumn = demographicColumns.find((column) => column.Field === 'civil_status');
+    if (civilStatusColumn?.Default === 'Unknown') {
+      const nullability = civilStatusColumn.Null === 'YES' ? 'NULL' : 'NOT NULL';
+      await conn.query(
+        `ALTER TABLE residents MODIFY COLUMN civil_status ${civilStatusColumn.Type} ${nullability} DEFAULT ''`
+      );
+    }
+
     const schema = process.env.DB_NAME || 'healthsync_db';
     const [fkRows] = await conn.query(
       'SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?',

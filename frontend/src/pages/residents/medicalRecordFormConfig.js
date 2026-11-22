@@ -15,7 +15,7 @@ export const medicalRecordForms = {
       field('age', 'Age', 'resident', 'age'),
       field('birthdate', 'Date of Birth', 'resident', 'birthdate'),
       field('civil_status', 'Civil Status', 'resident', 'civil_status'),
-      field('sex', 'Sex', 'resident', 'sex'),
+      field('sex', 'Gender', 'resident', 'sex'),
       field('client_type', 'Client Type', 'select', [{ value: 'New', label: 'New' }, { value: 'Follow-up', label: 'Follow-up' }, { value: 'Referral', label: 'Referral' }]),
       field('address', 'Address', 'resident', 'address'),
       field('family_serial_number', 'Family Serial #', 'resident', 'household_no'),
@@ -42,6 +42,7 @@ export const medicalRecordForms = {
         field('maintenance_medications', 'Maintenance Meds'), field('pmh_cancer_organ', 'Specify organ with Cancer')
       ] },
       { title: 'Past Surgical History', column: 'right', fields: [
+        field('psh_history', 'Past surgical history', 'radio', yesNo),
         field('past_surgical_history', 'Operations', 'table', { columns: [{ name: 'operation', label: 'Operation' }, { name: 'date', label: 'Date', type: 'date' }], addLabel: 'Add Operation' })
       ] },
       { title: 'FMH', column: 'right', fields: [
@@ -58,10 +59,13 @@ export const medicalRecordForms = {
       { title: 'Immunization & Family Planning', column: 'right', fields: [
         field('immunization', 'Immunization'), field('family_planning_method', 'Family Planning Method')
       ] },
-      { title: 'Female-Specific Histories', column: 'right', fields: [
-        field('menarche', 'Menarche'), field('lmp', 'LMP', 'date'), field('menstrual_duration', 'Duration'),
-        field('menstrual_pads_per_day', 'No. of pads/day', 'number'), field('menopause', 'Menopause', 'radio', yesNo),
-        field('interval_cycle', 'Interval Cycle'), field('gravida', 'Gravid', 'number'), field('parity', 'Parity', 'number'),
+      { title: 'Menstrual History', column: 'right', fields: [
+        field('menarche', 'Menarche', 'number'), field('lmp', 'LMP', 'date'), field('menstrual_duration', 'Duration'),
+        field('menstrual_pads_per_day', 'No. of pads/day', 'number'), field('interval_cycle', 'Interval Cycle'),
+        field('menopause', 'Menopause', 'radio', yesNo)
+      ] },
+      { title: 'Pregnancy History', column: 'right', fields: [
+        field('gravida', 'Gravida', 'number'), field('parity', 'Parity', 'number'),
         field('type_of_delivery', 'Type of Delivery'), field('full_term', 'No. of Full Term', 'number'),
         field('premature', 'No. of Premature', 'number'), field('abortion', 'No. of Abortion', 'number'),
         field('living_children', 'Living Children', 'number'), field('pre_eclampsia', 'Pre-eclampsia', 'radio', yesNo)

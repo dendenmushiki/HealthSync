@@ -4,13 +4,15 @@ const authenticateToken = require('../middleware/authenticate');
 const authorizeRole = require('../middleware/authorize');
 const createIdempotencyMiddleware = require('../middleware/idempotency');
 const { ensureResidentSchema } = require('../services/residentSchemaService');
-const { listResidents, getResident, createResident, updateResident, deleteResident } = require('../controllers/residentController');
+const { listResidents, getResidentStats, getResidentSitios, getResident, createResident, updateResident, deleteResident } = require('../controllers/residentController');
 const { uploadProfilePhoto } = require('../middleware/profilePhotoUpload');
 const { uploadResidentPhoto, deleteResidentPhoto } = require('../controllers/profilePhotoController');
 const { getResidentSummary } = require('../controllers/residentSummaryController');
 
 // Public read endpoints (protected to authenticated users)
 router.get('/', authenticateToken, authorizeRole(['bhw']), listResidents);
+router.get('/stats', authenticateToken, authorizeRole(['bhw']), getResidentStats);
+router.get('/sitios', authenticateToken, authorizeRole(['bhw']), getResidentSitios);
 router.get('/:id/summary', authenticateToken, authorizeRole(['bhw']), getResidentSummary);
 router.get('/:id', authenticateToken, authorizeRole(['bhw']), getResident);
 

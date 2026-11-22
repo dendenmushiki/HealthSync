@@ -54,6 +54,16 @@ test('offline health overview merges downloaded record datasets and filters by t
   expect(result.data.typeCounts).toEqual({ clinical: 1, child: 1, maternal: 1, immunization: 0 });
 });
 
+test('offline health overview exposes aggregate statistics and available record types', async () => {
+  const result = await listAllHealthRecords({ page: 1, pageSize: 10 });
+
+  expect(result.data.stats).toEqual(expect.objectContaining({
+    totalRecords: 3,
+    residentsWithRecords: 1,
+    availableTypes: ['clinical', 'child', 'maternal'],
+  }));
+});
+
 test('offline health record detail returns downloaded record and resident context', async () => {
   const result = await getHealthRecordDetails('maternal_records', 30);
 

@@ -76,7 +76,7 @@ const LoginPage = () => {
                 <span className="login-logo-divider" aria-hidden="true" />
                 <img
                   src="/images/estanciaseallogo.png"
-                  alt="Barangay Estancia council seal"
+                  alt="Community council seal"
                   width="76"
                   height="76"
                   decoding="async"
@@ -87,7 +87,7 @@ const LoginPage = () => {
                 <p className="login-brand-tagline">Community Care</p>
               </div>
             </div>
-            <p className="login-location">BARANGAY ESTANCIA, KALIBO, AKLAN</p>
+            <p className="login-location">COMMUNITY HEALTH SYSTEM</p>
           </header>
 
           <div className="login-context-main">
@@ -116,7 +116,7 @@ const LoginPage = () => {
             </div>
           </div>
         </div>
-        <p className="login-context-footer">Supporting community-led care in Barangay Estancia.</p>
+        <p className="login-context-footer">Supporting community-led care.</p>
       </section>
 
       <section className="login-form-panel" aria-label="Sign in">

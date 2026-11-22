@@ -1,5 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  Baby,
+  CalendarDays,
+  Check,
+  Cigarette,
+  CircleAlert,
+  ClipboardPenLine,
+  ClipboardList,
+  Copy as CopyIcon,
+  CopyCheck,
+  Clock3,
+  ExternalLink,
+  HeartPulse,
+  History,
+  Loader2,
+  Plus,
+  Save,
+  Scissors,
+  Syringe,
+  Trash2,
+  UserRound,
+  UsersRound,
+  Wine,
+  X,
+} from 'lucide-react';
 import {
   createResidentMedicalRecord,
   deleteResidentMedicalRecord,
@@ -13,18 +38,34 @@ import { medicalRecordForms } from './medicalRecordFormConfig';
 
 const config = medicalRecordForms.clinical;
 const HISTORY_SECTIONS = config.sections.slice(1);
+const FEMALE_HISTORY_SECTION_TITLES = new Set(['Menstrual History', 'Pregnancy History', 'Female-Specific Histories']);
+const FEMALE_HISTORY_GROUP_TITLE = 'Menstrual & Pregnancy History';
 const YES_NO_FIELDS = new Set([
   'pmh_allergy', 'pmh_history_of_illness', 'fmh_allergy', 'fmh_history_of_illness',
-  'smoking', 'alcohol', 'illicit_drugs', 'sexually_active', 'menopause', 'pre_eclampsia'
+  'psh_history', 'smoking', 'alcohol', 'illicit_drugs', 'sexually_active', 'menopause', 'pre_eclampsia'
 ]);
 const CONDITIONAL_FIELDS = {
   pmh_allergy: ['pmh_allergy_specify'],
   pmh_history_of_illness: ['pmh_history_of_illness_specify', 'pmh_cancer_organ'],
   fmh_allergy: ['fmh_allergy_specify'],
   fmh_history_of_illness: ['fmh_history_of_illness_specify', 'fmh_cancer_organ'],
+  psh_history: ['past_surgical_history'],
   smoking: ['smoking_packs_per_year'],
   alcohol: ['alcohol_bottles_per_day'],
   sexually_active: ['sexually_active_details']
+};
+const HISTORY_PROMPTS = {
+  PMH: [
+    { answer: 'pmh_allergy', details: ['pmh_allergy_specify'] },
+    { answer: 'pmh_history_of_illness', details: ['pmh_history_of_illness_specify', 'pmh_cancer_organ'] }
+  ],
+  FMH: [
+    { answer: 'fmh_allergy', details: ['fmh_allergy_specify'] },
+    { answer: 'fmh_history_of_illness', details: ['fmh_history_of_illness_specify', 'fmh_cancer_organ'] }
+  ],
+  'Past Surgical History': [
+    { answer: 'psh_history', details: ['past_surgical_history'] }
+  ]
 };
 const FIELD_RANGES = {
   heart_rate: [20, 250],
@@ -50,9 +91,6 @@ const VITAL_LABELS = {
 };
 
 const snapshot = (value) => JSON.stringify(value);
-const isFilled = (value) => Array.isArray(value)
-  ? value.some((item) => Object.values(item || {}).some((cell) => String(cell || '').trim()))
-  : String(value ?? '').trim().length > 0;
 const isYes = (value) => String(value || '').toLowerCase() === 'yes';
 const formatContactNumber = (value) => {
   const text = String(value || '').trim();
@@ -106,21 +144,35 @@ function validateField(name, form) {
   return '';
 }
 
-const Icon = ({ name }) => {
-  const paths = {
-    clinical: 'M12 3v18 M3 12h18',
-    person: 'M20 21a8 8 0 0 0-16 0 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
-    history: 'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5 M12 7v5l3 2',
-    social: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M23 11h-6',
-    family: 'M3 10.5 12 3l9 7.5 M5 9v12h14V9 M9 21v-7h6v7',
-    female: 'M12 14a5 5 0 1 0 0-10 5 5 0 0 0 0 10 M12 14v7 M9 18h6',
-    alert: 'M12 3 2.8 20h18.4L12 3z M12 9v5 M12 17h.01',
-    check: 'm5 12 4 4L19 6',
-    copy: 'M8 8V4h12v12h-4 M4 8h12v12H4z',
-    plus: 'M12 5v14 M5 12h14',
-    trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 14h10l1-14 M9 7V4h6v3'
-  };
-  return <svg className="clinical-form-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name] || paths.clinical} /></svg>;
+const ICONS = {
+  clinical: ClipboardPenLine,
+  person: UserRound,
+  history: History,
+  pmh: HeartPulse,
+  surgery: Scissors,
+  social: Cigarette,
+  family: UsersRound,
+  immunization: Syringe,
+  female: Baby,
+  wine: Wine,
+  calendar: CalendarDays,
+  clock: Clock3,
+  external: ExternalLink,
+  save: Save,
+  close: X,
+  loader: Loader2,
+  alert: CircleAlert,
+  check: Check,
+  copy: CopyIcon,
+  copied: CopyCheck,
+  plus: Plus,
+  trash: Trash2,
+  list: ClipboardList,
+};
+
+const Icon = ({ name, className = '' }) => {
+  const LucideIcon = ICONS[name] || ClipboardList;
+  return <LucideIcon className={`clinical-form-icon ${className}`.trim()} size={18} strokeWidth={1.8} aria-hidden="true" />;
 };
 
 const Field = ({ id, label, error, hint, required, className = '', children }) => (
@@ -142,6 +194,7 @@ const TextArea = ({ id, value, onChange, onBlur, invalid, describedBy, disabled,
 );
 
 const ClinicalRecordForm = ({ resident }) => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedRecordId = searchParams.get('recordId');
   const defaultForm = useMemo(() => createDefaultForm(resident), [resident]);
@@ -158,16 +211,14 @@ const ClinicalRecordForm = ({ resident }) => {
   const [message, setMessage] = useState('');
   const [draftStatus, setDraftStatus] = useState('');
   const [availableDraft, setAvailableDraft] = useState(null);
-  const [collapsed, setCollapsed] = useState(() => Object.fromEntries(HISTORY_SECTIONS.map((section) => [section.title, true])));
-  const [activeSection, setActiveSection] = useState('clinical-notes');
   const [pendingAction, setPendingAction] = useState(null);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [toast, setToast] = useState('');
   const [copied, setCopied] = useState('');
   const baselineRef = useRef(snapshot(defaultForm));
-  const baselineFormRef = useRef(defaultForm);
   const draftCheckedRef = useRef('');
   const modalStayRef = useRef(null);
+  const submitLockRef = useRef(false);
 
   const age = useMemo(() => calculateAge(resident.birthdate), [resident.birthdate]);
   const isFemaleAdult = String(resident.sex || '').toLowerCase() === 'female' && age !== null && age >= 18;
@@ -202,7 +253,6 @@ const ClinicalRecordForm = ({ resident }) => {
   useEffect(() => {
     setForm(defaultForm);
     baselineRef.current = snapshot(defaultForm);
-    baselineFormRef.current = defaultForm;
     setEditingId(null);
     setViewingRecord(false);
     setFieldErrors({});
@@ -297,23 +347,13 @@ const ClinicalRecordForm = ({ resident }) => {
     return () => document.removeEventListener('keydown', handleModalKeys);
   }, [showLeaveModal]);
 
-  useEffect(() => {
-    const ids = ['clinical-notes', 'patient-demographics', ...HISTORY_SECTIONS.map((section) => section.title)];
-    const sections = ids.map((id) => document.getElementById(`clinical-section-${id}`)).filter(Boolean);
-    if (typeof IntersectionObserver === 'undefined' || !sections.length) return undefined;
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (visible) setActiveSection(visible.target.id.replace('clinical-section-', ''));
-    }, { rootMargin: '-15% 0px -70% 0px', threshold: [0, 0.25, 0.5] });
-    sections.forEach((section) => observer.observe(section));
-    return () => observer.disconnect();
-  }, [isFemaleAdult]);
-
   const setField = (name, value) => {
     setForm((current) => {
       const next = { ...current, [name]: value };
       if (value === 'No' && CONDITIONAL_FIELDS[name]) {
-        CONDITIONAL_FIELDS[name].forEach((dependent) => { next[dependent] = ''; });
+        CONDITIONAL_FIELDS[name].forEach((dependent) => {
+          next[dependent] = dependent === 'past_surgical_history' ? [] : '';
+        });
       }
       return next;
     });
@@ -338,9 +378,11 @@ const ClinicalRecordForm = ({ resident }) => {
       .filter((field) => field.type === 'resident')
       .map((field) => [field.name, defaultForm[field.name]]));
     const nextForm = { ...defaultForm, ...saved, ...liveDemographics };
+    if (Array.isArray(nextForm.past_surgical_history) && nextForm.past_surgical_history.length && !nextForm.psh_history) {
+      nextForm.psh_history = 'Yes';
+    }
     setForm(nextForm);
     baselineRef.current = snapshot(nextForm);
-    baselineFormRef.current = nextForm;
     setEditingId(record.id);
     setViewingRecord(viewOnly);
     setFieldErrors({});
@@ -348,7 +390,6 @@ const ClinicalRecordForm = ({ resident }) => {
     setAvailableDraft(null);
     setMessage('');
     setError('');
-    setCollapsed(Object.fromEntries(HISTORY_SECTIONS.map((section) => [section.title, !viewOnly])));
   }, [defaultForm]);
 
   useEffect(() => {
@@ -362,7 +403,6 @@ const ClinicalRecordForm = ({ resident }) => {
     const reset = () => {
       setForm(defaultForm);
       baselineRef.current = snapshot(defaultForm);
-      baselineFormRef.current = defaultForm;
       setEditingId(null);
       setViewingRecord(false);
       if (searchParams.has('recordId')) {
@@ -374,7 +414,6 @@ const ClinicalRecordForm = ({ resident }) => {
       setTouched({});
       setMessage('');
       setError('');
-      setCollapsed(Object.fromEntries(HISTORY_SECTIONS.map((section) => [section.title, true])));
     };
     requestLeave(reset);
   };
@@ -395,7 +434,6 @@ const ClinicalRecordForm = ({ resident }) => {
     setEditingId(availableDraft.editingId || null);
     setViewingRecord(false);
     baselineRef.current = snapshot(defaultForm);
-    baselineFormRef.current = defaultForm;
     setAvailableDraft(null);
     setDraftStatus('Draft restored');
   };
@@ -432,24 +470,17 @@ const ClinicalRecordForm = ({ resident }) => {
 
   const save = async (event) => {
     event.preventDefault();
+    if (submitLockRef.current) return;
     const errors = validate();
     setFieldErrors(errors);
     setTouched(Object.fromEntries(Object.keys(errors).map((name) => [name, true])));
     if (Object.keys(errors).length) {
       const firstInvalid = Object.keys(errors)[0];
-      const fieldName = firstInvalid.split('.')[0];
-      const section = HISTORY_SECTIONS.find((item) => item.fields.some((field) => field.name === fieldName));
-      if (section) setCollapsed((current) => ({ ...current, [section.title]: false }));
       showToast('Please correct the highlighted fields.');
-      window.setTimeout(() => {
-        const input = firstInvalid.startsWith('past_surgical_history.')
-          ? document.getElementById(`clinical-past_surgical_history-${firstInvalid.split('.')[1]}-date`)
-          : document.getElementById(`clinical-${firstInvalid}`);
-        input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-        input?.focus();
-      }, 100);
+      window.setTimeout(() => focusInvalidField(firstInvalid), 100);
       return;
     }
+    submitLockRef.current = true;
     setSaving(true);
     setError('');
     setMessage('');
@@ -461,7 +492,6 @@ const ClinicalRecordForm = ({ resident }) => {
       clearDraft();
       setForm(defaultForm);
       baselineRef.current = snapshot(defaultForm);
-      baselineFormRef.current = defaultForm;
       setEditingId(null);
       setViewingRecord(false);
       if (searchParams.has('recordId')) {
@@ -485,17 +515,16 @@ const ClinicalRecordForm = ({ resident }) => {
       if (serverErrors && typeof serverErrors === 'object') {
         setFieldErrors(serverErrors);
         setTouched((current) => ({ ...current, ...Object.fromEntries(Object.keys(serverErrors).map((name) => [name, true])) }));
-        const firstInvalid = Object.keys(serverErrors)[0];
-        const fieldName = firstInvalid.split('.')[0];
-        const section = HISTORY_SECTIONS.find((item) => item.fields.some((field) => field.name === fieldName));
-        if (section) setCollapsed((current) => ({ ...current, [section.title]: false }));
         showToast(saveError.response?.data?.message || 'Please review the highlighted fields.');
+        const firstInvalid = Object.keys(serverErrors)[0];
+        window.setTimeout(() => focusInvalidField(firstInvalid), 100);
       } else {
         const errorMessage = saveError.response?.data?.message || saveError.message || 'Unable to save clinical record.';
         setError(errorMessage);
         showToast('Failed to save clinical record.');
       }
     } finally {
+      submitLockRef.current = false;
       setSaving(false);
     }
   };
@@ -511,7 +540,6 @@ const ClinicalRecordForm = ({ resident }) => {
         showToast(response.offline ? 'Record deletion saved offline.' : 'Clinical record deleted.');
         setForm(defaultForm);
         baselineRef.current = snapshot(defaultForm);
-        baselineFormRef.current = defaultForm;
         setEditingId(null);
         setViewingRecord(false);
         if (!response.offline) await refreshRecords();
@@ -524,20 +552,17 @@ const ClinicalRecordForm = ({ resident }) => {
     requestLeave(remove);
   };
 
-  const discardChanges = () => requestLeave(() => {
-    setForm(baselineFormRef.current);
-    baselineRef.current = snapshot(baselineFormRef.current);
-    setViewingRecord(false);
-    setFieldErrors({});
-    setTouched({});
-    setMessage('');
-    setError('');
-    clearDraft();
-  });
+  const discardChanges = () => requestLeave(() => navigate(`/residents/${resident.resident_id}`));
 
-  const focusSection = (section) => document.getElementById(`clinical-section-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const errorFor = (name) => touched[name] ? fieldErrors[name] || '' : '';
-  const countSection = (section) => section.fields.filter((field) => isFilled(form[field.name])).length;
+  const focusInvalidField = (name) => {
+    const input = name.startsWith('past_surgical_history.')
+      ? document.getElementById(`clinical-past_surgical_history-${name.split('.')[1]}-date`)
+      : document.getElementById(`clinical-${name}`);
+    const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    input?.scrollIntoView?.({ behavior, block: 'center' });
+    input?.focus();
+  };
   const copyValue = async (name, value) => {
     try {
       await navigator.clipboard.writeText(String(value));
@@ -547,19 +572,18 @@ const ClinicalRecordForm = ({ resident }) => {
       setError(`Unable to copy ${name}: ${copyError.message}`);
     }
   };
-  const setAllCollapsed = (next) => setCollapsed(Object.fromEntries(HISTORY_SECTIONS.map((section) => [section.title, next])));
-
-  const renderControl = (field, { history = false } = {}) => {
+  const renderControl = (field, { history = false, label: labelOverride, placeholder: placeholderOverride } = {}) => {
     const value = form[field.name] ?? '';
     const id = `clinical-${field.name}`;
+    const label = labelOverride || (field.name === 'sex' ? 'Gender' : field.name === 'gravida' ? 'Gravida' : VITAL_LABELS[field.name]?.label || field.label);
     const errorMessage = errorFor(field.name);
-    const description = errorMessage ? `${id}-error` : undefined;
+    const errorDescription = errorMessage ? `${id}-error` : '';
     if (field.type === 'table') {
       const rows = Array.isArray(value) ? value : [];
       const updateRow = (index, key, nextValue) => setField(field.name, rows.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: nextValue } : row));
       const addRow = () => setField(field.name, [...rows, { operation: '', date: '' }]);
       return <fieldset className="clinical-field clinical-operations-field">
-        <legend>{field.label}</legend>
+        <legend>{label}</legend>
         <div className="clinical-operations-list">
           <div className="clinical-operation-labels"><span>Operation</span><span>Date</span></div>
           {rows.length ? rows.map((row, index) => {
@@ -578,28 +602,30 @@ const ClinicalRecordForm = ({ resident }) => {
       </fieldset>;
     }
     if (YES_NO_FIELDS.has(field.name)) {
-      if (value && !['yes', 'no'].includes(String(value).toLowerCase())) {
-        return <Field id={id} label={field.label}>
-          <input id={id} className="clinical-control" value={value} onChange={(event) => setField(field.name, event.target.value)} disabled={saving || viewingRecord} />
-          {!viewingRecord && <div className="clinical-segment-control clinical-legacy-choice" role="group" aria-label={`${field.label} answer`}><button type="button" onClick={() => setField(field.name, 'Yes')}>Yes</button><button type="button" onClick={() => setField(field.name, 'No')}>No</button></div>}
-        </Field>;
-      }
+      const isLegacyValue = value && !['yes', 'no'].includes(String(value).toLowerCase());
       return <fieldset className="clinical-field clinical-choice-field">
-        <legend>{field.label}</legend>
-        <div className="clinical-segment-control" role="group" aria-label={field.label}>
-          {['Yes', 'No'].map((option) => <button key={option} type="button" aria-pressed={String(value).toLowerCase() === option.toLowerCase()} className={String(value).toLowerCase() === option.toLowerCase() ? 'selected' : ''} onClick={() => setField(field.name, option)} disabled={saving || viewingRecord}>{option}</button>)}
+        <legend>{label}</legend>
+        {isLegacyValue && <input id={id} className="clinical-control clinical-legacy-answer" value={value} onChange={(event) => setField(field.name, event.target.value)} disabled={saving || viewingRecord} aria-label={`${label} saved value`} />}
+        <div className="clinical-radio-group">
+          {['Yes', 'No'].map((option) => <label key={option} className="clinical-radio-option"><input type="radio" name={id} value={option} checked={String(value).toLowerCase() === option.toLowerCase()} onChange={() => setField(field.name, option)} disabled={saving || viewingRecord} aria-label={`${label}: ${option}`} /><span>{option}</span>{String(value).toLowerCase() === option.toLowerCase() && <Icon name="check" />}</label>)}
         </div>
       </fieldset>;
     }
     if (field.type === 'textarea') {
-      return <Field id={id} label={field.label} error={errorMessage}>
-        <TextArea id={id} value={value} onChange={(next) => setField(field.name, next)} onBlur={() => onBlur(field.name)} invalid={Boolean(errorMessage)} describedBy={description} disabled={saving || viewingRecord} placeholder={`Enter ${field.label.toLowerCase()}...`} />
+      const placeholders = {
+        history_of_present_illness: 'Describe the history of present illness',
+        findings: 'Enter findings',
+        assessment: 'Enter assessment',
+        plan: 'Enter plan'
+      };
+      return <Field id={id} label={label} error={errorMessage}>
+        <TextArea id={id} value={value} onChange={(next) => setField(field.name, next)} onBlur={() => onBlur(field.name)} invalid={Boolean(errorMessage)} describedBy={errorDescription || undefined} disabled={saving || viewingRecord} placeholder={placeholderOverride || placeholders[field.name] || `Enter ${label.toLowerCase()}...`} />
       </Field>;
     }
     const options = field.type === 'select' ? field.options : null;
     const isSelect = Boolean(options);
     const isNumeric = field.type === 'number';
-    const unit = VITAL_LABELS[field.name]?.unit;
+    const unit = VITAL_LABELS[field.name]?.unit || (field.name === 'menarche' ? 'years old' : '');
     const showConditional = history && (
       (field.name === 'pmh_allergy_specify' && isYes(form.pmh_allergy)) ||
       (field.name === 'pmh_history_of_illness_specify' && isYes(form.pmh_history_of_illness)) ||
@@ -607,6 +633,7 @@ const ClinicalRecordForm = ({ resident }) => {
       (field.name === 'fmh_allergy_specify' && isYes(form.fmh_allergy)) ||
       (field.name === 'fmh_history_of_illness_specify' && isYes(form.fmh_history_of_illness)) ||
       (field.name === 'fmh_cancer_organ' && isYes(form.fmh_history_of_illness)) ||
+      (field.name === 'past_surgical_history' && isYes(form.psh_history)) ||
       (field.name === 'smoking_packs_per_year' && isYes(form.smoking)) ||
       (field.name === 'alcohol_bottles_per_day' && isYes(form.alcohol)) ||
       (field.name === 'sexually_active_details' && isYes(form.sexually_active))
@@ -619,129 +646,205 @@ const ClinicalRecordForm = ({ resident }) => {
         : field.name === 'respiratory_rate' && value && (Number(value) < 12 || Number(value) > 20)
           ? 'Check value: outside the usual adult resting range.'
           : '';
-    return <Field id={id} label={field.label} required={field.name === 'client_type'} error={errorMessage} hint={warning}>
+    const description = [errorDescription, warning ? `${id}-hint` : ''].filter(Boolean).join(' ') || undefined;
+    return <Field id={id} label={label} required={field.name === 'client_type'} error={errorMessage} hint={warning}>
       {unit
-        ? <div className="clinical-unit-control"><input id={id} className="clinical-control" type={field.name === 'blood_pressure' ? 'text' : 'number'} inputMode={field.name === 'blood_pressure' ? undefined : 'decimal'} min={FIELD_RANGES[field.name]?.[0]} max={FIELD_RANGES[field.name]?.[1]} step={field.name === 'temperature' ? '.1' : 'any'} value={value} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} placeholder={VITAL_LABELS[field.name]?.placeholder} aria-invalid={Boolean(errorMessage)} aria-describedby={description} disabled={saving || viewingRecord} /><span>{unit}</span></div>
+        ? <div className="clinical-unit-control"><input id={id} className="clinical-control" type={field.name === 'blood_pressure' ? 'text' : 'number'} inputMode={field.name === 'blood_pressure' ? 'numeric' : 'decimal'} min={FIELD_RANGES[field.name]?.[0]} max={FIELD_RANGES[field.name]?.[1]} step={field.name === 'temperature' ? '.1' : 'any'} value={value} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} placeholder={VITAL_LABELS[field.name]?.placeholder} aria-invalid={Boolean(errorMessage)} aria-describedby={description} disabled={saving || viewingRecord} /><span>{unit}</span></div>
         : isSelect
-          ? <select id={id} className="clinical-control" value={value} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} aria-invalid={Boolean(errorMessage)} aria-describedby={description} disabled={saving || viewingRecord}><option value="">Select</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
-          : <input id={id} className="clinical-control" type={field.type === 'date' ? 'date' : isNumeric ? 'number' : 'text'} min={isNumeric ? FIELD_RANGES[field.name]?.[0] ?? 0 : undefined} max={field.type === 'date' ? getLocalDateInputValue() : isNumeric ? FIELD_RANGES[field.name]?.[1] : undefined} step={isNumeric ? 'any' : undefined} value={field.type === 'date' ? toDateInputValue(value) : value} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} aria-invalid={Boolean(errorMessage)} aria-describedby={description} disabled={saving || viewingRecord} />}
+        ? <select id={id} className="clinical-control" value={value} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} aria-invalid={Boolean(errorMessage)} aria-describedby={description} disabled={saving || viewingRecord} required={field.name === 'client_type'}><option value="">Select {label.toLowerCase()}</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+        : <input id={id} className="clinical-control" type={field.type === 'date' ? 'date' : isNumeric ? 'number' : 'text'} inputMode={isNumeric ? 'decimal' : undefined} min={isNumeric ? FIELD_RANGES[field.name]?.[0] ?? 0 : undefined} max={field.type === 'date' ? getLocalDateInputValue() : isNumeric ? FIELD_RANGES[field.name]?.[1] : undefined} step={isNumeric ? 'any' : undefined} value={field.type === 'date' ? toDateInputValue(value) : value} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} aria-invalid={Boolean(errorMessage)} aria-describedby={description} disabled={saving || viewingRecord} placeholder={placeholderOverride || (isNumeric || isSelect ? undefined : `Enter ${label.toLowerCase()}...`)} />}
     </Field>;
   };
 
-  const readonlyDemographics = config.demographics.filter((field) => field.type === 'resident');
+  const renderHistoryPrompts = (section) => {
+    const prompts = HISTORY_PROMPTS[section.title] || [];
+    const promptFields = new Set(prompts.flatMap((prompt) => [prompt.answer, ...prompt.details]));
+    return <>
+      {prompts.map((prompt) => {
+        const answerField = section.fields.find((field) => field.name === prompt.answer);
+        const detailFields = prompt.details.map((name) => section.fields.find((field) => field.name === name)).filter(Boolean);
+        if (!answerField) return null;
+        const answer = form[answerField.name];
+        const legacyValue = answer && !['yes', 'no'].includes(String(answer).toLowerCase());
+        const showDetails = isYes(answer) || (prompt.answer === 'psh_history' && Array.isArray(form.past_surgical_history) && form.past_surgical_history.length > 0);
+        return <div className={`clinical-history-prompt-row ${showDetails ? 'has-details' : ''}`} key={prompt.answer}>
+          <fieldset className="clinical-field clinical-choice-field clinical-history-prompt-choice">
+            <legend>{answerField.label}</legend>
+            {legacyValue && <input id={`clinical-${answerField.name}`} className="clinical-control clinical-legacy-answer" value={answer} onChange={(event) => setField(answerField.name, event.target.value)} disabled={saving || viewingRecord} aria-label={`${answerField.label} saved value`} />}
+            <div className="clinical-radio-group">
+              {['Yes', 'No'].map((option) => <label key={option} className={`clinical-radio-option ${String(answer).toLowerCase() === option.toLowerCase() ? 'selected' : ''}`}>
+                <input type="radio" name={`clinical-${answerField.name}`} value={option} checked={String(answer).toLowerCase() === option.toLowerCase()} onChange={() => setField(answerField.name, option)} disabled={saving || viewingRecord} aria-label={`${answerField.label}: ${option}`} />
+                <span>{option}</span>
+                {String(answer).toLowerCase() === option.toLowerCase() && <Icon name="check" />}
+              </label>)}
+            </div>
+          </fieldset>
+          <div className="clinical-history-prompt-details" aria-live="polite">
+            {showDetails && detailFields.map((field) => <React.Fragment key={field.name}>{renderControl(field, { history: true })}</React.Fragment>)}
+          </div>
+        </div>;
+      })}
+      {section.fields.filter((field) => !promptFields.has(field.name)).map((field) => <React.Fragment key={field.name}>{renderControl(field, { history: true })}</React.Fragment>)}
+    </>;
+  };
+
+  const readonlyOrder = ['last_name', 'first_name', 'middle_name', 'suffix', 'age', 'birthdate', 'civil_status', 'sex', 'address', 'family_serial_number', 'philhealth_number', 'occupation', 'contact_number'];
+  const readonlyDemographics = config.demographics
+    .filter((field) => field.type === 'resident')
+    .sort((first, second) => readonlyOrder.indexOf(first.name) - readonlyOrder.indexOf(second.name));
   const editableDemographics = config.demographics.filter((field) => field.type !== 'resident');
-  const sectionList = [
-    { id: 'clinical-notes', title: 'Clinical Notes', icon: 'clinical', count: clinicalRecordFields.filter((field) => isFilled(form[field.name])).length },
-    { id: 'patient-demographics', title: 'Patient Demographics', icon: 'person', count: editableDemographics.filter((field) => isFilled(form[field.name])).length },
-    ...HISTORY_SECTIONS.filter((section) => section.title !== 'Female-Specific Histories' || isFemaleAdult).map((section) => ({
-      id: section.title, title: section.title, icon: section.title === 'Personal Social History' ? 'social' : section.title.includes('Immunization') ? 'family' : section.title.includes('Female') ? 'female' : 'history', count: countSection(section)
-    }))
+  const historyGroupPresentation = {
+    PMH: { title: 'Past Medical History (PMH)', icon: 'pmh', description: 'Allergies, medical conditions, and maintenance medications.' },
+    'Past Surgical History': { title: 'Past Surgical History', icon: 'surgery', description: 'Previous operations and procedures.' },
+    FMH: { title: 'Family Medical History (FMH)', icon: 'family', description: 'Health conditions reported in the family.' },
+    'Personal Social History': { title: 'Personal / Social History', icon: 'social', description: 'Lifestyle and personal health history.' },
+    'Immunization & Family Planning': { title: 'Immunization & Family Planning', icon: 'immunization', description: 'Immunization status and family planning method.' },
+    [FEMALE_HISTORY_GROUP_TITLE]: { title: FEMALE_HISTORY_GROUP_TITLE, icon: 'female', description: 'Menstrual and pregnancy details for this resident.' }
+  };
+  const visibleHistorySections = HISTORY_SECTIONS.filter((section) => (
+    !FEMALE_HISTORY_SECTION_TITLES.has(section.title) || isFemaleAdult
+  ));
+  const historyGroups = [
+    ...visibleHistorySections
+      .filter((section) => !FEMALE_HISTORY_SECTION_TITLES.has(section.title))
+      .map((section) => ({ title: section.title, sections: [section] })),
+    ...(isFemaleAdult ? [{
+      title: FEMALE_HISTORY_GROUP_TITLE,
+      sections: visibleHistorySections.filter((section) => FEMALE_HISTORY_SECTION_TITLES.has(section.title))
+    }] : [])
   ];
 
-  if (loading) return <div className="clinical-loading" aria-busy="true" aria-label="Loading clinical records"><span /><span /><span /></div>;
+  if (loading) return <div className="clinical-form-skeleton" aria-busy="true" aria-label="Loading clinical records">
+    <div className="clinical-skeleton-card clinical-skeleton-patient" />
+    <div className="clinical-skeleton-card clinical-skeleton-visit" />
+    <div className="clinical-skeleton-card" />
+    <div className="clinical-skeleton-card" />
+  </div>;
 
   return <div className="clinical-record-workspace">
     {error && <div className="clinical-error-banner" role="alert"><Icon name="alert" />{error}<button type="button" onClick={refreshRecords}>Try again</button></div>}
     {message && <div className="clinical-success-banner" role="status">{message}</div>}
     {availableDraft && <div className="clinical-draft-prompt" role="status"><div><strong>Draft available</strong><span>Saved {new Date(availableDraft.savedAt).toLocaleString()} on this device.</span></div><button type="button" onClick={restoreDraft}>Restore draft</button><button type="button" className="clinical-text-button" onClick={discardDraft}>Discard draft</button></div>}
 
-    <div className="clinical-patient-banner">
-      <div className="clinical-patient-avatar">{resident.profile_photo ? <img src={getProfilePhotoUrl(resident.profile_photo)} alt="" /> : <span>{`${resident.first_name?.charAt(0) || ''}${resident.last_name?.charAt(0) || ''}`.toUpperCase()}</span>}</div>
-      <div className="clinical-patient-identification"><strong>{formatResidentName(resident)}</strong><span>{age === null ? 'Age unknown' : `${age} years`} · {String(resident.sex || 'Sex not recorded').replace(/^./, (letter) => letter.toUpperCase())}</span></div>
-      {resident.category_flags && <span className="clinical-patient-chip">{Array.isArray(resident.category_flags) ? resident.category_flags.join(', ') : resident.category_flags}</span>}
-      {resident.pregnant && <span className="clinical-patient-chip">Pregnant</span>}
-      {resident.lactating && <span className="clinical-patient-chip">Lactating</span>}
-    </div>
+    <section className="clinical-patient-banner" aria-label="Resident profile">
+      <div className="clinical-patient-avatar">{resident.profile_photo ? <img src={getProfilePhotoUrl(resident.profile_photo)} alt="" /> : <span>{`${resident.first_name?.charAt(0) || ''}${resident.last_name?.charAt(0) || ''}`.toUpperCase() || 'R'}</span>}</div>
+      <div className="clinical-patient-identification">
+        <strong>{formatResidentName(resident) || 'Resident name not provided'}</strong>
+        <span>{age === null ? 'Age not provided' : `${age} ${age === 1 ? 'year' : 'years'}`} · {resident.sex ? `${String(resident.sex).charAt(0).toUpperCase()}${String(resident.sex).slice(1).toLowerCase()}` : 'Gender not provided'}</span>
+      </div>
+      <span className="clinical-patient-chip">Resident ID · {resident.resident_id ?? 'Not provided'}</span>
+    </section>
 
-    <div className="clinical-visit-history">
+    <section className="clinical-visit-history" aria-labelledby="clinical-visit-heading">
       <div className="clinical-history-heading">
-        <div><h2>Visit history</h2><p>{editingId ? `${viewingRecord ? 'Viewing' : 'Editing'} record dated ${formatDateLabel(form.visit_date) || 'Unknown date'}` : 'Review past clinical encounters or start a new one.'}</p></div>
-        <button type="button" className="clinical-secondary-button" onClick={resetToNew} disabled={saving || (!dirty && !editingId)}>New record</button>
+        <div className="clinical-history-title"><span className="clinical-section-icon"><Icon name="history" /></span><div><h2 id="clinical-visit-heading">Visit history</h2><p>{editingId ? `${viewingRecord ? 'Viewing' : 'Editing'} record dated ${formatDateLabel(form.visit_date) || 'Unknown date'}` : 'Review past clinical encounters or start a new one.'}</p></div></div>
+        <button type="button" className="clinical-primary-button" onClick={resetToNew} disabled={saving}><Icon name="plus" />New record</button>
       </div>
       {records.length ? <div className="clinical-visit-list">{records.map((record) => {
         const recordDate = formatDateLabel(record.record_data?.visit_date || record.created_at) || 'Date not recorded';
-        const assessment = record.record_data?.assessment || record.record_data?.history_of_present_illness || 'No assessment entered.';
+        const assessment = record.record_data?.assessment || record.record_data?.history_of_present_illness;
         const active = Number(record.id) === Number(editingId);
         return <article className={`clinical-visit-item ${active ? 'active' : ''}`} key={record.id}>
           <div className="clinical-visit-date"><strong>{recordDate}</strong><span>{record.record_data?.visit_time || 'Time not recorded'}</span></div>
-          <p>{assessment}</p>
-          <small>Recorded by {record.recorded_by_name || 'Health worker'}</small>
+          <p>{assessment || <em>Not provided</em>}</p>
+          <small>Recorded by {record.recorded_by_name || 'Not provided'}</small>
           <div className="clinical-visit-actions"><button type="button" onClick={() => loadRecord(record, true)}>View</button><button type="button" onClick={() => loadRecord(record, false)}>Edit</button></div>
         </article>;
-      })}</div> : <div className="clinical-history-empty"><strong>No clinical records yet</strong><span>Fill in the form below to create the first one.</span></div>}
-    </div>
+      })}</div> : <div className="clinical-history-empty"><span className="clinical-empty-icon"><Icon name="list" /></span><strong>No clinical records yet</strong><span>Past visits will appear here after a clinical record is saved.</span></div>}
+    </section>
 
     <div className="clinical-workspace-layout">
-      <aside className="clinical-section-sidebar">
-        <div className="clinical-section-nav" role="navigation" aria-label="Clinical form sections">
-          {sectionList.map((section) => <button type="button" key={section.id} className={activeSection === section.id ? 'active' : ''} onClick={() => focusSection(section.id)}>
-            <Icon name={section.icon} /><span>{section.title}</span><small>{section.count ? <Icon name="check" /> : <i />}</small>
-          </button>)}
-        </div>
-        <div className="clinical-expand-controls"><button type="button" onClick={() => setAllCollapsed(false)}>Expand all</button><button type="button" onClick={() => setAllCollapsed(true)}>Collapse all</button></div>
-      </aside>
-
       <form className="clinical-form-content" onSubmit={save} noValidate>
-        <section id="clinical-section-clinical-notes" className="clinical-card">
+        <section id="clinical-section-patient-demographics" className="clinical-card clinical-card-full">
+          <div className="clinical-card-heading clinical-card-heading-with-action">
+            <span><Icon name="person" /></span>
+            <div><h2>Patient Demographics</h2><p>Resident profile details and additional clinical information.</p></div>
+            <a className="clinical-edit-profile-link" href={`/residents/${resident.resident_id}/edit`}><Icon name="external" />Edit in resident profile</a>
+          </div>
+          <div className="clinical-section-body">
+            <dl className="clinical-demographics-summary">
+              {readonlyDemographics.map((field) => {
+                const value = form[field.name];
+                const display = field.name === 'birthdate'
+                  ? formatDateOnly(value)
+                  : field.name === 'age'
+                    ? value === '' || value === null || value === undefined ? '' : `${value} ${Number(value) === 1 ? 'year' : 'years'}`
+                    : field.name === 'contact_number'
+                      ? formatContactNumber(value)
+                      : field.name === 'sex' && value
+                        ? `${String(value).charAt(0).toUpperCase()}${String(value).slice(1).toLowerCase()}`
+                        : value;
+                const missing = display === null || display === undefined || String(display).trim() === '';
+                const copyable = ['philhealth_number', 'family_serial_number', 'contact_number'].includes(field.name) && !missing;
+                const label = field.name === 'sex' ? 'Gender' : field.label;
+                return <div className={`clinical-demographic-item ${missing ? 'is-missing' : ''}`} key={field.name}>
+                  <dt>{label}</dt>
+                  <dd className="clinical-demographic-value">
+                    <strong>{missing ? <em>Not provided</em> : display}</strong>
+                    {copyable && <button type="button" className="clinical-copy-button" aria-label={copied === label ? `${label} copied` : `Copy ${label}`} title={copied === label ? 'Copied' : `Copy ${label}`} onClick={() => copyValue(label, value)}><Icon name={copied === label ? 'copied' : 'copy'} />{copied === label && <span role="status">Copied</span>}</button>}
+                  </dd>
+                </div>;
+              })}
+            </dl>
+            <div className="clinical-subgroup-heading"><h3>Additional information</h3></div>
+            <div className="clinical-form-grid clinical-editable-demographics">{editableDemographics.map((field) => <React.Fragment key={field.name}>{renderControl(field)}</React.Fragment>)}</div>
+          </div>
+        </section>
+
+        <section id="clinical-section-clinical-notes" className="clinical-card clinical-card-full">
           <div className="clinical-card-heading"><span><Icon name="clinical" /></span><div><h2>Clinical Notes</h2><p>Capture the visit, observations, assessment, and plan.</p></div></div>
+          <div className="clinical-section-body">
           <div className="clinical-form-grid clinical-visit-meta">
             {clinicalRecordFields.filter((field) => ['visit_date', 'visit_time'].includes(field.name)).map((field) => <Field key={field.name} id={`clinical-${field.name}`} label={field.label} error={errorFor(field.name)}>
-              <div className="clinical-date-action"><input id={`clinical-${field.name}`} className="clinical-control" type={field.type} max={field.name === 'visit_date' ? getLocalDateInputValue() : undefined} value={form[field.name] || ''} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} aria-invalid={Boolean(errorFor(field.name))} aria-describedby={errorFor(field.name) ? `clinical-${field.name}-error` : undefined} disabled={saving || viewingRecord} /><button type="button" className="clinical-text-button" onClick={() => setField(field.name, field.name === 'visit_date' ? getLocalDateInputValue() : getLocalTimeInputValue())} disabled={saving || viewingRecord}>Now</button></div>
+              <div className="clinical-date-action"><span className="clinical-input-icon"><Icon name={field.name === 'visit_date' ? 'calendar' : 'clock'} /></span><input id={`clinical-${field.name}`} className="clinical-control" type={field.type} max={field.name === 'visit_date' ? getLocalDateInputValue() : undefined} value={form[field.name] || ''} onChange={(event) => setField(field.name, event.target.value)} onBlur={() => onBlur(field.name)} aria-invalid={Boolean(errorFor(field.name))} aria-describedby={errorFor(field.name) ? `clinical-${field.name}-error` : undefined} disabled={saving || viewingRecord} /><button type="button" className="clinical-text-button" onClick={() => setField(field.name, field.name === 'visit_date' ? getLocalDateInputValue() : getLocalTimeInputValue())} disabled={saving || viewingRecord}>Now</button></div>
             </Field>)}
           </div>
           <div className="clinical-soap-fields">
-            {clinicalRecordFields.filter((field) => field.name === 'history_of_present_illness').map((field) => <div className="clinical-soap-field" key={field.name}><span className="clinical-soap-letter">S</span>{renderControl(field)}</div>)}
-            <div className="clinical-vitals-block"><div className="clinical-vitals-heading"><h3>Objective · Vitals</h3>{bmi !== null && <span className={`clinical-bmi-badge clinical-bmi-${bmiCategory.toLowerCase()}`}>BMI {bmi.toFixed(1)}{age !== null && age < 18 ? ' · age-specific assessment needed' : ` · ${bmiCategory}`}</span>}</div>
-              <div className="clinical-vitals-grid">{clinicalRecordFields.filter((field) => Object.prototype.hasOwnProperty.call(VITAL_LABELS, field.name)).map((field) => {
-                const warning = field.name === 'blood_pressure' && form.blood_pressure && (() => {
-                  const parts = form.blood_pressure.split('/').map(Number);
-                  return parts.length === 2 && (parts[0] >= 140 || parts[1] >= 90 || parts[0] < 90 || parts[1] < 60);
-                })();
-                return <div className="clinical-vital-field" key={field.name}>{renderControl(field)}{warning && <span className="clinical-check-value"><Icon name="alert" />Check value</span>}</div>;
-              })}</div>
-            </div>
-            <div className="clinical-soap-field"><span className="clinical-soap-letter">O</span>{renderControl(clinicalRecordFields.find((field) => field.name === 'findings'))}</div>
-            {clinicalRecordFields.filter((field) => ['assessment', 'plan'].includes(field.name)).map((field) => <div className="clinical-soap-field" key={field.name}><span className="clinical-soap-letter">{field.name === 'assessment' ? 'A' : 'P'}</span>{renderControl(field)}</div>)}
-          </div>
-        </section>
-
-        <section id="clinical-section-patient-demographics" className="clinical-card">
-          <div className="clinical-card-heading"><span><Icon name="person" /></span><div><h2>Patient Demographics</h2><p>Profile details are read-only; record-specific details can be updated below.</p></div></div>
-          <div className="clinical-demographics-summary">
-            {readonlyDemographics.map((field) => {
-              const value = form[field.name];
-              const display = field.name === 'birthdate' ? formatDateOnly(value) : field.name === 'age' ? (value ? `${value} years` : '') : field.name === 'contact_number' ? formatContactNumber(value) : value;
-              const canCopy = ['philhealth_number', 'family_serial_number', 'contact_number'].includes(field.name) && value;
-              return <div className="clinical-demographic-item" key={field.name}><span>{field.label}</span><strong className={canCopy ? 'clinical-monospace' : ''}>{display || 'Not provided'}</strong>{canCopy && <button type="button" className="clinical-copy-button" aria-label={`Copy ${field.label}`} onClick={() => copyValue(field.label, value)}>{copied === field.label ? 'Copied' : <Icon name="copy" />}</button>}</div>;
-            })}
-          </div>
-          <a className="clinical-edit-profile-link" href={`/residents/${resident.resident_id}/edit`}>Edit in resident profile</a>
-          <div className="clinical-form-grid clinical-editable-demographics">{editableDemographics.map((field) => <React.Fragment key={field.name}>{renderControl(field)}</React.Fragment>)}</div>
-        </section>
-
-        {HISTORY_SECTIONS.filter((section) => section.title !== 'Female-Specific Histories' || isFemaleAdult).map((section) => {
-          const isCollapsed = collapsed[section.title];
-          const sectionId = section.title;
-          const icon = section.title === 'Personal Social History' ? 'social' : section.title.includes('Immunization') ? 'family' : section.title.includes('Female') ? 'female' : 'history';
-          return <section id={`clinical-section-${sectionId}`} className={`clinical-card clinical-accordion ${isCollapsed ? 'collapsed' : ''}`} key={section.title}>
-            <button type="button" className="clinical-accordion-heading" aria-expanded={!isCollapsed} onClick={() => setCollapsed((current) => ({ ...current, [section.title]: !current[section.title] }))}>
-              <span className="clinical-card-icon"><Icon name={icon} /></span><span className="clinical-accordion-title"><strong>{section.title}</strong><small>{section.title === 'PMH' ? 'Past medical conditions, allergies, and medications.' : section.title === 'Past Surgical History' ? 'Document prior procedures.' : 'Additional health and personal history.'}</small></span><span className="clinical-filled-count">{countSection(section)} filled</span><span className={`clinical-chevron ${isCollapsed ? '' : 'open'}`} aria-hidden="true">⌄</span>
-            </button>
-            {!isCollapsed && <div className="clinical-accordion-content">
-              <div className={`clinical-form-grid ${section.title === 'Past Surgical History' ? 'clinical-table-grid' : ''}`}>
-                {section.fields.map((field) => <React.Fragment key={field.name}>{renderControl(field, { history: true })}</React.Fragment>)}
+            {clinicalRecordFields.filter((field) => field.name === 'history_of_present_illness').map((field) => <div className="clinical-soap-field" key={field.name}><span className="clinical-soap-letter">S</span>{renderControl(field, { label: 'Subjective: History of present illness' })}</div>)}
+            <div className="clinical-soap-objective">
+              <span className="clinical-soap-letter">O</span>
+              <div className="clinical-soap-objective-content">
+                {renderControl(clinicalRecordFields.find((field) => field.name === 'findings'), { label: 'Objective: Findings' })}
+                <section className="clinical-vitals-block" aria-labelledby="clinical-vitals-title"><div className="clinical-vitals-heading"><h3 id="clinical-vitals-title">Objective · Vitals</h3>{bmi !== null && <span className={`clinical-bmi-badge clinical-bmi-${bmiCategory.toLowerCase()}`}>BMI {bmi.toFixed(1)}{age !== null && age < 18 ? ' · age-specific assessment needed' : ` · ${bmiCategory}`}</span>}</div>
+                  <div className="clinical-vitals-grid">{clinicalRecordFields.filter((field) => Object.prototype.hasOwnProperty.call(VITAL_LABELS, field.name)).map((field) => {
+                    const warning = field.name === 'blood_pressure' && form.blood_pressure && (() => {
+                      const parts = form.blood_pressure.split('/').map(Number);
+                      return parts.length === 2 && (parts[0] >= 140 || parts[1] >= 90 || parts[0] < 90 || parts[1] < 60);
+                    })();
+                    return <div className="clinical-vital-field" key={field.name}>{renderControl(field)}{warning && <span className="clinical-check-value"><Icon name="alert" />Check value</span>}</div>;
+                  })}</div>
+                </section>
               </div>
-            </div>}
+            </div>
+            {clinicalRecordFields.filter((field) => ['assessment', 'plan'].includes(field.name)).map((field) => <div className="clinical-soap-field" key={field.name}><span className="clinical-soap-letter">{field.name === 'assessment' ? 'A' : 'P'}</span>{renderControl(field, { label: field.name === 'assessment' ? 'Assessment' : 'Plan' })}</div>)}
+          </div>
+          </div>
+        </section>
+
+        {historyGroups.map((group) => {
+          const presentation = historyGroupPresentation[group.title];
+          return <section id={`clinical-section-${group.title}`} className={`clinical-card clinical-history-card ${group.title === FEMALE_HISTORY_GROUP_TITLE ? 'clinical-card-full' : ''}`} key={group.title} aria-labelledby={`clinical-heading-${group.title.replace(/\s+/g, '-')}`}>
+            <div className="clinical-section-banner">
+              <span className="clinical-card-icon"><Icon name={presentation.icon} /></span><div className="clinical-section-title"><h2 id={`clinical-heading-${group.title.replace(/\s+/g, '-')}`}>{presentation.title}</h2><p>{presentation.description}</p></div>
+            </div>
+            <div className="clinical-section-body">
+              {group.sections.length > 1
+                ? group.sections.map((section) => <section className="clinical-history-subsection" key={section.title}>
+                  <h3>{section.title}</h3>
+                  <div className="clinical-form-grid">{renderHistoryPrompts(section)}</div>
+                </section>)
+                : <div className={`clinical-form-grid ${group.sections[0].title === 'Past Surgical History' ? 'clinical-table-grid' : ''}`}>{renderHistoryPrompts(group.sections[0])}</div>}
+            </div>
           </section>;
         })}
 
         {viewingRecord && <div className="clinical-viewing-banner"><span>Viewing a saved record</span><button type="button" className="clinical-primary-button" onClick={() => { baselineRef.current = snapshot(form); setViewingRecord(false); }}>Edit this record</button></div>}
         <div className="clinical-action-bar">
-          <div className="clinical-action-status">{dirty ? <><span className="clinical-unsaved-dot" />Unsaved changes</> : <span>{draftStatus}</span>}</div>
+          <div className={`clinical-action-status ${dirty ? 'is-dirty' : ''}`} role="status" aria-live="polite" aria-atomic="true">{dirty ? <><span className="clinical-unsaved-dot" />Unsaved changes</> : <span>{saving ? 'Saving…' : draftStatus || 'All changes saved'}</span>}</div>
           <div className="clinical-action-buttons">
-            {editingId && !viewingRecord && <button type="button" className="clinical-secondary-button" onClick={removeRecord} disabled={saving}>Delete record</button>}
-            <button type="button" className="clinical-secondary-button" onClick={discardChanges} disabled={saving || viewingRecord}>Discard</button>
-            <button type="submit" className="clinical-primary-button" disabled={saving || !dirty || viewingRecord}>{saving && <span className="clinical-spinner" aria-hidden="true" />}{saving ? 'Saving…' : editingId ? 'Save changes' : 'Save record'}</button>
+            {editingId && !viewingRecord && <button type="button" className="clinical-danger-outline-button" onClick={removeRecord} disabled={saving}><Icon name="trash" />Delete record</button>}
+            <button type="button" className="clinical-secondary-button" onClick={discardChanges} disabled={saving || viewingRecord}><Icon name="close" />Discard</button>
+            <button type="submit" className="clinical-primary-button" disabled={saving || !dirty || viewingRecord}>{saving ? <Icon name="loader" className="is-loading" /> : <Icon name="save" />}{saving ? 'Saving...' : editingId ? 'Save changes' : 'Save record'}</button>
           </div>
         </div>
       </form>
@@ -749,8 +852,8 @@ const ClinicalRecordForm = ({ resident }) => {
 
     {toast && <div className="clinical-toast" role="status" aria-live="polite">{toast}</div>}
     {showLeaveModal && <div className="clinical-modal-backdrop" role="presentation"><section className="clinical-confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="clinical-leave-title" aria-describedby="clinical-leave-description">
-      <h2 id="clinical-leave-title">Discard unsaved changes?</h2><p id="clinical-leave-description">This clinical record has unsaved changes. Leave without saving?</p>
-      <div><button ref={modalStayRef} type="button" className="clinical-secondary-button" onClick={() => { setShowLeaveModal(false); setPendingAction(null); }}>Keep editing</button><button type="button" className="clinical-danger-button" onClick={() => { const action = pendingAction; setShowLeaveModal(false); setPendingAction(null); action?.(); }}>Discard changes</button></div>
+      <h2 id="clinical-leave-title">Discard changes?</h2><p id="clinical-leave-description">Your entered information will be lost.</p>
+      <div><button ref={modalStayRef} type="button" className="clinical-secondary-button" onClick={() => { setShowLeaveModal(false); setPendingAction(null); }}>Keep editing</button><button type="button" className="clinical-danger-button" onClick={() => { const action = pendingAction; setShowLeaveModal(false); setPendingAction(null); action?.(); }}>Discard</button></div>
     </section></div>}
   </div>;
 };

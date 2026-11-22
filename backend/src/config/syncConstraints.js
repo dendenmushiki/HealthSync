@@ -2,9 +2,9 @@ module.exports = {
   // Domain-specific constraints to merge with DB-derived defaults
   residents: {
     birthdate: { minDate: '1900-01-01' },
-    civil_status: { allowed: ['Single', 'Married', 'Widowed', 'Separated', 'Divorced', 'Annulled', 'Unknown'] },
+    civil_status: { allowed: ['', 'Single', 'Married', 'Widowed', 'Separated', 'Annulled'] },
     resident_status: { allowed: ['Active', 'Inactive', 'Transferred', 'Deceased'] },
-    sex: { allowed: ['male', 'female'] }
+    sex: { allowed: ['male', 'female', 'others'] }
   },
   operation_timbang: {
     weight: { min: 0.5, max: 500 },

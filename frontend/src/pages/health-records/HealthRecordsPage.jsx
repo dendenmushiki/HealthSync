@@ -1,25 +1,52 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Baby,
+  CalendarDays,
+  CalendarPlus,
+  ChevronDown,
+  ClipboardList,
+  CircleAlert,
+  Eye,
+  FileText,
+  HeartPulse,
+  MoreHorizontal,
+  Plus,
+  RotateCcw,
+  Search,
+  SquarePen,
+  Stethoscope,
+  Syringe,
+  UserRound,
+  UsersRound,
+  X,
+} from 'lucide-react';
 import { deleteHealthRecord, listAllHealthRecords } from '../../services/api/healthRecordService';
 import { deleteChildHealthRecord } from '../../services/api/childHealthService';
 import { deleteResidentMedicalRecord } from '../../services/api/residentMedicalRecordService';
 import { getResidents } from '../../services/api/residentService';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import Pagination from '../../components/common/Pagination';
+import PageBanner from '../../components/common/PageBanner';
+import StatCard from '../../components/residents/StatCard';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
-import { formatDateLabel, getLocalDateInputValue } from '../../utils/dateUtils';
+import { formatDateLabel, formatDateOnly, getDateInputValueInTimeZone } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
-import StatusBanner from '../../components/common/StatusBanner';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
+import './HealthRecordsPage.css';
 
 const TYPES = [
-  { key: 'clinical', label: 'Clinical', fullLabel: 'Clinical Record' },
-  { key: 'child', label: 'Child', fullLabel: 'Child Record' },
-  { key: 'maternal', label: 'Maternal', fullLabel: 'Maternal Record' },
-  { key: 'immunization', label: 'Immunization', fullLabel: 'Immunization Record' }
+  { key: 'clinical', label: 'Clinical', fullLabel: 'Clinical Record', icon: Stethoscope },
+  { key: 'child', label: 'Child', fullLabel: 'Child Record', icon: Baby },
+  { key: 'maternal', label: 'Maternal', fullLabel: 'Maternal Record', icon: HeartPulse },
+  { key: 'immunization', label: 'Immunization', fullLabel: 'Immunization Record', icon: Syringe }
 ];
 const PAGE_SIZES = [10, 25, 50];
 const DEFAULTS = { search: '', type: '', from: '', to: '', sort: 'date', order: 'desc', page: 1, pageSize: 10 };
+const TYPE_BY_KEY = Object.fromEntries(TYPES.map((type) => [type.key, type]));
 const SOURCE_TYPES = {
   health_records: 'clinical',
   patient_clinical_records: 'clinical',
@@ -50,10 +77,163 @@ const buildRecordPath = (item) => {
   return `/health-records/${type}/${encodeURIComponent(`${item.source_table}-${item.record_id}`)}`;
 };
 
-const TypeBadge = ({ type, label }) => <span className={`health-record-type-badge health-record-type-${type || 'clinical'}`}>
-  <span className="health-record-type-icon" aria-hidden="true">{({ clinical: '✚', child: '⌂', maternal: '♡', immunization: '✓' })[type] || '•'}</span>
-  {label || TYPES.find((item) => item.key === type)?.fullLabel || 'Health Record'}
-</span>;
+const buildEditPath = (item) => {
+  if (item.source_table === 'health_records') return `/residents/${item.resident_id}/clinical-records-legacy?recordId=${item.record_id}`;
+  if (item.source_table === 'child_health_records') return `/residents/${item.resident_id}/child-health-records-legacy?recordId=${item.record_id}`;
+  const type = SOURCE_TYPES[item.source_table] || item.record_type || 'clinical';
+  return `/residents/${item.resident_id}/medical-records/${type}?recordId=${item.record_id}`;
+};
+
+function getResidentDisplayName(item) {
+  const last = String(item.last_name || '').trim();
+  const first = String(item.first_name || '').trim();
+  const middle = String(item.middle_name || '').trim();
+  const givenNames = [first, middle ? `${middle.charAt(0)}.` : ''].filter(Boolean).join(' ');
+  const name = [last, givenNames].filter(Boolean).join(', ');
+  return name || formatResidentName(item) || 'Not provided';
+}
+
+function formatGender(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+}
+
+function getRecordSummary(value) {
+  const summary = String(value || '').trim();
+  return summary && summary !== '-' ? summary : '';
+}
+
+const TypeBadge = ({ type }) => {
+  const typeInfo = TYPE_BY_KEY[type];
+  const Icon = typeInfo?.icon || FileText;
+  return <span className={`health-record-type-badge ${typeInfo ? `health-record-type-${type}` : 'health-record-type-unknown'}`}>
+    <Icon size={14} strokeWidth={1.8} aria-hidden="true" />
+    {typeInfo?.label || String(type || 'Unknown')}
+  </span>;
+};
+
+function RecordActions({ item, residentName, returnTo, onDelete }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const menuId = `health-record-actions-${item.source_table}-${item.record_id}`;
+  const recordPath = buildRecordPath(item);
+
+  useEffect(() => {
+    if (menuOpen) menuRef.current?.querySelector('[role="menuitem"]')?.focus();
+  }, [menuOpen]);
+
+  const handleMenuKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+    }
+  };
+
+  return <div className="health-record-row-actions" onClick={(event) => event.stopPropagation()}>
+    <Link to={recordPath} state={{ from: returnTo }} className="health-record-action-button" aria-label={`View ${residentName}`} title="View record">
+      <Eye size={17} strokeWidth={1.8} aria-hidden="true" />
+    </Link>
+    <Link to={buildEditPath(item)} state={{ from: returnTo }} className="health-record-action-button" aria-label={`Edit ${residentName}`} title="Edit record">
+      <SquarePen size={17} strokeWidth={1.8} aria-hidden="true" />
+    </Link>
+    <div className="health-record-row-menu">
+      <button ref={triggerRef} type="button" className="health-record-action-button" aria-label={`More actions for ${residentName}`}
+        aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} onClick={() => setMenuOpen((open) => !open)}>
+        <MoreHorizontal size={18} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      {menuOpen && <div ref={menuRef} id={menuId} className="health-record-menu" role="menu" onKeyDown={handleMenuKeyDown}>
+        <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenuOpen(false); onDelete(item); }}>Delete record</button>
+      </div>}
+    </div>
+  </div>;
+}
+
+function DateRangeControl({ from, to, onApply, onPreset }) {
+  const [open, setOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const today = getDateInputValueInTimeZone('Asia/Manila');
+
+  const presetMatches = (preset) => {
+    if (!from || !to) return false;
+    if (preset === 'Today') return from === today && to === today;
+    if (preset === 'This month') return from === `${today.slice(0, 7)}-01` && to === today;
+    const days = preset === 'Last 7 days' ? 6 : 29;
+    const start = new Date(`${today}T00:00:00.000Z`);
+    start.setUTCDate(start.getUTCDate() - days);
+    const expectedFrom = start.toISOString().slice(0, 10);
+    return from === expectedFrom && to === today;
+  };
+
+  const selectedPreset = ['Today', 'Last 7 days', 'Last 30 days', 'This month'].find(presetMatches);
+  const displayRange = selectedPreset || (
+    from && to
+      ? `${formatDateOnly(from, { month: 'short', day: 'numeric', year: 'numeric' })} – ${formatDateOnly(to, { month: 'short', day: 'numeric', year: 'numeric' })}`
+      : from
+        ? `From ${formatDateOnly(from, { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : to
+          ? `Through ${formatDateOnly(to, { month: 'short', day: 'numeric', year: 'numeric' })}`
+          : 'All dates'
+  );
+  const invalidRange = Boolean(draftFrom && draftTo && draftFrom > draftTo);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setDraftFrom(from);
+    setDraftTo(to);
+    setCustomOpen(Boolean(from || to) && !selectedPreset);
+    const handleOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [from, open, selectedPreset, to]);
+
+  const choosePreset = (preset) => {
+    onPreset(preset);
+    setOpen(false);
+  };
+
+  return <div className="health-record-date-control" ref={rootRef}>
+    <button ref={buttonRef} type="button" className="health-record-date-trigger" aria-haspopup="dialog" aria-expanded={open}
+      onClick={() => setOpen((value) => !value)}>
+      <CalendarDays size={17} strokeWidth={1.8} aria-hidden="true" />
+      <span><small>Date range</small><strong>{displayRange}</strong></span>
+      <ChevronDown size={16} aria-hidden="true" />
+    </button>
+    {open && <div className="health-record-date-popover" role="dialog" aria-label="Date range filter">
+      <div className="health-record-date-presets" aria-label="Date range presets">
+        {['Today', 'Last 7 days', 'Last 30 days', 'This month'].map((preset) => <button key={preset} type="button"
+          className={presetMatches(preset) ? 'active' : ''} aria-pressed={presetMatches(preset)} onClick={() => choosePreset(preset)}>{preset}</button>)}
+        <button type="button" className={customOpen ? 'active' : ''} aria-pressed={customOpen} onClick={() => setCustomOpen(true)}>Custom</button>
+      </div>
+      {customOpen && <div className="health-record-custom-range">
+        <label>From<input type="date" value={draftFrom} aria-invalid={invalidRange} onChange={(event) => setDraftFrom(event.target.value)} /></label>
+        <label>To<input type="date" value={draftTo} aria-invalid={invalidRange} onChange={(event) => setDraftTo(event.target.value)} /></label>
+        {invalidRange && <p className="health-record-validation" role="alert">From date must be on or before To date.</p>}
+        <div className="health-record-custom-actions">
+          <button type="button" className="health-record-date-clear" onClick={() => { onApply('', ''); setOpen(false); }}>Clear</button>
+          <button type="button" className="health-record-primary-button" disabled={invalidRange} onClick={() => { onApply(draftFrom, draftTo); setOpen(false); }}>Apply</button>
+        </div>
+      </div>}
+    </div>}
+  </div>;
+}
 
 const RecordResidentPicker = ({ type, onClose, onSelect }) => {
   const [query, setQuery] = useState('');
@@ -108,13 +288,17 @@ const RecordResidentPicker = ({ type, onClose, onSelect }) => {
     <section ref={dialogRef} className="health-record-picker" role="dialog" aria-modal="true" aria-labelledby="health-record-picker-title">
       <div className="health-record-picker-heading">
         <div><span className="health-record-eyebrow">NEW {type.toUpperCase()} RECORD</span><h2 id="health-record-picker-title">Choose a resident</h2></div>
-        <button type="button" className="health-record-icon-button" aria-label="Close resident selector" onClick={onClose}>×</button>
+        <button type="button" className="health-record-icon-button" aria-label="Close resident selector" onClick={onClose}><X size={18} aria-hidden="true" /></button>
       </div>
       <label className="health-record-picker-search">
-        <span aria-hidden="true">⌕</span>
+        <Search size={17} strokeWidth={1.8} aria-hidden="true" />
         <input ref={inputRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search residents by name" />
       </label>
-      {error && <StatusBanner error={error} retry={() => loadResidents(query.trim())} compact />}
+      {error && <div className="health-record-picker-error" role="alert">
+        <CircleAlert size={18} strokeWidth={1.8} aria-hidden="true" />
+        <span>{getFriendlyError(error)}</span>
+        <button type="button" onClick={() => loadResidents(query.trim())}>Retry</button>
+      </div>}
       {loading ? <div className="health-record-picker-loading" role="status">Searching residents…</div>
         : residents.length ? <ul className="health-record-picker-list">{residents.map((resident) => <li key={resident.resident_id}>
           <button type="button" onClick={() => onSelect(resident)}>
@@ -136,30 +320,34 @@ const HealthRecordsPage = () => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [typeCounts, setTypeCounts] = useState({});
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [recordToDelete, setRecordToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState('');
-  const [menuKey, setMenuKey] = useState('');
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [newRecordType, setNewRecordType] = useState('');
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const searchRef = useRef(null);
   const tableTopRef = useRef(null);
+  const tabRefs = useRef([]);
+  const newRecordButtonRef = useRef(null);
+  const newRecordMenuRef = useRef(null);
 
   const updateParams = useCallback((updates, resetPage = false) => {
+    const hasPendingSearch = !Object.prototype.hasOwnProperty.call(updates, 'search') && query.trim() !== urlState.search;
+    const effectiveUpdates = hasPendingSearch ? { search: query.trim(), ...updates } : updates;
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
-      Object.entries(updates).forEach(([key, value]) => {
+      Object.entries(effectiveUpdates).forEach(([key, value]) => {
         if (value === '' || value === null || value === undefined || (key === 'page' && value === 1) || (key === 'pageSize' && value === DEFAULTS.pageSize) || (key === 'sort' && value === DEFAULTS.sort) || (key === 'order' && value === DEFAULTS.order)) next.delete(key);
         else next.set(key, String(value));
       });
-      if (resetPage) next.delete('page');
+      if (resetPage || hasPendingSearch) next.delete('page');
       return next;
     });
-  }, [setSearchParams]);
+  }, [query, setSearchParams, urlState.search]);
 
   useEffect(() => { setQuery(urlState.search); }, [urlState.search]);
   useEffect(() => {
@@ -192,6 +380,9 @@ const HealthRecordsPage = () => {
     const timer = window.setTimeout(() => setToast(''), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    if (newMenuOpen) newRecordMenuRef.current?.querySelector('[role="menuitem"]')?.focus();
+  }, [newMenuOpen]);
 
   useEffect(() => {
     if (urlState.from && urlState.to && urlState.from > urlState.to) {
@@ -214,6 +405,7 @@ const HealthRecordsPage = () => {
         setItems(data.items || []);
         setTotal(Number(data.total) || 0);
         setTypeCounts(data.typeCounts || {});
+        setStats(data.stats || null);
       } catch (fetchError) {
         if (active) {
           console.error('Unable to load health records.', fetchError);
@@ -233,22 +425,22 @@ const HealthRecordsPage = () => {
   const isFiltered = Boolean(urlState.search || urlState.type || urlState.from || urlState.to);
   const activeFilters = [
     ['search', 'Search', urlState.search], ['type', 'Type', TYPES.find((type) => type.key === urlState.type)?.label],
-    ['from', 'From', urlState.from && formatDateLabel(urlState.from)], ['to', 'To', urlState.to && formatDateLabel(urlState.to)]
+    ['dateRange', 'Date', urlState.from || urlState.to
+      ? `${urlState.from ? formatDateOnly(urlState.from, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Any date'} – ${urlState.to ? formatDateOnly(urlState.to, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Any date'}`
+      : '']
   ].filter(([, , value]) => value);
-  const from = (date) => updateParams({ from: date }, true);
-  const to = (date) => updateParams({ to: date }, true);
 
   const clearFilters = () => {
     setQuery('');
     setSearchParams(new URLSearchParams());
   };
   const applyPreset = (preset) => {
-    const today = getLocalDateInputValue();
-    const date = new Date(`${today}T12:00:00`);
+    const today = getDateInputValueInTimeZone('Asia/Manila');
+    const date = new Date(`${today}T00:00:00.000Z`);
     const daysAgo = (days) => {
       const value = new Date(date);
-      value.setDate(value.getDate() - days);
-      return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+      value.setUTCDate(value.getUTCDate() - days);
+      return value.toISOString().slice(0, 10);
     };
     if (preset === 'Today') updateParams({ from: today, to: today }, true);
     if (preset === 'Last 7 days') updateParams({ from: daysAgo(6), to: today }, true);
@@ -285,159 +477,220 @@ const HealthRecordsPage = () => {
     navigate(`/residents/${resident.resident_id}/medical-records/${newRecordType}`);
     setNewRecordType('');
   };
-  const rangeValue = (preset) => {
-    const today = getLocalDateInputValue();
-    if (preset === 'Today') return urlState.from === today && urlState.to === today;
-    if (preset === 'This month') return urlState.from === `${today.slice(0, 7)}-01` && urlState.to === today;
-    const days = preset === 'Last 7 days' ? 6 : 29;
-    const start = new Date(`${today}T12:00:00`);
-    start.setDate(start.getDate() - days);
-    return urlState.from === `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}` && urlState.to === today;
+
+  const allCount = Object.values(typeCounts).reduce((sum, count) => sum + Number(count || 0), 0);
+  const visibleTypes = stats?.availableTypes
+    ? TYPES.filter((type) => stats.availableTypes.includes(type.key) || urlState.type === type.key)
+    : TYPES;
+  const tabs = [{ key: '', label: 'All', icon: ClipboardList }, ...visibleTypes];
+  const handleTabKeyDown = (event, index) => {
+    let nextIndex = index;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    tabRefs.current[nextIndex]?.focus();
+    updateParams({ type: tabs[nextIndex].key }, true);
+  };
+  const returnTo = `${location.pathname}${location.search}`;
+  const openNewRecordMenu = () => setNewMenuOpen((open) => !open);
+  const handleNewMenuKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      setNewMenuOpen(false);
+      newRecordButtonRef.current?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    const options = Array.from(event.currentTarget.querySelectorAll('[role="menuitem"]'));
+    const index = options.indexOf(document.activeElement);
+    const next = event.key === 'ArrowDown'
+      ? (index + 1 + options.length) % options.length
+      : (index - 1 + options.length) % options.length;
+    options[next]?.focus();
   };
 
   return <main className="health-records-page">
     {toast && <div className="health-record-toast" role="status" aria-live="polite">{toast}</div>}
-    <header className="health-records-page-header">
-      <div className="health-records-title">
-        <div><h1>Health records</h1><p>Browse clinical, child, maternal, and immunization records.</p></div>
-      </div>
-      <div className="health-record-header-actions">
-        <span className="health-records-total" aria-live="polite">{total} {total === 1 ? 'record' : 'records'}</span>
-        <div className="health-record-new-action">
-        <button type="button" className="health-record-primary-button" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen((open) => !open)}>＋ New record <span aria-hidden="true"></span></button>
-        {newMenuOpen && <div className="health-record-new-menu" role="menu" aria-label="Choose a new record type">
-          {TYPES.map((type) => <button key={type.key} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); setNewRecordType(type.key); }}>{type.fullLabel}</button>)}
+    <nav className="health-record-breadcrumb" aria-label="Breadcrumb">
+      <Link to="/dashboard">Home</Link><span aria-hidden="true">/</span><span aria-current="page">Health Records</span>
+    </nav>
+    <PageBanner
+      className="health-records-banner"
+      icon={ClipboardList}
+      eyebrow="HEALTH RECORDS"
+      title="Health Records"
+      subtitle="Browse clinical, child, maternal, and immunization records."
+      actions={<div className="health-record-new-action">
+        <button ref={newRecordButtonRef} type="button" className="health-record-primary-button" aria-haspopup="menu" aria-expanded={newMenuOpen}
+          aria-controls="health-record-new-menu" onClick={openNewRecordMenu}><Plus size={17} strokeWidth={1.9} aria-hidden="true" />New record</button>
+        {newMenuOpen && <div ref={newRecordMenuRef} id="health-record-new-menu" className="health-record-new-menu" role="menu" aria-label="Choose a new record type" onKeyDown={handleNewMenuKeyDown}>
+          {TYPES.map(({ key, fullLabel, icon: Icon }) => <button key={key} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); setNewRecordType(key); }}>
+            <Icon size={16} strokeWidth={1.8} aria-hidden="true" />{fullLabel}
+          </button>)}
         </div>}
-        </div>
-      </div>
-    </header>
+      </div>}
+    />
 
-    <section className={`health-record-toolbar ${showMobileFilters ? 'is-mobile-open' : ''}`} aria-label="Health record filters">
-      <div className="health-record-toolbar-main">
+    <section className={`health-record-kpi-grid ${stats === null ? 'is-loading' : ''}`} aria-label="Health record statistics" aria-busy={stats === null}>
+      {stats === null
+        ? [
+          ['Total Records', ClipboardList],
+          ['Added This Month', CalendarPlus],
+          ['Residents With Records', UsersRound],
+          ['Added This Week', CalendarDays],
+        ].map(([label, Icon]) => <div className="health-record-kpi-skeleton" key={label} aria-hidden="true">
+          <span className="health-record-kpi-skeleton-icon"><Icon size={18} aria-hidden="true" /></span>
+          <span className="health-record-kpi-skeleton-copy"><i /><small>{label}</small></span>
+        </div>)
+        : <>
+          <StatCard icon={ClipboardList} label="Total Records" value={stats.totalRecords ?? 0} />
+          <StatCard icon={CalendarPlus} label="Added This Month" value={stats.addedThisMonth ?? 0} />
+          <StatCard icon={UsersRound} label="Residents With Records" value={stats.residentsWithRecords ?? 0} />
+          <StatCard icon={CalendarDays} label="Added This Week" value={stats.addedThisWeek ?? 0} />
+        </>}
+    </section>
+
+    <section className="health-record-filter-card" aria-label="Health record filters">
+      <div className="health-record-filter-controls">
         <label className="health-record-search">
-          <span aria-hidden="true">⌕</span>
-          <input ref={searchRef} type="search" aria-label="Search health records" placeholder="Search resident, type, notes, assessment" value={query} onChange={(event) => setQuery(event.target.value)} />
-          {query && <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); updateParams({ search: '' }, true); }}>×</button>}
-          {!query && <kbd aria-hidden="true">/</kbd>}
+          <Search size={17} strokeWidth={1.8} aria-hidden="true" />
+          <input ref={searchRef} type="search" aria-label="Search health records" placeholder="Search resident, type, notes, assessment"
+            value={query} onChange={(event) => setQuery(event.target.value)} />
+          {query ? <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); updateParams({ search: '' }, true); }}><X size={16} aria-hidden="true" /></button> : <kbd aria-hidden="true">/</kbd>}
         </label>
-        <label className="health-record-filter-control">
-          <span>Record type</span>
-          <select aria-label="Record type" value={urlState.type} onChange={(event) => updateParams({ type: event.target.value }, true)}>
-            <option value="">All types</option>{TYPES.map((type) => <option key={type.key} value={type.key}>{type.label}</option>)}
-          </select>
-        </label>
-        <div className="health-record-date-filter">
-        {showMobileFilters && <button type="button" className="health-record-mobile-sheet-close" onClick={() => setShowMobileFilters(false)}>Close filters</button>}
-          <span className="health-record-date-label">Date range</span>
-          <div className="health-record-date-inputs">
-            <label><span className="sr-only">From</span><input aria-label="From" type="date" value={urlState.from} max={urlState.to || undefined} onChange={(event) => from(event.target.value)} /></label>
-            <span aria-hidden="true">–</span>
-            <label><span className="sr-only">To</span><input aria-label="To" type="date" value={urlState.to} min={urlState.from || undefined} onChange={(event) => to(event.target.value)} /></label>
-          </div>
-          <div className="health-record-date-presets" aria-label="Quick date ranges">
-            {['Today', 'Last 7 days', 'Last 30 days', 'This month'].map((preset) => <button type="button" key={preset} className={rangeValue(preset) ? 'active' : ''} aria-pressed={rangeValue(preset)} onClick={() => applyPreset(preset)}>{preset}</button>)}
-            <button type="button" className={urlState.from || urlState.to ? 'active' : ''} aria-pressed={Boolean(urlState.from || urlState.to)} onClick={() => setShowMobileFilters(false)}>Custom</button>
-          </div>
-        </div>
-        <button type="button" className="health-record-mobile-filter-toggle" aria-expanded={showMobileFilters} onClick={() => setShowMobileFilters((open) => !open)}>Filters</button>
+        <DateRangeControl from={urlState.from} to={urlState.to}
+          onApply={(startDate, endDate) => updateParams({ from: startDate, to: endDate }, true)}
+          onPreset={applyPreset} />
+        {isFiltered && <button type="button" className="health-record-clear-filters" onClick={clearFilters}><RotateCcw size={15} aria-hidden="true" />Clear filters</button>}
       </div>
       {invalidDateRange && <p className="health-record-validation" role="alert">From date must be on or before To date.</p>}
+      {activeFilters.length > 0 && <div className="health-record-active-filters" aria-label="Active filters">
+        {activeFilters.map(([key, label, value]) => <span className="health-record-filter-chip" key={key}>
+          <span><strong>{label}:</strong> {value}</span>
+          <button type="button" aria-label={`Remove ${label} filter`} onClick={() => {
+            if (key === 'search') setQuery('');
+            if (key === 'type') updateParams({ type: '' }, true);
+            else if (key === 'search') updateParams({ search: '' }, true);
+            else updateParams({ from: '', to: '' }, true);
+          }}><X size={14} aria-hidden="true" /></button>
+        </span>)}
+      </div>}
+      <div className="health-record-quick-filters" role="tablist" aria-label="Filter by record type">
+        {tabs.map(({ key, label, icon: Icon }, index) => {
+          const selected = urlState.type === key;
+          const count = key ? Number(typeCounts[key] || 0) : allCount;
+          return <button key={key || 'all'} ref={(node) => { tabRefs.current[index] = node; }} type="button" role="tab"
+            aria-selected={selected} aria-controls="health-record-results" tabIndex={selected ? 0 : -1}
+            className={`health-record-type-tab ${selected ? 'active' : ''} ${key ? `health-record-type-${key}` : ''}`}
+            onClick={() => updateParams({ type: key }, true)} onKeyDown={(event) => handleTabKeyDown(event, index)}>
+            <Icon size={16} strokeWidth={1.8} aria-hidden="true" />{label}<span>{count.toLocaleString()}</span>
+          </button>;
+        })}
+      </div>
     </section>
 
-    <div className="health-record-quick-filters" role="tablist" aria-label="Filter by record type">
-      <button type="button" role="tab" aria-selected={!urlState.type} className={!urlState.type ? 'active' : ''} onClick={() => updateParams({ type: '' }, true)}>All <span>{Object.values(typeCounts).reduce((sum, count) => sum + Number(count || 0), 0)}</span></button>
-      {TYPES.map((type) => <button key={type.key} type="button" role="tab" aria-selected={urlState.type === type.key} className={urlState.type === type.key ? 'active' : ''} onClick={() => updateParams({ type: urlState.type === type.key ? '' : type.key }, true)}>{type.label} <span>{typeCounts[type.key] || 0}</span></button>)}
-      <button type="button" className="health-record-mobile-filter-toggle" onClick={() => setShowMobileFilters(true)}>Date filters</button>
-    </div>
-
-    {activeFilters.length > 0 && <div className="health-record-active-filters" aria-label="Active filters">
-      {activeFilters.map(([key, label, value]) => <button type="button" key={key} className="health-record-filter-chip" onClick={() => { if (key === 'search') setQuery(''); updateParams({ [key]: '' }, true); }}>{label}: {value}<span aria-hidden="true"> ×</span></button>)}
-      <button type="button" className="health-record-clear-filters" onClick={clearFilters}>Clear all</button>
-    </div>}
-
-    <div ref={tableTopRef} className="health-record-results-count" aria-live="polite" aria-atomic="true">
-      <span>{loading && items.length ? 'Updating results…' : `Showing ${first}-${last} of ${total} matching records`}</span>
-      {loading && items.length > 0 && <span className="health-record-loading-indicator" aria-hidden="true" />}
-      {loading && items.length > 0 && <span className="sr-only">Updating results</span>}
-      {isFiltered && !loading && <span>{total} {total === 1 ? 'result' : 'results'}</span>}
-    </div>
-    {error && <StatusBanner error={error} retry={() => setRetry((current) => current + 1)} />}
-
-    <section className="health-record-table-card" aria-label="Health records">
-      <div className="health-record-table-wrap">
-        <table className="health-records-table">
-          <thead><tr>
-            <th scope="col" aria-sort={sortState('resident')}><button type="button" onClick={() => setSort('resident')}>Resident <span aria-hidden="true">↕</span></button></th>
-            <th scope="col" aria-sort={sortState('date')}><button type="button" onClick={() => setSort('date')}>Date <span aria-hidden="true">↕</span></button></th>
-            <th scope="col" aria-sort={sortState('type')}><button type="button" onClick={() => setSort('type')}>Type <span aria-hidden="true">↕</span></button></th>
-            <th scope="col">Summary</th><th scope="col">Recorded by</th><th scope="col">Actions</th>
-          </tr></thead>
-          <tbody>
-            {loading && !items.length ? Array.from({ length: 7 }, (_, index) => <tr className="health-record-skeleton-row" key={`skeleton-${index}`} aria-hidden="true">{Array.from({ length: 6 }, (_, cell) => <td key={cell}><span /></td>)}</tr>)
-              : items.map((item) => {
-                const path = buildRecordPath(item);
-                const residentName = formatResidentName(item) || 'Unknown resident';
-                const identity = [item.age ?? calculateAge(item.birthdate), item.sex ? String(item.sex).replace(/^./, (letter) => letter.toUpperCase()) : null].filter(Boolean).join(' · ');
-                const secondLine = identity || (item.household_no ? `Household ${item.household_no}` : 'Resident details unavailable');
-                const rowKey = `${item.source_table}-${item.record_id}`;
-                return <tr key={rowKey} className="health-record-row" tabIndex={0} onClick={(event) => { if (!event.target.closest('a, button, input, select')) showRecord(item); }} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showRecord(item); } }}>
-                  <td><Link className="health-record-resident" to={path} state={{ from: `${location.pathname}${location.search}` }}>
-                    <span className="health-record-avatar">{item.profile_photo && <img src={getProfilePhotoUrl(item.profile_photo)} alt="" onError={(event) => event.currentTarget.remove()} />}{`${item.first_name?.charAt(0) || ''}${item.last_name?.charAt(0) || ''}`.toUpperCase()}</span>
-                    <span><strong>{residentName}</strong><small>{secondLine}</small></span>
-                  </Link></td>
-                  <td><time dateTime={String(item.record_date || '').slice(0, 10)}>{formatDateLabel(item.record_date) || 'Date not recorded'}</time></td>
-                  <td><TypeBadge type={item.record_type} label={item.record_label} /></td>
-                  <td><span className="health-record-summary" title={item.summary && item.summary !== '-' ? item.summary : undefined}>{item.summary && item.summary !== '-' ? item.summary : <span className="health-record-muted">Not recorded</span>}</span></td>
-                  <td><span className="health-record-recorded-by">{item.recorded_by_name || 'Not recorded'}</span></td>
-                  <td className="health-record-row-actions">
-                    <Link to={path} state={{ from: `${location.pathname}${location.search}` }} className="health-record-view-button" aria-label={`View ${item.record_label || 'health record'} for ${residentName}`} title="View details">View</Link>
-                    <div className="health-record-row-menu">
-                      <button type="button" className="health-record-icon-button" aria-label={`More actions for ${residentName}`} aria-expanded={menuKey === rowKey} onClick={() => setMenuKey((current) => current === rowKey ? '' : rowKey)}>⋯</button>
-                      {menuKey === rowKey && <div className="health-record-menu" role="menu">
-                        <Link to={path} state={{ from: `${location.pathname}${location.search}` }} role="menuitem">View details</Link>
-                        <button type="button" role="menuitem" onClick={() => { setRecordToDelete(item); setMenuKey(''); }}>Delete record</button>
-                      </div>}
-                    </div>
-                  </td>
-                </tr>;
+    <section ref={tableTopRef} id="health-record-results" className="health-record-table-card" aria-label="Health records" aria-busy={loading}>
+      <header className="health-record-table-card-header">
+        <div><h2>Health records</h2><p>{loading && !stats ? 'Loading health records' : `Showing ${first.toLocaleString()}-${last.toLocaleString()} of ${total.toLocaleString()} matching records`}</p></div>
+        <span className="health-record-count-chip">{total.toLocaleString()} {total === 1 ? 'record' : 'records'}</span>
+      </header>
+      {error ? <div className="health-record-state" role="alert">
+        <span className="health-record-state-icon is-error"><CircleAlert size={22} strokeWidth={1.8} aria-hidden="true" /></span>
+        <h3>Unable to load health records</h3><p>{getFriendlyError(error)}</p>
+        <button type="button" className="health-record-secondary-button" onClick={() => setRetry((current) => current + 1)}>Retry</button>
+      </div> : <>
+        <div className="health-record-table-wrap">
+          <table className="health-records-table">
+            <thead><tr>
+              {['resident', 'date', 'type'].map((field) => {
+                const label = field.charAt(0).toUpperCase() + field.slice(1);
+                const direction = sortState(field);
+                const SortIcon = direction === 'ascending' ? ArrowUp : direction === 'descending' ? ArrowDown : ArrowUpDown;
+                return <th key={field} scope="col" aria-sort={direction}><button type="button" onClick={() => setSort(field)}>{label}<SortIcon size={14} strokeWidth={1.8} aria-hidden="true" /></button></th>;
               })}
-            {!loading && !error && !items.length && <tr><td colSpan="6"><div className="health-record-empty-state">
-              <span className="health-record-empty-icon" aria-hidden="true">▤</span>
-              <strong>{isFiltered ? 'No records match these filters' : 'No health records yet'}</strong>
-              <p>{isFiltered ? 'Try adjusting your search or filters.' : 'Create a record to start building this resident health history.'}</p>
-              {isFiltered ? <button type="button" className="health-record-secondary-button" onClick={clearFilters}>Clear filters</button> : <button type="button" className="health-record-primary-button" onClick={() => setNewMenuOpen(true)}>New record</button>}
-            </div></td></tr>}
-            {!loading && error && !items.length && <tr><td colSpan="6"><div className="health-record-empty-state"><strong>Health records are unavailable</strong><p>Try again to reload the record list.</p><button type="button" className="health-record-secondary-button" onClick={() => setRetry((current) => current + 1)}>Try again</button></div></td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <div className="health-record-mobile-list">
-        {loading && !items.length ? Array.from({ length: 5 }, (_, index) => <div className="health-record-mobile-skeleton" key={`mobile-skeleton-${index}`} aria-hidden="true"><span /><span /></div>)
-          : items.map((item) => {
-            const path = buildRecordPath(item);
-            const residentName = formatResidentName(item) || 'Unknown resident';
-            const rowKey = `${item.source_table}-${item.record_id}`;
-            return <article className="health-record-mobile-card" key={`mobile-${rowKey}`}>
-              <Link to={path} state={{ from: `${location.pathname}${location.search}` }} className="health-record-mobile-identity">
-                <span className="health-record-avatar">{item.profile_photo && <img src={getProfilePhotoUrl(item.profile_photo)} alt="" onError={(event) => event.currentTarget.remove()} />}{`${item.first_name?.charAt(0) || ''}${item.last_name?.charAt(0) || ''}`.toUpperCase()}</span>
-                <span><strong>{residentName}</strong><small>{item.age ?? calculateAge(item.birthdate)} yrs{item.sex ? ` · ${String(item.sex).replace(/^./, (letter) => letter.toUpperCase())}` : ''}</small></span>
-              </Link>
-              <div className="health-record-mobile-meta"><TypeBadge type={item.record_type} label={item.record_label} /><time dateTime={String(item.record_date || '').slice(0, 10)}>{formatDateLabel(item.record_date) || 'Date not recorded'}</time></div>
-              <p className="health-record-mobile-summary" title={item.summary && item.summary !== '-' ? item.summary : undefined}>{item.summary && item.summary !== '-' ? item.summary : 'Not recorded'}</p>
-              <div className="health-record-mobile-actions"><Link to={path} state={{ from: `${location.pathname}${location.search}` }} className="health-record-view-button">View record</Link><div className="health-record-row-menu">
-                <button type="button" className="health-record-icon-button" aria-label={`More actions for ${residentName}`} aria-expanded={menuKey === rowKey} onClick={() => setMenuKey((current) => current === rowKey ? '' : rowKey)}>⋯</button>
-                {menuKey === rowKey && <div className="health-record-menu" role="menu"><Link to={path} state={{ from: `${location.pathname}${location.search}` }} role="menuitem">View details</Link><button type="button" role="menuitem" onClick={() => { setRecordToDelete(item); setMenuKey(''); }}>Delete record</button></div>}
-              </div></div>
-            </article>;
-          })}
-        {!loading && !error && !items.length && <div className="health-record-empty-state"><strong>{isFiltered ? 'No records match these filters' : 'No health records yet'}</strong><p>{isFiltered ? 'Try adjusting your search or filters.' : 'Create a record to start building this resident health history.'}</p>{isFiltered ? <button type="button" className="health-record-secondary-button" onClick={clearFilters}>Clear filters</button> : <button type="button" className="health-record-primary-button" onClick={() => setNewMenuOpen(true)}>New record</button>}</div>}
-      </div>
-      <footer className="health-record-table-footer">
-        <Pagination currentPage={urlState.page} totalPages={totalPages} first={first} last={last} total={total} itemLabel="records" onPageChange={(page) => { updateParams({ page }, false); tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} pageSize={urlState.pageSize} onPageSizeChange={(pageSize) => updateParams({ pageSize, page: '' }, false)} />
-      </footer>
+              <th className="health-record-hide-tablet" scope="col">Summary</th>
+              <th className="health-record-hide-tablet" scope="col">Recorded By</th>
+              <th scope="col">Actions</th>
+            </tr></thead>
+            <tbody>
+              {loading && !items.length ? Array.from({ length: 7 }, (_, index) => <tr className="health-record-skeleton-row" key={`skeleton-${index}`} aria-hidden="true">{Array.from({ length: 6 }, (_, cell) => <td key={cell}><span /></td>)}</tr>)
+                : items.map((item) => {
+                  const residentName = getResidentDisplayName(item);
+                  const age = item.age ?? calculateAge(item.birthdate);
+                  const gender = formatGender(item.sex);
+                  const demographics = [age !== null && age !== undefined ? `${age} yrs` : '', gender ? `Gender: ${gender}` : ''].filter(Boolean).join(' · ') || 'Not provided';
+                  const summary = getRecordSummary(item.summary);
+                  return <tr key={`${item.source_table}-${item.record_id}`} className="health-record-row" tabIndex={0}
+                    aria-label={`View ${residentName}'s ${TYPE_BY_KEY[item.record_type]?.label || 'health'} record`}
+                    onClick={(event) => { if (!event.target.closest('a, button, input, select')) showRecord(item); }}
+                    onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showRecord(item); } }}>
+                    <td>
+                      <Link className="health-record-resident" to={buildRecordPath(item)} state={{ from: returnTo }} title={residentName}>
+                        <span className="health-record-avatar">{item.profile_photo && <img src={getProfilePhotoUrl(item.profile_photo)} alt="" onError={(event) => event.currentTarget.remove()} />}{`${item.first_name?.charAt(0) || ''}${item.last_name?.charAt(0) || ''}`.toUpperCase()}</span>
+                        <span><strong>{residentName}</strong><small>{demographics}</small>
+                          <span className="health-record-table-hidden-details"><span><b>Summary</b>{summary || <i>No summary</i>}</span><span><b>Recorded by</b>{item.recorded_by_name || <i>Not provided</i>}</span></span>
+                        </span>
+                      </Link>
+                    </td>
+                    <td><span className="health-record-date-value"><CalendarDays size={14} strokeWidth={1.8} aria-hidden="true" /><time dateTime={String(item.record_date || '').slice(0, 10)}>{formatDateOnly(item.record_date, { month: 'short', day: 'numeric', year: 'numeric' }) || <i>Not provided</i>}</time></span></td>
+                    <td><TypeBadge type={item.record_type} /></td>
+                    <td className="health-record-hide-tablet"><span className="health-record-summary" title={summary || undefined}>{summary || <i>No summary</i>}</span></td>
+                    <td className="health-record-hide-tablet"><span className="health-record-recorded-by"><UserRound size={15} strokeWidth={1.8} aria-hidden="true" />{item.recorded_by_name || <i>Not provided</i>}</span></td>
+                    <td><RecordActions item={item} residentName={residentName} returnTo={returnTo} onDelete={setRecordToDelete} /></td>
+                  </tr>;
+                })}
+              {!loading && !items.length && <tr><td colSpan="6"><div className="health-record-empty-state">
+                <span className="health-record-empty-icon"><ClipboardList size={23} strokeWidth={1.8} aria-hidden="true" /></span>
+                <strong>{isFiltered ? 'No health records found' : 'No health records found'}</strong>
+                <p>{isFiltered ? 'Try changing your search or date range.' : 'There are no health records to display yet.'}</p>
+                {isFiltered ? <button type="button" className="health-record-secondary-button" onClick={clearFilters}>Clear filters</button> : <button type="button" className="health-record-primary-button" onClick={() => setNewMenuOpen(true)}><Plus size={16} aria-hidden="true" />New record</button>}
+              </div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="health-record-mobile-list">
+          {loading && !items.length ? Array.from({ length: 5 }, (_, index) => <div className="health-record-mobile-skeleton" key={`mobile-skeleton-${index}`} aria-hidden="true"><span /><span /></div>)
+            : items.map((item) => {
+              const residentName = getResidentDisplayName(item);
+              const age = item.age ?? calculateAge(item.birthdate);
+              const gender = formatGender(item.sex);
+              const demographics = [age !== null && age !== undefined ? `${age} yrs` : '', gender ? `Gender: ${gender}` : ''].filter(Boolean).join(' · ') || 'Not provided';
+              const summary = getRecordSummary(item.summary);
+              return <article className="health-record-mobile-card" key={`mobile-${item.source_table}-${item.record_id}`}>
+                <Link to={buildRecordPath(item)} state={{ from: returnTo }} className="health-record-mobile-identity" title={residentName}>
+                  <span className="health-record-avatar">{item.profile_photo && <img src={getProfilePhotoUrl(item.profile_photo)} alt="" onError={(event) => event.currentTarget.remove()} />}{`${item.first_name?.charAt(0) || ''}${item.last_name?.charAt(0) || ''}`.toUpperCase()}</span>
+                  <span><strong>{residentName}</strong><small>{demographics}</small></span>
+                </Link>
+                <div className="health-record-mobile-meta"><TypeBadge type={item.record_type} />
+                  <span className="health-record-date-value"><CalendarDays size={14} aria-hidden="true" /><time dateTime={String(item.record_date || '').slice(0, 10)}>{formatDateOnly(item.record_date, { month: 'short', day: 'numeric', year: 'numeric' }) || <i>Not provided</i>}</time></span>
+                </div>
+                <p className={`health-record-mobile-summary ${summary ? '' : 'is-empty'}`} title={summary || undefined}>{summary || 'No summary'}</p>
+                <span className="health-record-mobile-recorded-by"><UserRound size={15} strokeWidth={1.8} aria-hidden="true" />{item.recorded_by_name || <i>Not provided</i>}</span>
+                <RecordActions item={item} residentName={residentName} returnTo={returnTo} onDelete={setRecordToDelete} />
+              </article>;
+            })}
+          {!loading && !error && !items.length && <div className="health-record-empty-state">
+            <span className="health-record-empty-icon"><ClipboardList size={23} strokeWidth={1.8} aria-hidden="true" /></span>
+            <strong>No health records found</strong>
+            <p>{isFiltered ? 'Try changing your search or date range.' : 'There are no health records to display yet.'}</p>
+            {isFiltered ? <button type="button" className="health-record-secondary-button" onClick={clearFilters}>Clear filters</button> : <button type="button" className="health-record-primary-button" onClick={() => setNewMenuOpen(true)}><Plus size={16} aria-hidden="true" />New record</button>}
+          </div>}
+        </div>
+      </>}
+      {!error && total > 0 && <footer className="health-record-table-footer">
+        <Pagination currentPage={urlState.page} totalPages={totalPages} first={first} last={last} total={total} itemLabel="records"
+          onPageChange={(page) => { updateParams({ page }, false); tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+          pageSize={urlState.pageSize} pageSizeOptions={PAGE_SIZES} onPageSizeChange={(pageSize) => updateParams({ pageSize, page: '' }, true)}
+          compactButtons formatCounts />
+      </footer>}
     </section>
 
-    <ConfirmModal open={Boolean(recordToDelete)} title="Delete health record?" message={recordToDelete ? `Delete ${recordToDelete.record_label || 'health record'} for ${formatResidentName(recordToDelete)} dated ${formatDateLabel(recordToDelete.record_date) || 'Date not recorded'}? This cannot be undone.` : ''} busy={deleting} onCancel={() => setRecordToDelete(null)} onConfirm={removeRecord} />
+    <ConfirmModal open={Boolean(recordToDelete)} title="Delete health record?"
+      message={recordToDelete ? `Delete ${recordToDelete.record_label || 'health record'} for ${getResidentDisplayName(recordToDelete)} dated ${formatDateLabel(recordToDelete.record_date) || 'Date not provided'}? This cannot be undone.` : ''}
+      busy={deleting} onCancel={() => setRecordToDelete(null)} onConfirm={removeRecord} />
     {newRecordType && <RecordResidentPicker type={newRecordType} onClose={() => setNewRecordType('')} onSelect={selectResident} />}
   </main>;
 };

@@ -7,6 +7,7 @@ const pool = require('../config/database');
 const { writeAudit } = require('../services/auditService');
 const logger = require('../services/logger');
 const { getManilaToday } = require('../services/manilaDateService');
+const { reconcileSeniorCitizenRegistry } = require('../services/seniorCitizenAutoRegistrationService');
 
 function dateParts(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').slice(0, 10));
@@ -30,6 +31,7 @@ function ageOnDate(birthdate, referenceDate) {
  */
 const listSeniorCitizens = async (req, res) => {
   try {
+    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const page = Math.max(1, Number(req.query.page || 1));
     const pageSize = [10, 25, 50].includes(Number(req.query.pageSize || req.query.limit)) ? Number(req.query.pageSize || req.query.limit) : 10;
     const offset = (page - 1) * pageSize;
@@ -61,17 +63,53 @@ const listSeniorCitizens = async (req, res) => {
     const orderBy = {
       name_asc: 'r.last_name ASC, r.first_name ASC', name_desc: 'r.last_name DESC, r.first_name DESC',
       age_oldest: 'r.birthdate ASC', age_youngest: 'r.birthdate DESC',
-      newest: 'scr.date_registered DESC, scr.senior_id DESC', senior_id: 'CAST(SUBSTRING_INDEX(scr.senior_citizen_id, \'-\', -1) AS UNSIGNED) ASC'
+      newest: 'scr.date_registered DESC, scr.senior_id DESC', oldest: 'scr.date_registered ASC, scr.senior_id ASC',
+      senior_id: 'CAST(SUBSTRING_INDEX(scr.senior_citizen_id, \'-\', -1) AS UNSIGNED) ASC',
+      senior_id_desc: 'CAST(SUBSTRING_INDEX(scr.senior_citizen_id, \'-\', -1) AS UNSIGNED) DESC'
     }[sort] || 'scr.date_registered DESC, scr.senior_id DESC';
 
     const sql = `SELECT scr.*, u.full_name AS recorded_by_name, r.first_name,r.middle_name,r.last_name,r.suffix,r.birthdate,r.sex,r.sitio,r.address,r.contact_no,r.household_no,r.profile_photo,r.resident_status,
       TIMESTAMPDIFF(YEAR,r.birthdate,?) AS age
       FROM senior_citizen_records scr LEFT JOIN users u ON scr.recorded_by=u.user_id JOIN residents r ON scr.resident_id=r.resident_id
       ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-    const [rows] = await pool.query(sql, [getManilaToday(), ...params, pageSize, offset]);
-    const [conditions] = await pool.query(`SELECT health_conditions FROM senior_citizen_records WHERE health_conditions IS NOT NULL AND TRIM(health_conditions)<>''`);
+    const today = getManilaToday();
+    const [rows] = await pool.query(sql, [today, ...params, pageSize, offset]);
+    const [year, month] = today.split('-').map(Number);
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = new Date(Date.UTC(year, month, 1));
+    const nextMonthStart = `${nextMonth.getUTCFullYear()}-${String(nextMonth.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    const [statsRows] = await pool.query(
+      `SELECT
+        COUNT(DISTINCT scr.senior_id) AS registered,
+        COUNT(DISTINCT CASE WHEN r.birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR,r.birthdate,?) >= 80 THEN scr.senior_id END) AS age80Plus,
+        COUNT(DISTINCT CASE WHEN scr.health_conditions IS NOT NULL AND TRIM(scr.health_conditions)<>'' AND LOWER(TRIM(scr.health_conditions)) NOT IN ('no known conditions','none recorded') THEN scr.senior_id END) AS knownConditions,
+        COUNT(DISTINCT CASE WHEN scr.date_registered >= ? AND scr.date_registered < ? THEN scr.senior_id END) AS registeredThisMonth
+      FROM senior_citizen_records scr
+      JOIN residents r ON r.resident_id=scr.resident_id`,
+      [today, monthStart, nextMonthStart]
+    );
+    const [conditionRows] = await pool.query(`SELECT health_conditions FROM senior_citizen_records WHERE health_conditions IS NOT NULL AND TRIM(health_conditions)<>''`);
+    const conditions = [...new Set(conditionRows.flatMap((row) => String(row.health_conditions).split(',').map((condition) => condition.trim()).filter(Boolean)))].sort((first, second) => first.localeCompare(second));
+    const aggregate = statsRows[0] || {};
 
-    return res.json({ success: true, data: { items: rows, total, page, pageSize, limit: pageSize, counts: { total } } });
+    return res.json({
+      success: true,
+      data: {
+        items: rows,
+        total,
+        page,
+        pageSize,
+        limit: pageSize,
+        counts: { total },
+        stats: {
+          registered: Number(aggregate.registered || 0),
+          age80Plus: Number(aggregate.age80Plus || 0),
+          knownConditions: Number(aggregate.knownConditions || 0),
+          registeredThisMonth: Number(aggregate.registeredThisMonth || 0)
+        },
+        filterOptions: { conditions }
+      }
+    });
   } catch (err) {
     logger.error('listSeniorCitizens error', err);
     return res.status(500).json({ success: false, message: 'Server error' });

@@ -6,6 +6,7 @@
 const pool = require('../config/database');
 const { writeAudit } = require('../services/auditService');
 const logger = require('../services/logger');
+const { getManilaToday } = require('../services/manilaDateService');
 
 /**
  * List health records with filtering and pagination
@@ -79,7 +80,7 @@ const buildRecordsUnion = () => recordSources.map(({ table, type, label, json })
         TIMESTAMPDIFF(YEAR, r.birthdate, CURDATE()) AS age,
         ${sqlText(`COALESCE(${dateFields.map(jsonValue).join(', ')}, DATE_FORMAT(mr.created_at, '%Y-%m-%d'))`)} AS record_date,
         ${sqlText(`'${type}'`)} AS record_type, ${sqlText(`'${label}'`)} AS record_label,
-        ${sqlText(`COALESCE(${summaryFields.map(jsonValue).join(', ')}, ${type === 'immunization' ? "'Vaccine record'" : "'-'"})`)} AS summary,
+        ${sqlText(`COALESCE(${summaryFields.map(jsonValue).join(', ')}, '')`)} AS summary,
         ${sqlText(`'${table}'`)} AS source_table, mr.created_at, mr.updated_at, mr.recorded_by,
         ${sqlText('u.full_name')} AS recorded_by_name,
         ${sqlText('CAST(mr.record_data AS CHAR)')} AS search_text
@@ -108,7 +109,7 @@ const buildRecordsUnion = () => recordSources.map(({ table, type, label, json })
       TIMESTAMPDIFF(YEAR, r.birthdate, CURDATE()) AS age,
       ${sqlText(`DATE_FORMAT(${dateColumn}, '%Y-%m-%d')`)} AS record_date,
       ${sqlText(`'${type}'`)} AS record_type, ${sqlText(`'${label}'`)} AS record_label,
-      ${sqlText(`COALESCE(${summaryColumns.map((column) => `NULLIF(${tableAlias}.${column}, '')`).join(', ')}, '-')`)} AS summary,
+      ${sqlText(`COALESCE(${summaryColumns.map((column) => `NULLIF(${tableAlias}.${column}, '')`).join(', ')}, '')`)} AS summary,
       ${sqlText(`'${table}'`)} AS source_table, ${tableAlias}.created_at, ${tableAlias}.updated_at, ${tableAlias}.recorded_by,
       ${sqlText('u.full_name')} AS recorded_by_name,
       ${sqlText(`CONCAT_WS(' ', ${searchableColumns.map((column) => `${tableAlias}.${column}`).join(', ')})`)} AS search_text
@@ -163,12 +164,49 @@ const listAllHealthRecords = async (req, res) => {
       `SELECT * FROM (${unionSql}) records WHERE ${filters} ORDER BY ${sortSql} ${order.toUpperCase()}, created_at DESC, record_id DESC LIMIT ? OFFSET ?`,
       [...filterParams, pageSize, offset]
     );
+    const today = getManilaToday();
+    const todayDate = new Date(`${today}T00:00:00.000Z`);
+    const [year, month] = today.split('-').map(Number);
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = new Date(Date.UTC(year, month, 1));
+    const nextMonthStart = nextMonth.toISOString().slice(0, 10);
+    const weekStart = new Date(todayDate);
+    weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+    const weekStartDate = weekStart.toISOString().slice(0, 10);
+    const tomorrow = new Date(todayDate);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+    const [statsRows] = await pool.query(
+      `SELECT COUNT(*) AS totalRecords,
+        COUNT(DISTINCT resident_id) AS residentsWithRecords,
+        SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END) AS addedThisMonth,
+        SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END) AS addedThisWeek,
+        GROUP_CONCAT(DISTINCT record_type) AS availableTypes
+      FROM (${unionSql}) records`,
+      [monthStart, nextMonthStart, weekStartDate, tomorrowDate]
+    );
     const typeCounts = Object.fromEntries(validTypes.map((type) => [type, 0]));
     countByType.forEach((row) => { typeCounts[row.record_type] = Number(row.total); });
+    const aggregate = statsRows[0] || {};
     const totalPages = Math.ceil(total / pageSize);
     return res.json({
       success: true,
-      data: { items: rows, total, page, pageSize, limit: pageSize, typeCounts, pagination: { page, limit: pageSize, total, totalPages } }
+      data: {
+        items: rows,
+        total,
+        page,
+        pageSize,
+        limit: pageSize,
+        typeCounts,
+        stats: {
+          totalRecords: Number(aggregate.totalRecords || 0),
+          addedThisMonth: Number(aggregate.addedThisMonth || 0),
+          residentsWithRecords: Number(aggregate.residentsWithRecords || 0),
+          addedThisWeek: Number(aggregate.addedThisWeek || 0),
+          availableTypes: String(aggregate.availableTypes || '').split(',').filter(Boolean)
+        },
+        pagination: { page, limit: pageSize, total, totalPages }
+      }
     });
   } catch (error) {
     logger.error('listAllHealthRecords error', error);

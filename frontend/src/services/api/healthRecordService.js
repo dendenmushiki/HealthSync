@@ -1,6 +1,7 @@
 import api from './apiClient';
 import { getOfflineSnapshotRecords } from '../offline/offlineDataDownloadService';
 import { calculateAge } from '../../utils/residentUtils';
+import { getDateInputValueInTimeZone } from '../../utils/dateUtils';
 import { getQueueItems } from '../offline/offlineQueueService';
 import { isOffline } from '../offline/networkService';
 
@@ -49,8 +50,34 @@ function getSummary(record) {
     maternal: ['assessment', 'chief_complaint', 'tt_status', 'notes', 'visit_date'],
     immunization: ['vaccine_summary', 'notes', 'assessment'],
   }[record.record_type] || [];
-  return fields.map((field) => record.record_data?.[field]).find((value) => value !== null && value !== undefined && String(value).trim()) ||
-    (record.record_type === 'immunization' ? 'Vaccine record' : '-');
+  return fields.map((field) => record.record_data?.[field]).find((value) => value !== null && value !== undefined && String(value).trim()) || '';
+}
+
+function getOverviewStats(records) {
+  const today = getDateInputValueInTimeZone('Asia/Manila');
+  const todayDate = new Date(`${today}T00:00:00.000Z`);
+  const [year, month] = today.split('-').map(Number);
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const nextMonthStart = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  const weekStart = new Date(todayDate);
+  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+  const weekStartDate = weekStart.toISOString().slice(0, 10);
+  const createdDate = (record) => {
+    if (!record.created_at) return '';
+    const date = new Date(record.created_at);
+    return Number.isNaN(date.getTime()) ? '' : getDateInputValueInTimeZone('Asia/Manila', date);
+  };
+  const inRange = (record, start, end) => {
+    const date = createdDate(record);
+    return date >= start && date < end;
+  };
+  return {
+    totalRecords: records.length,
+    addedThisMonth: records.filter((record) => inRange(record, monthStart, nextMonthStart)).length,
+    residentsWithRecords: new Set(records.map((record) => record.resident_id).filter((residentId) => residentId !== null && residentId !== undefined).map(String)).size,
+    addedThisWeek: records.filter((record) => inRange(record, weekStartDate, getDateInputValueInTimeZone('Asia/Manila', new Date(todayDate.getTime() + 86400000)))).length,
+    availableTypes: [...new Set(records.map((record) => record.record_type).filter(Boolean))],
+  };
 }
 
 async function getOfflineOverviewRecords() {
@@ -101,7 +128,7 @@ async function getOfflineOverviewRecords() {
     const date = record.record_data ? getMedicalRecordDate(record) : String(record.record_date || '').slice(0, 10);
     const summary = record.record_data ? getSummary(record) : (
       record.assessment || record.chief_complaint || record.history_of_present_illness ||
-      record.findings || record.plan || record.immunization_history || record.remarks || '-'
+      record.findings || record.plan || record.immunization_history || record.remarks || ''
     );
     const searchText = record.record_data ? JSON.stringify(record.record_data) : [
       record.notes, record.assessment, record.chief_complaint, record.history_of_present_illness,
@@ -164,6 +191,7 @@ export async function listHealthRecords(params = {}) {
 export async function listAllHealthRecords(params = {}) {
   if (isOffline()) {
     const allRecords = await getOfflineOverviewRecords();
+    const stats = getOverviewStats(allRecords);
     const search = String(params.search || '').trim().toLowerCase();
     const startDate = String(params.from || '');
     const endDate = String(params.to || '');
@@ -191,6 +219,7 @@ export async function listAllHealthRecords(params = {}) {
         ...data,
         items: data.items.map(({ _record, ...record }) => record),
         typeCounts,
+        stats,
         offline: true,
       },
     };

@@ -5,6 +5,7 @@ const logger = require('./logger');
 const { ensureResidentSchema } = require('./residentSchemaService');
 const { resolveResidentLocation } = require('./psgcService');
 const { validateClinicalRecord } = require('./clinicalRecordValidation');
+const { ensureSeniorCitizenRecord } = require('./seniorCitizenAutoRegistrationService');
 
 class ValidationError extends Error {
   constructor(errors) {
@@ -522,6 +523,9 @@ async function processOperation({
   validatePayload(table, payload, operation);
   // normalize types (throws on invalid types)
   const normalizedPayload = normalizePayload(table, payload || {});
+  if (table === 'residents' && normalizedPayload.civil_status === 'Unknown') {
+    normalizedPayload.civil_status = '';
+  }
   // validate per-column constraints (ranges, enums, dates)
   validateConstraints(table, normalizedPayload);
   if (table === 'patient_clinical_records' && normalizedPayload.record_data) {
@@ -560,7 +564,7 @@ async function processOperation({
           normalizedPayload.sitio || null,
           normalizedPayload.birthdate || null,
           normalizedPayload.sex || null,
-          normalizedPayload.civil_status || 'Unknown',
+          normalizedPayload.civil_status || '',
           normalizedPayload.occupation || null,
           normalizedPayload.resident_status || 'Active',
           normalizedPayload.pregnant !== undefined ? Number(normalizedPayload.pregnant) : 0,
@@ -568,6 +572,12 @@ async function processOperation({
           userId || null
         ]);
         const newId = res.insertId;
+        await ensureSeniorCitizenRecord(conn, {
+          resident_id: newId,
+          birthdate: normalizedPayload.birthdate,
+          contact_no: normalizedPayload.contact_no,
+          category_flags: normalizedPayload.category_flags,
+        }, { userId });
         await writeAudit({ user_id: userId, action: 'CREATE', module: module, table_name: table, record_id: newId, new_data: payload, ip_address: ip, user_agent: userAgent });
         await conn.commit();
         const response = { success: true, serverRecordId: newId };
@@ -624,6 +634,12 @@ async function processOperation({
           userId || null,
           id
         ]);
+        await ensureSeniorCitizenRecord(conn, {
+          resident_id: id,
+          birthdate: normalizedPayload.birthdate !== undefined ? normalizedPayload.birthdate : oldData.birthdate,
+          contact_no: normalizedPayload.contact_no !== undefined ? normalizedPayload.contact_no : oldData.contact_no,
+          category_flags: normalizedPayload.category_flags !== undefined ? normalizedPayload.category_flags : oldData.category_flags,
+        }, { userId });
         await writeAudit({ user_id: userId, action: 'UPDATE', module: module, table_name: table, record_id: id, old_data: oldData, new_data: payload, ip_address: ip, user_agent: userAgent });
         await conn.commit();
         const response = { success: true, serverRecordId: id };

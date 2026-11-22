@@ -16,7 +16,7 @@ dotenv.config();
     const [columns] = await connection.query('SHOW COLUMNS FROM residents');
     const fields = new Set(columns.map((column) => column.Field));
     const additions = [
-      ['civil_status', "VARCHAR(20) NOT NULL DEFAULT 'Unknown'"],
+      ['civil_status', "VARCHAR(20) NOT NULL DEFAULT ''"],
       ['occupation', 'VARCHAR(100) NULL'],
       ['resident_status', "VARCHAR(20) NOT NULL DEFAULT 'Active'"],
       ['pregnant', 'TINYINT(1) NOT NULL DEFAULT 0'],
@@ -30,7 +30,36 @@ dotenv.config();
       }
     }
 
-    await connection.query("UPDATE residents SET civil_status = 'Unknown' WHERE civil_status IS NULL OR civil_status = ''");
+    const [updatedColumns] = await connection.query('SHOW COLUMNS FROM residents');
+    const sexColumn = updatedColumns.find((column) => column.Field === 'sex');
+    if (sexColumn?.Type.toLowerCase().startsWith('enum(')) {
+      const values = [];
+      const enumValuePattern = /'((?:''|[^'])*)'/g;
+      let match = enumValuePattern.exec(sexColumn.Type);
+      while (match) {
+        values.push(match[1].replace(/''/g, "'"));
+        match = enumValuePattern.exec(sexColumn.Type);
+      }
+      if (!values.some((value) => value.toLowerCase() === 'others')) {
+        values.push('others');
+        const nullability = sexColumn.Null === 'YES' ? 'NULL' : 'NOT NULL';
+        const defaultClause = sexColumn.Default === null
+          ? (sexColumn.Null === 'YES' ? ' DEFAULT NULL' : '')
+          : ` DEFAULT '${String(sexColumn.Default).replace(/'/g, "''")}'`;
+        await connection.query(
+          `ALTER TABLE residents MODIFY COLUMN sex ENUM(${values.map((value) => `'${value.replace(/'/g, "''")}'`).join(', ')}) ${nullability}${defaultClause}`
+        );
+      }
+    }
+
+    const civilStatusColumn = updatedColumns.find((column) => column.Field === 'civil_status');
+    if (civilStatusColumn?.Default === 'Unknown') {
+      const nullability = civilStatusColumn.Null === 'YES' ? 'NULL' : 'NOT NULL';
+      await connection.query(
+        `ALTER TABLE residents MODIFY COLUMN civil_status ${civilStatusColumn.Type} ${nullability} DEFAULT ''`
+      );
+    }
+
     await connection.query("UPDATE residents SET resident_status = 'Active' WHERE resident_status IS NULL OR resident_status = ''");
     console.log('Resident field migration completed without dropping existing columns.');
   } finally {

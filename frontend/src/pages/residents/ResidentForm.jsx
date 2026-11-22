@@ -1,6 +1,24 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
+  AlertCircle,
+  Briefcase,
+  CalendarDays,
+  Camera,
+  ChevronDown,
+  House,
+  IdCard,
+  Loader2,
+  LockKeyhole,
+  MapPin,
+  Phone,
+  Save,
+  Trash2,
+  Upload,
+  UserRound,
+  X,
+} from 'lucide-react';
+import {
   createResident,
   deleteResidentPhoto,
   getResident,
@@ -8,20 +26,21 @@ import {
   getResidentCitiesMunicipalities,
   getResidentProvinces,
   getResidentRegions,
+  getResidentSitios,
   updateResident,
   uploadResidentPhoto
 } from '../../services/api/residentService';
 import { AuthContext } from '../../context/AuthContext';
 import { enqueueOperation, updateOperationStatus } from '../../services/offline/offlineQueueService';
-import { calculateAge, formatResidentName, isSeniorCitizen } from '../../utils/residentUtils';
+import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { toDateInputValue } from '../../utils/dateUtils';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
 import { healthCheck, isOffline } from '../../services/offline/networkService';
-import SITIOS from '../../constants/sitios';
 
+const CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
 const initialForm = {
   first_name: '', middle_name: '', last_name: '', suffix: '', birthdate: '', sex: '',
-  civil_status: 'Unknown', occupation: '', household_no: '', address: '', sitio: '', contact_no: '',
+  civil_status: '', occupation: '', household_no: '', address: '', sitio: '', contact_no: '',
   region_code: '', province_code: '', city_municipality_code: '', barangay_code: '',
   philhealth_id_no: '', resident_status: 'Active', pwd: false, is_4ps: false, pregnant: false, lactating: false
 };
@@ -72,7 +91,7 @@ function buildResidentSyncPayload(form, residentId, address) {
     sitio: form.sitio || null,
     birthdate: form.birthdate,
     sex: form.sex,
-    civil_status: form.civil_status,
+    civil_status: form.civil_status || null,
     occupation: String(form.occupation || '').trim() || null,
     resident_status: form.resident_status,
     pregnant: form.pregnant ? 1 : 0,
@@ -97,51 +116,124 @@ function normalizeResident(resident) {
     is_4ps: Boolean(resident.is_4ps),
     pregnant: Boolean(resident.pregnant),
     lactating: Boolean(resident.lactating),
-    civil_status: resident.civil_status || 'Unknown',
+    sex: String(resident.sex || '').toLowerCase(),
+    civil_status: CIVIL_STATUSES.includes(resident.civil_status) ? resident.civil_status : '',
     resident_status: resident.resident_status || 'Active'
   };
 }
 
-const ICON_PATHS = {
-  person: 'M20 21a8 8 0 0 0-16 0 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
-  home: 'M3 10.5 12 3l9 7.5 M5 9v12h14V9 M9 21v-7h6v7',
-  badge: 'M12 3 19 6v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z M9 12l2 2 4-4',
-  camera: 'M3 8h4l2-3h6l2 3h4v12H3z M12 11a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
-  lock: 'M5 11h14v10H5z M8 11V7a4 4 0 0 1 8 0v4',
-  check: 'm5 12 4 4L19 6',
-  alert: 'M12 3 2.8 20h18.4L12 3z M12 9v5 M12 17h.01',
-  chevron: 'm9 18 6-6-6-6'
-};
-
-const Icon = ({ name }) => <svg className="resident-form-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICON_PATHS[name] || ICON_PATHS.person} /></svg>;
-
 const RequiredMark = () => <span className="resident-required-mark" aria-hidden="true"> *</span>;
 
-const Field = ({ id, label, required, error, hint, className = '', children }) => (
-  <div className={`resident-form-field ${className} ${error ? 'has-error' : ''}`}>
-    <label htmlFor={id}>{label}{required && <RequiredMark />}</label>
+const Field = ({ id, label, required, error, hint, className = '', children }) => {
+  const control = React.isValidElement(children) && ['input', 'select', 'textarea'].includes(children.type)
+    ? React.cloneElement(children, {
+      'aria-invalid': error ? true : children.props['aria-invalid'],
+      'aria-describedby': [...new Set([
+        children.props['aria-describedby'],
+        hint ? `${id}-hint` : '',
+        error ? `${id}-error` : '',
+      ].filter(Boolean))].join(' ') || undefined,
+    })
+    : children;
+
+  return (
+    <div className={`resident-form-field ${className} ${error ? 'has-error' : ''}`}>
+      <label htmlFor={id}>{label}{required && <RequiredMark />}</label>
+      {control}
+      {hint && <small className="resident-form-hint" id={`${id}-hint`}>{hint}</small>}
+      {error && <span className="resident-field-error" id={`${id}-error`} role="alert"><AlertCircle size={16} strokeWidth={1.8} aria-hidden="true" />{error}</span>}
+    </div>
+  );
+};
+
+const PageHeader = ({ isEditing, displayName, age, photoUrl, initials }) => (
+  <>
+    <nav className="resident-form-breadcrumb" aria-label="Breadcrumb">
+      <Link to="/residents">Residents</Link><span aria-hidden="true">/</span>
+      {isEditing
+        ? <><span>{displayName}</span><span aria-hidden="true">/</span><span aria-current="page">Edit</span></>
+        : <span aria-current="page">Add resident</span>}
+    </nav>
+    <header className="resident-form-page-header">
+      <div className="resident-form-header-title">
+        <span className="resident-form-header-icon"><UserRound size={22} strokeWidth={1.8} aria-hidden="true" /></span>
+        <div className="resident-form-header-copy">
+          <span className="resident-form-header-eyebrow">{isEditing ? 'RESIDENT PROFILE' : 'NEW RESIDENT PROFILE'}</span>
+          <h1>{isEditing ? 'Edit Resident' : 'Add Resident'}</h1>
+          <p>{isEditing ? 'Update this resident’s profile and contact details.' : 'Create a complete resident profile for barangay health services.'}</p>
+        </div>
+      </div>
+      {isEditing && <div className="resident-form-header-resident">
+        {photoUrl ? <img src={photoUrl} alt="" /> : <span>{initials}</span>}
+        <div><strong>{displayName}</strong><small>{age === null ? 'Age not provided' : `${age} years old`}</small></div>
+      </div>}
+    </header>
+  </>
+);
+
+const FormSection = ({ id, icon: Icon, title, description, children }) => (
+  <section id={id} className="resident-form-card">
+    <div className="resident-form-card-heading">
+      <span className="resident-form-section-icon"><Icon size={18} strokeWidth={1.8} aria-hidden="true" /></span>
+      <div><h2>{title}</h2><p>{description}</p></div>
+    </div>
     {children}
-    {hint && <small className="resident-form-hint" id={`${id}-hint`}>{hint}</small>}
-    {error && <span className="resident-field-error" id={`${id}-error`} role="alert"><Icon name="alert" />{error}</span>}
+  </section>
+);
+
+const GroupHeading = ({ children }) => <h3 className="resident-form-group-heading">{children}</h3>;
+
+const PhotoUploader = ({ photoUrl, initials, photoInputRef, photoError, saving, onRemove, onChange }) => (
+  <div className="resident-photo-uploader">
+    <div className="resident-photo-avatar-wrap">
+      <button type="button" className="resident-form-avatar-button" aria-label="Choose resident photo" onClick={() => photoInputRef.current?.click()} disabled={saving}>
+        {photoUrl ? <img src={photoUrl} alt="" /> : <span className="resident-form-avatar-initials">{initials}</span>}
+        <span className="resident-form-camera-badge"><Camera size={17} strokeWidth={1.8} aria-hidden="true" /></span>
+      </button>
+      <input ref={photoInputRef} id="resident-profile-photo" type="file" className="resident-photo-hidden-input"
+        accept="image/jpeg,image/png,image/webp" onChange={onChange} disabled={saving} aria-label="Upload resident photo" />
+    </div>
+    <div className="resident-photo-uploader-copy">
+      <strong>Resident photo</strong>
+      <small>JPG, PNG, or WebP up to 5 MB</small>
+      <div className="resident-photo-actions">
+        <button type="button" className="resident-form-text-button resident-form-upload-button" onClick={() => photoInputRef.current?.click()} disabled={saving}>
+          <Upload size={16} strokeWidth={1.8} aria-hidden="true" />Upload photo
+        </button>
+        {photoUrl && <button type="button" className="resident-form-text-button resident-form-remove-photo" onClick={onRemove} disabled={saving}>
+          <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />Remove
+        </button>}
+      </div>
+      {photoError && <span className="resident-field-error" role="alert"><AlertCircle size={16} strokeWidth={1.8} aria-hidden="true" />{photoError}</span>}
+    </div>
   </div>
 );
 
-const ClassificationCard = ({ id, name, title, description, checked, onChange, disabled, badge }) => (
-  <label className={`resident-classification-card ${checked ? 'selected' : ''} ${disabled ? 'locked' : ''}`} htmlFor={id}>
-    <input id={id} name={name} type="checkbox" checked={checked} onChange={onChange} disabled={disabled} aria-label={title} />
-    <span className="resident-classification-icon"><Icon name={badge ? 'lock' : 'badge'} /></span>
-    <span className="resident-classification-copy"><strong>{title}</strong><small>{description}</small></span>
-    {badge ? <span className="resident-automatic-badge">{badge}</span> : checked && <span className="resident-classification-check"><Icon name="check" /></span>}
-  </label>
+const FormActions = ({ dirty, saving, disabled, onDiscard }) => (
+  <footer className="resident-form-actions">
+    {dirty && <span className="resident-form-dirty-status"><span className="resident-unsaved-dot" />Unsaved changes</span>}
+    <div className="resident-form-action-buttons">
+      <button type="button" className="resident-form-secondary-button" onClick={onDiscard} disabled={saving}>
+        <X size={17} strokeWidth={1.8} aria-hidden="true" />Discard
+      </button>
+      <button type="submit" className="resident-form-primary-button" disabled={disabled || saving}>
+        {saving ? <Loader2 className="resident-form-loading-icon" size={17} strokeWidth={2} aria-hidden="true" /> : <Save size={17} strokeWidth={1.8} aria-hidden="true" />}
+        {saving ? 'Saving...' : 'Save resident'}
+      </button>
+    </div>
+  </footer>
 );
 
-const ConfirmLeaveModal = ({ stayButtonRef, onStay, onLeave }) => (
+const DiscardDialog = ({ stayButtonRef, onStay, onDiscard }) => (
   <div className="resident-form-modal-backdrop" role="presentation">
     <section className="resident-form-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="resident-unsaved-title" aria-describedby="resident-unsaved-description">
-      <span className="resident-form-modal-icon"><Icon name="alert" /></span>
-      <h2 id="resident-unsaved-title">Unsaved changes</h2>
-      <p id="resident-unsaved-description">You have changes that have not been saved. Leave this page and discard them?</p>
-      <div className="resident-form-modal-actions"><button ref={stayButtonRef} type="button" className="resident-form-secondary-button" onClick={onStay}>Stay on page</button><button type="button" className="resident-form-danger-button" onClick={onLeave}>Discard changes</button></div>
+      <span className="resident-form-modal-icon"><AlertCircle size={18} strokeWidth={1.8} aria-hidden="true" /></span>
+      <h2 id="resident-unsaved-title">Discard changes?</h2>
+      <p id="resident-unsaved-description">Your entered information will be lost.</p>
+      <div className="resident-form-modal-actions">
+        <button ref={stayButtonRef} type="button" className="resident-form-secondary-button" onClick={onStay}>Keep editing</button>
+        <button type="button" className="resident-form-danger-button" onClick={onDiscard}>Discard</button>
+      </div>
     </section>
   </div>
 );
@@ -165,11 +257,12 @@ const ResidentForm = ({ onBack }) => {
   const [provinces, setProvinces] = useState([]);
   const [citiesMunicipalities, setCitiesMunicipalities] = useState([]);
   const [barangays, setBarangays] = useState([]);
+  const [sitios, setSitios] = useState([]);
+  const [sitioError, setSitioError] = useState('');
   const [locationError, setLocationError] = useState('');
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [successRedirect, setSuccessRedirect] = useState(null);
-  const [activeSection, setActiveSection] = useState('personal');
   const photoInputRef = useRef(null);
   const photoObjectUrlRef = useRef('');
   const baselineRef = useRef(snapshotForm(initialForm));
@@ -177,13 +270,12 @@ const ResidentForm = ({ onBack }) => {
   const stayButtonRef = useRef(null);
   const toastTimerRef = useRef(null);
   const redirectTimerRef = useRef(null);
+  const submissionInProgressRef = useRef(false);
 
   const locationSelected = Boolean(form.region_code || form.province_code || form.city_municipality_code || form.barangay_code);
   const age = useMemo(() => calculateAge(form.birthdate), [form.birthdate]);
-  const senior = useMemo(() => isSeniorCitizen(form.birthdate), [form.birthdate]);
   const photoUrl = photoPreview || (!removePhoto ? getProfilePhotoUrl(form.profile_photo) : '');
   const dirty = !successRedirect && (snapshotForm(form) !== baselineRef.current || Boolean(photoFile) || removePhoto);
-  const female = form.sex === 'female';
 
   const showToast = useCallback((message, isError = false) => {
     window.clearTimeout(toastTimerRef.current);
@@ -232,6 +324,19 @@ const ResidentForm = ({ onBack }) => {
     getResidentRegions()
       .then((response) => { if (active) { setRegions(response.data || []); setLocationError(''); } })
       .catch((loadError) => { if (active) setLocationError(loadError.response?.data?.message || loadError.message || 'Unable to load regions.'); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getResidentSitios()
+      .then((response) => {
+        if (active && response?.success) setSitios(Array.isArray(response.data) ? response.data : []);
+        else if (active) setSitioError(response?.message || 'Unable to load sitios.');
+      })
+      .catch((loadError) => {
+        if (active) setSitioError(loadError.response?.data?.message || loadError.message || 'Unable to load sitios.');
+      });
     return () => { active = false; };
   }, []);
 
@@ -302,17 +407,6 @@ const ResidentForm = ({ onBack }) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [dirty]);
-
-  useEffect(() => {
-    const sections = ['personal', 'address', 'classification'].map((section) => document.getElementById(`resident-section-${section}`)).filter(Boolean);
-    if (!sections.length || typeof IntersectionObserver === 'undefined') return undefined;
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (visible) setActiveSection(visible.target.id.replace('resident-section-', ''));
-    }, { rootMargin: '-15% 0px -70% 0px', threshold: [0, 0.25, 0.5] });
-    sections.forEach((section) => observer.observe(section));
-    return () => observer.disconnect();
-  }, [loading]);
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -396,8 +490,8 @@ const ResidentForm = ({ onBack }) => {
     if (name === 'birthdate') {
       if (!text || text > today() || calculateAge(text) === null) return 'Enter a valid birthdate that is not in the future.';
     }
-    if (name === 'sex' && !text) return 'Select a sex.';
-    if (name === 'civil_status' && !text) return 'Select a civil status.';
+    if (name === 'sex' && !['male', 'female', 'others'].includes(text.toLowerCase())) return 'Select a gender.';
+    if (name === 'civil_status' && !CIVIL_STATUSES.includes(text)) return 'Please select a civil status.';
     if (name === 'resident_status' && !text) return 'Select a resident status.';
     if (name === 'contact_no' && text && !/^09\d{9}$/.test(normalizePhone(text))) return 'Enter a valid Philippine mobile number, such as 0917 123 4567.';
     return '';
@@ -417,6 +511,7 @@ const ResidentForm = ({ onBack }) => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (submissionInProgressRef.current) return;
     setError('');
     const errors = validate();
     setFieldErrors(errors);
@@ -425,15 +520,18 @@ const ResidentForm = ({ onBack }) => {
       const firstInvalid = Object.keys(errors)[0];
       showToast('Please fix the highlighted fields before saving.', true);
       const target = firstInvalid === 'location' ? document.getElementById('region_code') : document.getElementById(firstInvalid);
-      target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      target?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
       window.setTimeout(() => target?.focus(), 250);
       return;
     }
 
+    submissionInProgressRef.current = true;
     setSaving(true);
     let savedResidentId = id;
     const selectedAddress = getSelectedAddress();
     try {
+      const female = form.sex === 'female';
       const payload = {
         ...form,
         address: selectedAddress || null,
@@ -495,7 +593,9 @@ const ResidentForm = ({ onBack }) => {
       if (serverErrors && typeof serverErrors === 'object') {
         setFieldErrors((current) => ({ ...current, ...serverErrors }));
         const firstInvalid = Object.keys(serverErrors)[0];
-        document.getElementById(firstInvalid)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        const target = document.getElementById(firstInvalid === 'location' ? 'region_code' : firstInvalid);
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        target?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
         window.setTimeout(() => document.getElementById(firstInvalid)?.focus(), 250);
         showToast(saveError.response?.data?.message || 'Please review the highlighted fields.', true);
       } else {
@@ -505,11 +605,11 @@ const ResidentForm = ({ onBack }) => {
         if (!id && savedResidentId) navigate(`/residents/${savedResidentId}/edit`, { state: { photoUploadError: true } });
       }
     } finally {
+      submissionInProgressRef.current = false;
       setSaving(false);
     }
   };
 
-  const goToSection = (section) => document.getElementById(`resident-section-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const removeFieldError = (name) => fieldErrors[name] && touched[name] ? fieldErrors[name] : '';
   useEffect(() => {
     if (!dirty) return undefined;
@@ -536,36 +636,15 @@ const ResidentForm = ({ onBack }) => {
 
   return (
     <main className="resident-form-page">
-      <nav className="resident-form-breadcrumb" aria-label="Breadcrumb"><Link to="/residents">Residents</Link><span aria-hidden="true">/</span>{id ? <><span>{displayName}</span><span aria-hidden="true">/</span><span aria-current="page">Edit</span></> : <span aria-current="page">Add resident</span>}</nav>
-      <header className="resident-form-page-header">
-        <div className="resident-form-header-title"><h1>{id ? 'Edit Resident' : 'Add Resident'}</h1><p>{id ? 'Update this resident’s profile and classification details.' : 'Create a complete resident profile for barangay health services.'}</p></div>
-        {id && <div className="resident-form-header-resident">{photoUrl ? <img src={photoUrl} alt="" /> : <span>{initials}</span>}<div><strong>{displayName}</strong><small>{age === null ? 'Age not provided' : `${age} years old`}</small></div></div>}
-      </header>
-      {(error || locationError) && <div className="resident-form-error-banner" role="alert"><Icon name="alert" /><span>{error || locationError}</span></div>}
+      <PageHeader isEditing={Boolean(id)} displayName={displayName} age={age} photoUrl={photoUrl} initials={initials} />
+      {(error || locationError || sitioError) && <div className="resident-form-error-banner" role="alert"><AlertCircle size={18} strokeWidth={1.8} aria-hidden="true" /><span>{error || locationError || sitioError}</span></div>}
 
       <div className="resident-form-layout">
-        <div className="resident-form-sidebar">
-          <nav className="resident-form-step-nav" aria-label="On this page">
-            {[['personal', 'Personal'], ['address', 'Address & Contact'], ['classification', 'Classification']].map(([section, title], index) => <button key={section} type="button" className={activeSection === section ? 'active' : ''} onClick={() => goToSection(section)}><span>{index + 1}</span>{title}</button>)}
-          </nav>
-          <div className="resident-form-sticky-bar">
-            {dirty && <div className="resident-form-dirty-status"><span className="resident-unsaved-dot" />Unsaved changes</div>}
-            <div className="resident-form-sticky-actions"><button type="button" className="resident-form-secondary-button" onClick={() => requestLeave(leaveToResidents)} disabled={saving}>Cancel</button><button type="submit" form="resident-form" className="resident-form-primary-button" disabled={saving || (Boolean(id) && !dirty) || Boolean(successRedirect)}>{saving && <span className="resident-form-spinner" aria-hidden="true" />}{saving ? 'Saving…' : 'Save resident'}</button></div>
-          </div>
-        </div>
-
         <form id="resident-form" onSubmit={handleSubmit} className="resident-form-content" noValidate>
-          <section id="resident-section-personal" className="resident-form-card">
-            <div className="resident-form-card-heading"><span className="resident-form-section-icon"><Icon name="person" /></span><div><h2>Personal Information</h2><p>Identity and basic demographic information.</p></div></div>
-
-            <div className="resident-photo-uploader">
-              <button type="button" className="resident-form-avatar-button" aria-label="Choose resident photo" onClick={() => photoInputRef.current?.click()} disabled={saving}>
-                {photoUrl ? <img src={photoUrl} alt="" /> : <span className="resident-form-avatar-initials">{initials}</span>}
-                <span className="resident-form-camera-badge"><Icon name="camera" /></span>
-              </button>
-              <input ref={photoInputRef} id="resident-profile-photo" type="file" className="resident-photo-hidden-input" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} disabled={saving} aria-label="Upload resident photo" />
-              <div className="resident-photo-uploader-copy"><strong>Resident photo</strong><small>JPEG, PNG, or WebP · up to 5 MB</small>{photoUrl && <button type="button" className="resident-form-text-button" onClick={handlePhotoRemove} disabled={saving}>Remove photo</button>}{photoError && <span className="resident-field-error" role="alert"><Icon name="alert" />{photoError}</span>}</div>
-            </div>
+          <FormSection id="resident-section-personal" icon={UserRound} title="Personal Information"
+            description="Identity and basic demographic information.">
+            <PhotoUploader photoUrl={photoUrl} initials={initials} photoInputRef={photoInputRef}
+              photoError={photoError} saving={saving} onRemove={handlePhotoRemove} onChange={handlePhotoChange} />
 
             <div className="resident-form-grid resident-name-grid">
               {[
@@ -574,90 +653,167 @@ const ResidentForm = ({ onBack }) => {
                 ['last_name', 'Last name', true, 'e.g. Santos'],
                 ['suffix', 'Suffix', false, 'e.g. Jr.']
               ].map(([field, label, required, placeholder]) => <Field key={field} id={field} label={label} required={required} error={removeFieldError(field)}>
-                <input id={field} className="resident-form-control" name={field} value={form[field]} onChange={handleChange} onBlur={handleBlur} placeholder={placeholder} autoComplete={field === 'first_name' ? 'given-name' : field === 'middle_name' ? 'additional-name' : field === 'last_name' ? 'family-name' : 'honorific-suffix'} required={required} aria-invalid={Boolean(removeFieldError(field))} aria-describedby={removeFieldError(field) ? `${field}-error` : undefined} disabled={saving} />
+                <input id={field} className="resident-form-control" name={field} value={form[field]} onChange={handleChange} onBlur={handleBlur}
+                  placeholder={placeholder} autoComplete={field === 'first_name' ? 'given-name' : field === 'middle_name' ? 'additional-name' : field === 'last_name' ? 'family-name' : 'honorific-suffix'}
+                  required={required} disabled={saving} />
               </Field>)}
             </div>
 
             <div className="resident-form-grid resident-demographic-grid">
               <Field id="birthdate" label="Birthdate" required error={removeFieldError('birthdate')}>
-                <input id="birthdate" type="date" max={today()} className="resident-form-control" name="birthdate" value={form.birthdate || ''} onChange={handleChange} onBlur={handleBlur} required aria-invalid={Boolean(removeFieldError('birthdate'))} aria-describedby={removeFieldError('birthdate') ? 'birthdate-error' : undefined} disabled={saving} />
+                <div className="resident-form-control-wrap has-leading-icon">
+                  <CalendarDays size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <input id="birthdate" type="date" max={today()} className="resident-form-control" name="birthdate"
+                    value={form.birthdate || ''} onChange={handleChange} onBlur={handleBlur} required autoComplete="bday"
+                    aria-invalid={Boolean(removeFieldError('birthdate'))}
+                    aria-describedby={removeFieldError('birthdate') ? 'birthdate-error' : undefined} disabled={saving} />
+                </div>
               </Field>
               <Field id="age" label="Age" hint="Calculated from birthdate">
-                <input id="age" className="resident-form-control resident-form-readonly" value={age === null ? '' : `${age} years old`} readOnly aria-describedby="age-hint" placeholder="—" />
+                <div className="resident-form-control-wrap has-trailing-icon">
+                  <input id="age" className="resident-form-control resident-form-readonly"
+                    value={age === null ? '—' : `${age} years old`} readOnly aria-describedby="age-hint" />
+                  <LockKeyhole size={16} strokeWidth={1.8} aria-hidden="true" />
+                </div>
               </Field>
-              <Field id="sex" label="Sex" required error={removeFieldError('sex')}>
-                <select id="sex" className="resident-form-control resident-form-select" name="sex" value={form.sex} onChange={handleChange} onBlur={handleBlur} required aria-invalid={Boolean(removeFieldError('sex'))} aria-describedby={removeFieldError('sex') ? 'sex-error' : undefined} disabled={saving}><option value="">Select sex</option><option value="male">Male</option><option value="female">Female</option></select>
+              <Field id="sex" label="Gender" required error={removeFieldError('sex')}>
+                <div className="resident-form-control-wrap has-trailing-icon">
+                  <select id="sex" className="resident-form-control resident-form-select" name="sex" value={form.sex}
+                    onChange={handleChange} onBlur={handleBlur} required aria-invalid={Boolean(removeFieldError('sex'))}
+                    aria-describedby={removeFieldError('sex') ? 'sex-error' : undefined} disabled={saving}>
+                    <option value="">Select gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="others">Others</option>
+                  </select>
+                  <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
+                </div>
               </Field>
               <Field id="civil_status" label="Civil status" required error={removeFieldError('civil_status')}>
-                <select id="civil_status" className="resident-form-control resident-form-select" name="civil_status" value={form.civil_status} onChange={handleChange} onBlur={handleBlur} required aria-invalid={Boolean(removeFieldError('civil_status'))} aria-describedby={removeFieldError('civil_status') ? 'civil_status-error' : undefined} disabled={saving}>{['Single', 'Married', 'Widowed', 'Separated', 'Divorced', 'Annulled', 'Unknown'].map((item) => <option key={item}>{item}</option>)}</select>
-              </Field>
-              <Field id="occupation" label="Occupation" className="resident-form-grid-span-2">
-                <input id="occupation" className="resident-form-control" name="occupation" value={form.occupation} onChange={handleChange} placeholder="e.g. Farmer, Teacher, Retired" disabled={saving} />
-              </Field>
-            </div>
-          </section>
-
-          <section id="resident-section-address" className="resident-form-card">
-            <div className="resident-form-card-heading"><span className="resident-form-section-icon"><Icon name="home" /></span><div><h2>Address &amp; Contact</h2><p>Household identifiers and current contact location.</p></div></div>
-            <div className="resident-form-grid resident-contact-grid">
-              <Field id="household_no" label="Household number" hint="Shared by members of the same household.">
-                <input id="household_no" className="resident-form-control resident-form-monospace" name="household_no" value={form.household_no} onChange={handleChange} placeholder="e.g. HH-001" disabled={saving} />
-              </Field>
-              <Field id="sitio" label="Sitio">
-                <select id="sitio" className="resident-form-control resident-form-select" name="sitio" value={form.sitio} onChange={handleChange} disabled={saving}><option value="">Select sitio</option>{SITIOS.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-              </Field>
-              <Field id="contact_no" label="Contact number" error={removeFieldError('contact_no')} hint="Philippine mobile number, for example 0917 123 4567.">
-                <input id="contact_no" type="tel" className="resident-form-control" name="contact_no" value={form.contact_no} onChange={handleChange} onBlur={handleBlur} inputMode="tel" autoComplete="tel-national" placeholder="09XX XXX XXXX" aria-invalid={Boolean(removeFieldError('contact_no'))} aria-describedby={removeFieldError('contact_no') ? 'contact_no-error' : 'contact_no-hint'} disabled={saving} />
-              </Field>
-              <Field id="philhealth_id_no" label="PhilHealth ID" error={removeFieldError('philhealth_id_no')} hint="Enter the member ID as printed on the card.">
-                <input id="philhealth_id_no" className="resident-form-control resident-form-monospace" name="philhealth_id_no" value={form.philhealth_id_no} onChange={handleChange} onBlur={handleBlur} placeholder="e.g. 12-345678901-2" aria-invalid={Boolean(removeFieldError('philhealth_id_no'))} aria-describedby={removeFieldError('philhealth_id_no') ? 'philhealth_id_no-error' : 'philhealth_id_no-hint'} disabled={saving} />
-              </Field>
-            </div>
-
-            <fieldset className="resident-address-fieldset">
-              <legend>Location</legend>
-              <div className="resident-form-grid resident-location-grid">
-                {[
-                  ['region_code', 'Region', regions, 'Select region', false],
-                  ['province_code', 'Province', provinces, 'Select province', !form.region_code],
-                  ['city_municipality_code', 'City/Municipality', citiesMunicipalities, 'Select city or municipality', !form.province_code],
-                  ['barangay_code', 'Barangay', barangays, 'Select barangay', !form.city_municipality_code]
-                ].map(([name, label, options, placeholder, disabled]) => <Field key={name} id={name} label={label} error={name === 'region_code' ? fieldErrors.location : ''}>
-                  <select id={name} className="resident-form-control resident-form-select" name={name} value={form[name]} onChange={handleLocationChange} disabled={saving || disabled} aria-invalid={Boolean(name === 'region_code' && fieldErrors.location)} aria-describedby={name === 'region_code' && fieldErrors.location ? 'region_code-error' : undefined}>
-                    <option value="">{placeholder}</option>
-                    {options.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+                <div className="resident-form-control-wrap has-trailing-icon">
+                  <select id="civil_status" className="resident-form-control resident-form-select" name="civil_status"
+                    value={form.civil_status} onChange={handleChange} onBlur={handleBlur} required
+                    aria-invalid={Boolean(removeFieldError('civil_status'))}
+                    aria-describedby={removeFieldError('civil_status') ? 'civil_status-error' : undefined} disabled={saving}>
+                    <option value="">Select civil status</option>
+                    {CIVIL_STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
-                </Field>)}
-              </div>
-              {(getSelectedAddress() || form.address) && <div className="resident-address-preview"><Icon name="home" /><span><small>Selected address</small><strong>{getSelectedAddress() || form.address}</strong></span></div>}
-              {form.address && !locationSelected && <p className="resident-address-help">Choose a complete location above to replace the saved address.</p>}
-            </fieldset>
+                  <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
+                </div>
+              </Field>
+            </div>
 
-            <Field id="resident_status" label="Resident status" required error={removeFieldError('resident_status')}>
-              <select id="resident_status" className="resident-form-control resident-form-select resident-status-select" name="resident_status" value={form.resident_status} onChange={handleChange} onBlur={handleBlur} required aria-invalid={Boolean(removeFieldError('resident_status'))} aria-describedby={removeFieldError('resident_status') ? 'resident_status-error' : undefined} disabled={saving}>
-                {['Active', 'Inactive', 'Transferred', 'Deceased'].map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </Field>
-          </section>
+            <div className="resident-form-grid resident-occupation-grid">
+              <Field id="occupation" label="Occupation">
+                <div className="resident-form-control-wrap has-leading-icon">
+                  <Briefcase size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <input id="occupation" className="resident-form-control" name="occupation" value={form.occupation}
+                    onChange={handleChange} placeholder="e.g. Farmer, Teacher, Retired" disabled={saving} />
+                </div>
+              </Field>
+            </div>
+          </FormSection>
 
-          <section id="resident-section-classification" className="resident-form-card">
-            <div className="resident-form-card-heading"><span className="resident-form-section-icon"><Icon name="badge" /></span><div><h2>Resident Classification</h2><p>Identify applicable support and service categories.</p></div></div>
-            <fieldset className="resident-classification-fieldset">
-              <legend className="resident-visually-hidden">Resident classification</legend>
-              <div className="resident-classification-grid">
-                <ClassificationCard id="classification-senior" title="Senior citizen" description={senior ? 'Automatically determined from age 60 or older.' : 'Automatically calculated from birthdate.'} checked={senior} disabled badge="Automatic" />
-                <ClassificationCard id="classification-pwd" name="pwd" title="PWD" description="Person with disability classification." checked={form.pwd} onChange={handleChange} />
-                <ClassificationCard id="classification-4ps" name="is_4ps" title="4Ps member" description="Pantawid Pamilyang Pilipino Program member." checked={form.is_4ps} onChange={handleChange} />
-                <ClassificationCard id="classification-pregnant" name="pregnant" title="Pregnant" description={female ? 'Mark if currently pregnant.' : 'Available when sex is Female.'} checked={form.pregnant} disabled={!female} onChange={handleChange} />
-                <ClassificationCard id="classification-lactating" name="lactating" title="Lactating" description={female ? 'Mark if currently lactating.' : 'Available when sex is Female.'} checked={form.lactating} disabled={!female} onChange={handleChange} />
+          <FormSection id="resident-section-address" icon={MapPin} title="Address &amp; Contact"
+            description="Household identifiers and current contact location.">
+            <div className="resident-form-subgroup">
+              <GroupHeading>Household</GroupHeading>
+              <div className="resident-form-grid resident-contact-grid">
+                <Field id="household_no" label="Household number" hint="Shared by members of the same household.">
+                  <div className="resident-form-control-wrap has-leading-icon">
+                    <House size={17} strokeWidth={1.8} aria-hidden="true" />
+                    <input id="household_no" className="resident-form-control" name="household_no" value={form.household_no}
+                      onChange={handleChange} placeholder="e.g. HH-001" aria-describedby="household_no-hint" disabled={saving} />
+                  </div>
+                </Field>
+                <Field id="sitio" label="Sitio" error={sitioError}>
+                  <div className="resident-form-control-wrap has-trailing-icon">
+                    <select id="sitio" className="resident-form-control resident-form-select" name="sitio" value={form.sitio}
+                      onChange={handleChange} aria-invalid={Boolean(sitioError)} aria-describedby={sitioError ? 'sitio-error' : undefined} disabled={saving}>
+                      <option value="">Select sitio</option>
+                      {sitios.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                    <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
+                  </div>
+                </Field>
               </div>
-            </fieldset>
-          </section>
+            </div>
+
+            <div className="resident-form-subgroup">
+              <GroupHeading>Contact</GroupHeading>
+              <div className="resident-form-grid resident-contact-grid">
+                <Field id="contact_no" label="Contact number" error={removeFieldError('contact_no')} hint="Philippine mobile number, for example 0917 123 4567.">
+                  <div className="resident-form-control-wrap has-leading-icon">
+                    <Phone size={17} strokeWidth={1.8} aria-hidden="true" />
+                    <input id="contact_no" type="tel" className="resident-form-control" name="contact_no" value={form.contact_no}
+                      onChange={handleChange} onBlur={handleBlur} inputMode="tel" autoComplete="tel-national"
+                      placeholder="09XX XXX XXXX" aria-invalid={Boolean(removeFieldError('contact_no'))}
+                      aria-describedby={removeFieldError('contact_no') ? 'contact_no-hint contact_no-error' : 'contact_no-hint'} disabled={saving} />
+                  </div>
+                </Field>
+                <Field id="philhealth_id_no" label="PhilHealth ID" error={removeFieldError('philhealth_id_no')} hint="Enter the member ID as printed on the card.">
+                  <div className="resident-form-control-wrap has-leading-icon">
+                    <IdCard size={17} strokeWidth={1.8} aria-hidden="true" />
+                    <input id="philhealth_id_no" className="resident-form-control" name="philhealth_id_no" value={form.philhealth_id_no}
+                      onChange={handleChange} onBlur={handleBlur} placeholder="e.g. 12-345678901-2"
+                      aria-invalid={Boolean(removeFieldError('philhealth_id_no'))}
+                      aria-describedby={removeFieldError('philhealth_id_no') ? 'philhealth_id_no-hint philhealth_id_no-error' : 'philhealth_id_no-hint'} disabled={saving} />
+                  </div>
+                </Field>
+              </div>
+            </div>
+
+            <div className="resident-form-subgroup">
+              <GroupHeading>Location</GroupHeading>
+              <fieldset className="resident-address-fieldset">
+                <legend className="resident-visually-hidden">Location</legend>
+                <div className="resident-form-grid resident-location-grid">
+                  {[
+                    ['region_code', 'Region', regions, 'Select region', false],
+                    ['province_code', 'Province', provinces, 'Select province', !form.region_code],
+                    ['city_municipality_code', 'City/Municipality', citiesMunicipalities, 'Select city or municipality', !form.province_code],
+                    ['barangay_code', 'Barangay', barangays, 'Select barangay', !form.city_municipality_code]
+                  ].map(([name, label, options, placeholder, isDisabled]) => <Field key={name} id={name} label={label} error={name === 'region_code' ? fieldErrors.location : ''}>
+                    <div className="resident-form-control-wrap has-trailing-icon">
+                      <select id={name} className="resident-form-control resident-form-select" name={name} value={form[name]}
+                        onChange={handleLocationChange} disabled={saving || isDisabled}
+                        aria-invalid={Boolean(name === 'region_code' && fieldErrors.location)}
+                        aria-describedby={name === 'region_code' && fieldErrors.location ? 'region_code-error' : undefined}>
+                        <option value="">{placeholder}</option>
+                        {options.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+                      </select>
+                      <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
+                    </div>
+                  </Field>)}
+                  <Field id="resident_status" label="Resident status" required error={removeFieldError('resident_status')}>
+                    <div className="resident-form-control-wrap has-trailing-icon">
+                      <select id="resident_status" className="resident-form-control resident-form-select" name="resident_status"
+                        value={form.resident_status} onChange={handleChange} onBlur={handleBlur} required
+                        aria-invalid={Boolean(removeFieldError('resident_status'))}
+                        aria-describedby={removeFieldError('resident_status') ? 'resident_status-error' : undefined} disabled={saving}>
+                        {['Active', 'Inactive', 'Transferred', 'Deceased'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </select>
+                      <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
+                    </div>
+                  </Field>
+                </div>
+                {(getSelectedAddress() || form.address) && <div className="resident-address-preview">
+                  <House size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <span><small>Selected address</small><strong>{getSelectedAddress() || form.address}</strong></span>
+                </div>}
+                {form.address && !locationSelected && <p className="resident-address-help">Choose a complete location above to replace the saved address.</p>}
+              </fieldset>
+            </div>
+          </FormSection>
+
+          <FormActions dirty={dirty} saving={saving}
+            disabled={(Boolean(id) && !dirty) || Boolean(successRedirect)}
+            onDiscard={() => requestLeave(leaveToResidents)} />
         </form>
       </div>
 
       {toast && <div className={`resident-form-toast ${toast.isError ? 'error' : 'success'}`} role={toast.isError ? 'alert' : 'status'} aria-live="polite">{toast.message}</div>}
-      {leaveOpen && <ConfirmLeaveModal stayButtonRef={stayButtonRef} onStay={() => { setLeaveOpen(false); leaveActionRef.current = null; }} onLeave={() => { const action = leaveActionRef.current; setLeaveOpen(false); leaveActionRef.current = null; action?.(); }} />}
+      {leaveOpen && <DiscardDialog stayButtonRef={stayButtonRef} onStay={() => { setLeaveOpen(false); leaveActionRef.current = null; }} onDiscard={() => { const action = leaveActionRef.current; setLeaveOpen(false); leaveActionRef.current = null; action?.(); }} />}
     </main>
   );
 };

@@ -73,14 +73,21 @@ test('offline senior search does not load records for searches shorter than two 
 
 test('offline senior registry filters and paginates downloaded registrations', async () => {
   getOfflineSnapshotRecords.mockResolvedValue([
-    { senior_id: 1, resident_id: 1, senior_citizen_id: 'SC-000001', first_name: 'Ana', last_name: 'Santos', date_registered: '2026-01-10' },
-    { senior_id: 2, resident_id: 2, senior_citizen_id: 'SC-000002', first_name: 'Ben', last_name: 'Cruz', date_registered: '2026-01-12' },
+    { senior_id: 1, resident_id: 1, senior_citizen_id: 'SC-000001', first_name: 'Ana', last_name: 'Santos', birthdate: '1940-01-01', date_registered: '2026-03-01', health_conditions: 'Hypertension, Arthritis' },
+    { senior_id: 2, resident_id: 2, senior_citizen_id: 'SC-000002', first_name: 'Ben', last_name: 'Cruz', birthdate: '1955-02-01', date_registered: '2026-02-25', health_conditions: 'No known conditions' },
   ]);
 
   const result = await listSeniorCitizens({ search: 'Santos', page: 1, pageSize: 10 });
 
   expect(result.offline).toBe(true);
   expect(result.data.total).toBe(1);
+  expect(result.data.stats).toEqual({
+    registered: 2,
+    age80Plus: 1,
+    knownConditions: 1,
+    registeredThisMonth: 1,
+  });
+  expect(result.data.filterOptions.conditions).toEqual(['Arthritis', 'Hypertension', 'No known conditions']);
   expect(result.data.items).toEqual([
     expect.objectContaining({ senior_id: 1, senior_citizen_id: 'SC-000001' }),
   ]);

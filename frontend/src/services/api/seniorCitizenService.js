@@ -55,8 +55,22 @@ export async function listSeniorCitizens(params = {}) {
     const queued = queuedItems
       .filter((item) => item.table === 'senior_citizen_records' && item.localRecord && item.operation !== 'DELETE')
       .map((item) => item.localRecord);
-    let items = [...new Map([...downloaded, ...queued].map((record) => [String(record.senior_id || record.record_id || record.id), record])).values()];
+    const allItems = [...new Map([...downloaded, ...queued].map((record) => [String(record.senior_id || record.record_id || record.id), record])).values()];
     const today = new Date(`${getManilaToday()}T00:00:00`);
+    const monthPrefix = getManilaToday().slice(0, 7);
+    const conditions = [...new Set(allItems.flatMap((record) => (
+      String(record.health_conditions || '').split(',').map((condition) => condition.trim()).filter(Boolean)
+    )))].sort((first, second) => first.localeCompare(second));
+    const stats = {
+      registered: allItems.length,
+      age80Plus: allItems.filter((record) => calculateAge(record.birthdate, today) >= 80).length,
+      knownConditions: allItems.filter((record) => {
+        const values = String(record.health_conditions || '').split(',').map((condition) => condition.trim().toLowerCase()).filter(Boolean);
+        return values.some((condition) => !['no known conditions', 'none recorded'].includes(condition));
+      }).length,
+      registeredThisMonth: allItems.filter((record) => String(record.date_registered || '').slice(0, 7) === monthPrefix).length,
+    };
+    let items = [...allItems];
     const search = String(params.search || '').trim().toLowerCase();
     items = items.filter((record) => {
       const age = calculateAge(record.birthdate, today);
@@ -78,7 +92,9 @@ export async function listSeniorCitizens(params = {}) {
       age_oldest: (first, second) => String(first.birthdate || '').localeCompare(String(second.birthdate || '')),
       age_youngest: (first, second) => String(second.birthdate || '').localeCompare(String(first.birthdate || '')),
       senior_id: (first, second) => Number(String(first.senior_citizen_id || '').split('-').pop()) - Number(String(second.senior_citizen_id || '').split('-').pop()),
+      senior_id_desc: (first, second) => Number(String(second.senior_citizen_id || '').split('-').pop()) - Number(String(first.senior_citizen_id || '').split('-').pop()),
       newest: (first, second) => String(second.date_registered || '').localeCompare(String(first.date_registered || '')),
+      oldest: (first, second) => String(first.date_registered || '').localeCompare(String(second.date_registered || '')),
     };
     items.sort(sorters[params.sort] || sorters.newest);
     const total = items.length;
@@ -88,7 +104,7 @@ export async function listSeniorCitizens(params = {}) {
     items = items.slice((page - 1) * pageSize, page * pageSize);
     return {
       success: true,
-      data: { items, total, page, pageSize, limit: pageSize, counts: { total } },
+      data: { items, total, page, pageSize, limit: pageSize, counts: { total }, stats, filterOptions: { conditions } },
       offline: true,
     };
   }
