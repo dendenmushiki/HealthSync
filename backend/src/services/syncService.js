@@ -5,7 +5,7 @@ const logger = require('./logger');
 const { ensureResidentSchema } = require('./residentSchemaService');
 const { resolveResidentLocation } = require('./psgcService');
 const { validateClinicalRecord } = require('./clinicalRecordValidation');
-const { ensureSeniorCitizenRecord } = require('./seniorCitizenAutoRegistrationService');
+const { validateMaternalRecord } = require('./maternalRecordValidation');
 
 class ValidationError extends Error {
   constructor(errors) {
@@ -49,7 +49,7 @@ const ALLOWED_COLUMNS = {
   senior_citizen_records: new Set(['record_id', 'resident_id', 'notes', 'created_at']),
   patient_clinical_records: new Set(['id', 'resident_id', 'record_data', 'recorded_by', 'created_at', 'updated_at']),
   child_records: new Set(['id', 'resident_id', 'record_data', 'recorded_by', 'created_at', 'updated_at']),
-  maternal_records: new Set(['id', 'resident_id', 'record_data', 'recorded_by', 'created_at', 'updated_at']),
+  maternal_records: new Set(['id', 'resident_id', 'record_data', 'edc', 'recorded_by', 'created_at', 'updated_at']),
   immunization_records: new Set(['id', 'resident_id', 'record_data', 'recorded_by', 'created_at', 'updated_at'])
 };
 
@@ -186,7 +186,7 @@ const ALLOWED_COLUMN_TYPES = {
   },
   patient_clinical_records: { id: 'int', resident_id: 'int', record_data: 'json', recorded_by: 'int' },
   child_records: { id: 'int', resident_id: 'int', record_data: 'json', recorded_by: 'int' },
-  maternal_records: { id: 'int', resident_id: 'int', record_data: 'json', recorded_by: 'int' },
+  maternal_records: { id: 'int', resident_id: 'int', record_data: 'json', edc: 'date', recorded_by: 'int' },
   immunization_records: { id: 'int', resident_id: 'int', record_data: 'json', recorded_by: 'int' }
 };
 
@@ -534,6 +534,21 @@ async function processOperation({
       throw new ValidationError(Object.entries(clinicalErrors).map(([field, message]) => ({ field, message })));
     }
   }
+  if (table === 'maternal_records' && normalizedPayload.record_data) {
+    let maternalData;
+    try {
+      maternalData = JSON.parse(normalizedPayload.record_data);
+    } catch (error) {
+      throw new ValidationError([{ field: 'record_data', message: 'Maternal record data must be valid JSON.' }]);
+    }
+    const maternalErrors = validateMaternalRecord(maternalData);
+    if (Object.keys(maternalErrors).length) {
+      throw new ValidationError(Object.entries(maternalErrors).map(([field, message]) => ({ field, message })));
+    }
+    const edcValue = maternalData.edc ? String(maternalData.edc).slice(0, 10) : null;
+    normalizedPayload.edc = edcValue;
+    payload.edc = edcValue;
+  }
   if (table === 'residents' && ['region_code', 'province_code', 'city_municipality_code', 'barangay_code'].some((field) => normalizedPayload[field])) {
     const location = await resolveResidentLocation(normalizedPayload);
     Object.assign(normalizedPayload, location);
@@ -572,12 +587,6 @@ async function processOperation({
           userId || null
         ]);
         const newId = res.insertId;
-        await ensureSeniorCitizenRecord(conn, {
-          resident_id: newId,
-          birthdate: normalizedPayload.birthdate,
-          contact_no: normalizedPayload.contact_no,
-          category_flags: normalizedPayload.category_flags,
-        }, { userId });
         await writeAudit({ user_id: userId, action: 'CREATE', module: module, table_name: table, record_id: newId, new_data: payload, ip_address: ip, user_agent: userAgent });
         await conn.commit();
         const response = { success: true, serverRecordId: newId };
@@ -634,12 +643,6 @@ async function processOperation({
           userId || null,
           id
         ]);
-        await ensureSeniorCitizenRecord(conn, {
-          resident_id: id,
-          birthdate: normalizedPayload.birthdate !== undefined ? normalizedPayload.birthdate : oldData.birthdate,
-          contact_no: normalizedPayload.contact_no !== undefined ? normalizedPayload.contact_no : oldData.contact_no,
-          category_flags: normalizedPayload.category_flags !== undefined ? normalizedPayload.category_flags : oldData.category_flags,
-        }, { userId });
         await writeAudit({ user_id: userId, action: 'UPDATE', module: module, table_name: table, record_id: id, old_data: oldData, new_data: payload, ip_address: ip, user_agent: userAgent });
         await conn.commit();
         const response = { success: true, serverRecordId: id };

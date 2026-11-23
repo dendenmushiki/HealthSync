@@ -1,51 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {
-  calculateAge,
-  ensureSeniorCitizenRecord,
-} = require('../src/services/seniorCitizenAutoRegistrationService');
+const fs = require('node:fs');
+const path = require('node:path');
 
-test('senior auto-registration age becomes 60 on the birthdate', () => {
-  assert.equal(calculateAge('1966-11-22', '2026-11-21'), 59);
-  assert.equal(calculateAge('1966-11-22', '2026-11-22'), 60);
+const readSource = (relativePath) => fs.readFileSync(
+  path.join(__dirname, '..', 'src', relativePath),
+  'utf8'
+);
+
+test('resident CRUD, reads, and sync do not auto-register senior citizens', () => {
+  const residentController = readSource('controllers/residentController.js');
+  const seniorCitizenController = readSource('controllers/seniorCitizenController.js');
+  const syncService = readSource('services/syncService.js');
+
+  for (const source of [residentController, seniorCitizenController, syncService]) {
+    assert.doesNotMatch(source, /ensureSeniorCitizenRecord|reconcileSeniorCitizenRegistry/);
+  }
 });
 
-test('under-age residents are not auto-registered', async () => {
-  const connection = {
-    query: async () => {
-      throw new Error('Database should not be queried for an under-age resident');
-    },
-  };
-  const result = await ensureSeniorCitizenRecord(connection, {
-    resident_id: 12,
-    birthdate: '1966-11-23',
-  }, { dateRegistered: '2026-11-22' });
-  assert.equal(result, null);
-});
+test('senior citizen registration remains a manual, age-eligible BHW action', () => {
+  const controller = readSource('controllers/seniorCitizenController.js');
+  const routes = readSource('routes/seniorCitizenRoutes.js');
 
-test('existing senior records are not duplicated', async () => {
-  const connection = {
-    query: async (sql) => {
-      if (sql.includes('FROM senior_citizen_records')) return [[{ senior_id: 7 }]];
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-  };
-  const result = await ensureSeniorCitizenRecord(connection, {
-    resident_id: 12,
-    birthdate: '1966-11-22',
-  }, { dateRegistered: '2026-11-22' });
-  assert.equal(result, null);
-});
-
-test('senior records are not created without an authenticated user', async () => {
-  const connection = {
-    query: async () => {
-      throw new Error('Database should not be queried when recorded_by is unavailable');
-    },
-  };
-  const result = await ensureSeniorCitizenRecord(connection, {
-    resident_id: 12,
-    birthdate: '1966-11-22',
-  }, { dateRegistered: '2026-11-22' });
-  assert.equal(result, null);
+  assert.match(controller, /const createSeniorCitizen = async/);
+  assert.match(controller, /ageYears < 60/);
+  assert.match(controller, /INSERT INTO senior_citizen_records/);
+  assert.match(routes, /router\.post\('\/'.*authorizeRole\(\['bhw'\]\)/);
 });

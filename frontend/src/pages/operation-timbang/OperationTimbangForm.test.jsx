@@ -101,6 +101,10 @@ test('previews updated indicators as measurements change and saves the calculate
   const onSaved = jest.fn();
   render(<OperationTimbangForm onSaved={onSaved} />);
 
+  expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Save and add next/ })).not.toBeInTheDocument();
+
   fireEvent.click(screen.getByRole('button', { name: 'Select test child' }));
   fireEvent.change(screen.getByLabelText('Date recorded'), { target: { value: '2024-01-01' } });
   fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '8.5' } });
@@ -116,14 +120,14 @@ test('previews updated indicators as measurements change and saves the calculate
     measurement_cm: 73,
     measurement_type: 'length',
   });
-  expect(screen.getByRole('button', { name: 'Save record' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   expect(screen.getByRole('img', { name: 'Weight-for-age: -0.24 standard deviations' })).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '9.5' } });
   await waitFor(() => expect(calculateOperationTimbang).toHaveBeenCalledTimes(2));
   expect(await screen.findByText('Moderately underweight')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(createOperationTimbang).toHaveBeenCalledWith({
     resident_id: 42,
     date_recorded: '2024-01-01',
@@ -152,7 +156,7 @@ test('describes an offline record as saved on this device and waiting to synchro
   fireEvent.change(screen.getByLabelText('Measurement type'), { target: { value: 'length' } });
   await screen.findByText('Overall assessment');
 
-  fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
   expect(await screen.findByText(/Record saved on this device\. It will synchronize when the connection is restored\./i)).toBeInTheDocument();
   expect(onSaved).not.toHaveBeenCalled();

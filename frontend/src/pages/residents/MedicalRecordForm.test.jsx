@@ -5,7 +5,7 @@ import ClinicalRecordForm from './ClinicalRecordForm';
 import MedicalRecordForm from './MedicalRecordForm';
 import ResidentMedicalRecords from './ResidentMedicalRecords';
 import { getResident } from '../../services/api/residentService';
-import { listResidentMedicalRecords } from '../../services/api/residentMedicalRecordService';
+import { createResidentMedicalRecord, listResidentMedicalRecords } from '../../services/api/residentMedicalRecordService';
 
 jest.mock('../../services/api/residentService', () => ({
   getResident: jest.fn()
@@ -36,7 +36,8 @@ test('clinical form shows profile demographics as read-only and keeps record fie
     occupation: 'Teacher'
   }} /></MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText('Visit history')).toBeInTheDocument());
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
+  expect(screen.queryByText('Visit history')).not.toBeInTheDocument();
   expect(screen.getByText('Santos, Ana Maria Jr.')).toBeInTheDocument();
   expect(screen.getByText('January 5, 1981')).toBeInTheDocument();
   expect(screen.getByText('Poblacion')).toBeInTheDocument();
@@ -61,7 +62,8 @@ test('clinical demographics lead the form and PMH details appear alongside nativ
     sex: 'female'
   }} /></MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText('Visit history')).toBeInTheDocument());
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
+  expect(screen.queryByText('Visit history')).not.toBeInTheDocument();
   const form = container.querySelector('.clinical-form-content');
   expect(form.firstElementChild).toHaveAttribute('id', 'clinical-section-patient-demographics');
   expect(screen.queryByRole('navigation', { name: 'Clinical form sections' })).not.toBeInTheDocument();
@@ -87,7 +89,7 @@ test('clinical form includes the requested menstrual and pregnancy history field
     sex: 'female'
   }} /></MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText('Visit history')).toBeInTheDocument());
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
   expect(screen.getByRole('heading', { name: 'Menstrual History', level: 3 })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Pregnancy History', level: 3 })).toBeInTheDocument();
   expect(screen.getByRole('spinbutton', { name: 'Menarche' })).toBeInTheDocument();
@@ -115,7 +117,7 @@ test('past surgical history reveals operation fields for Yes and clears them for
     sex: 'female'
   }} /></MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText('Visit history')).toBeInTheDocument());
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
   const historyRow = container.querySelector('[id="clinical-section-Past Surgical History"] .clinical-history-prompt-row');
   fireEvent.click(within(historyRow).getByLabelText('Past surgical history: Yes'));
   fireEvent.click(within(historyRow).getByRole('button', { name: 'Add operation' }));
@@ -176,13 +178,13 @@ test('discard confirms dirty changes and returns to resident details', async () 
     </Routes>
   </MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText('Visit history')).toBeInTheDocument());
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
   fireEvent.change(screen.getByRole('combobox', { name: /Client Type/ }), { target: { value: 'New' } });
   fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
   expect(screen.getByRole('alertdialog')).toBeInTheDocument();
   expect(screen.getByText('Your entered information will be lost.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
-  expect(screen.getByText('Visit history')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Patient Demographics' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard' }));
   expect(await screen.findByRole('heading', { name: 'Resident details' })).toBeInTheDocument();
@@ -194,7 +196,7 @@ test.each([
   ['immunization', 'Parent Information', 'Immunization Details']
 ])('%s record uses the shared card workflow and preserves its sections', async (recordType, firstSection, secondSection) => {
   listResidentMedicalRecords.mockResolvedValue({ success: true, data: [] });
-  render(<MemoryRouter><MedicalRecordForm recordType={recordType} resident={{
+  const { container } = render(<MemoryRouter><MedicalRecordForm recordType={recordType} resident={{
     resident_id: 8,
     first_name: 'Mika',
     middle_name: '',
@@ -207,10 +209,94 @@ test.each([
     contact_no: '09123456789'
   }} /></MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText('Visit history')).toBeInTheDocument());
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
+  expect(screen.queryByText('Visit history')).not.toBeInTheDocument();
   expect(screen.getAllByText('Patient Demographics').length).toBeGreaterThan(0);
   expect(screen.getAllByText(firstSection).length).toBeGreaterThan(0);
   expect(screen.getAllByText(secondSection).length).toBeGreaterThan(0);
   expect(screen.getAllByText('HH-8').length).toBeGreaterThan(0);
+  expect(screen.getByText('Resident ID · 8')).toBeInTheDocument();
+  expect(screen.getByText('Female')).toBeInTheDocument();
+  expect(screen.queryByText('Sex')).not.toBeInTheDocument();
+  expect(container.querySelector('.clinical-section-sidebar')).not.toBeInTheDocument();
+  expect(container.querySelector('.clinical-accordion-heading')).not.toBeInTheDocument();
+  expect(container.querySelector('.clinical-filled-count')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Save record' })).toBeInTheDocument();
+});
+
+test.each(['child', 'immunization'])('%s discard returns to resident details after confirmation', async (recordType) => {
+  listResidentMedicalRecords.mockResolvedValue({ success: true, data: [] });
+  const resident = {
+    resident_id: 8,
+    first_name: 'Mika',
+    last_name: 'Reyes',
+    birthdate: '2020-06-12',
+    sex: 'female',
+    household_no: 'HH-8'
+  };
+  render(<MemoryRouter initialEntries={[`/residents/8/medical-records/${recordType}`]}>
+    <Routes>
+      <Route path="/residents/:id/medical-records/:recordType" element={<MedicalRecordForm recordType={recordType} resident={resident} />} />
+      <Route path="/residents/8" element={<h1>Resident details</h1>} />
+    </Routes>
+  </MemoryRouter>);
+
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
+  fireEvent.change(screen.getByLabelText('Religion'), { target: { value: 'Changed' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+  const dialog = screen.getByRole('alertdialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Discard' }));
+  expect(await screen.findByRole('heading', { name: 'Resident details' })).toBeInTheDocument();
+});
+
+test('immunization growth rows and screening dates remain in the saved payload', async () => {
+  listResidentMedicalRecords.mockResolvedValue({ success: true, data: [] });
+  createResidentMedicalRecord.mockResolvedValue({ success: true, data: {} });
+  render(<MemoryRouter><MedicalRecordForm recordType="immunization" resident={{
+    resident_id: 8,
+    first_name: 'Mika',
+    last_name: 'Reyes',
+    birthdate: '2020-06-12',
+    sex: 'female',
+    household_no: 'HH-8'
+  }} /></MemoryRouter>);
+
+  await screen.findByRole('heading', { name: 'Patient Demographics' });
+  expect(screen.queryByText('Visit history')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Date of Newborn Screening'), { target: { value: '2025-01-12' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add Row' }));
+  fireEvent.change(screen.getByLabelText('Growth records 1 Age'), { target: { value: '4' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
+
+  await waitFor(() => expect(createResidentMedicalRecord).toHaveBeenCalledWith(
+    8,
+    'immunization',
+    expect.objectContaining({
+      newborn_screening_date: '2025-01-12',
+      growth_rows: [expect.objectContaining({ age: '4' })],
+    })
+  ));
+});
+
+test.each([
+  ['child', 'Child Record'],
+  ['immunization', 'Immunization Record'],
+])('%s record page uses the shared Clinical layout', async (recordType, title) => {
+  getResident.mockResolvedValue({ success: true, data: {
+    resident_id: 8,
+    first_name: 'Mika',
+    last_name: 'Reyes',
+    birthdate: '2020-06-12',
+    sex: 'female',
+    household_no: 'HH-8',
+  } });
+  listResidentMedicalRecords.mockResolvedValue({ success: true, data: [] });
+  const { container } = render(<MemoryRouter initialEntries={[`/residents/8/medical-records/${recordType}`]}>
+    <Routes><Route path="/residents/:id/medical-records/:recordType" element={<ResidentMedicalRecords />} /></Routes>
+  </MemoryRouter>);
+
+  expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
+  expect(container.querySelector('.resident-medical-records-page')).toHaveClass('clinical-form-page');
+  expect(container.querySelector('.clinical-section-sidebar')).not.toBeInTheDocument();
+  expect(container.querySelector('.clinical-accordion-heading')).not.toBeInTheDocument();
 });

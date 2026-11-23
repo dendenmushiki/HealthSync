@@ -21,6 +21,17 @@ The migration adds the resident address field and creates the clinical, child,
 maternal, and immunization record tables. Each table keeps its form-specific
 fields in a JSON column and has a cascading foreign key to `residents`.
 
+The maternal form's nullable EDC column is included for new databases. For an
+existing database, apply the additive migration before deploying the updated
+maternal form:
+
+```sh
+mysql -u <database-user> -p <database-name> < src/scripts/migrateMaternalEdc.sql
+```
+
+Existing maternal records remain valid; the EDC value is also retained in
+`record_data` for offline use and older clients.
+
 ## Resident address selector
 
 The resident form bundles a local copy of Philippine Statistics Authority

@@ -1,8 +1,9 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { listAllHealthRecords } from '../../services/api/healthRecordService';
+import { getResidents } from '../../services/api/residentService';
 import HealthRecordsPage from './HealthRecordsPage';
 
 jest.mock('../../services/api/healthRecordService', () => ({
@@ -95,4 +96,119 @@ test('a search can be cleared without dropping unrelated filters', async () => {
   const search = screen.getByRole('searchbox', { name: 'Search health records' });
   await userEvent.type(search, 'Noah');
   await waitFor(() => expect(listAllHealthRecords).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, search: 'Noah', type: 'child', from: '2026-10-01', to: '', sort: 'date', order: 'desc' }));
+});
+
+test('resident picker keeps its record type and selects a real server result', async () => {
+  const resident = {
+    resident_id: 42,
+    first_name: 'Alex',
+    middle_name: 'Morgan',
+    last_name: 'Nguyen',
+    age: 23,
+    sex: 'female',
+    sitio: 'Riverside',
+    household_no: 'HH-19',
+  };
+  listAllHealthRecords.mockResolvedValue(success());
+  getResidents.mockResolvedValue({
+    success: true,
+    data: { items: [resident], total: 1, page: 1, pageSize: 10, pagination: { totalPages: 1 } },
+  });
+  render(<MemoryRouter initialEntries={['/health-records']}><HealthRecordsPage /><CurrentPath /></MemoryRouter>);
+
+  await userEvent.click(screen.getAllByRole('button', { name: 'New record' })[0]);
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Clinical Record' }));
+
+  expect(await screen.findByRole('heading', { name: 'Choose a resident' })).toBeInTheDocument();
+  expect(screen.getByText('NEW CLINICAL RECORD')).toBeInTheDocument();
+  expect(await screen.findByRole('option', { name: 'Choose Nguyen, Alex M.' })).toBeInTheDocument();
+  expect(screen.getByText('23 yrs · Female · Riverside')).toBeInTheDocument();
+  expect(screen.getByText('ID 42')).toBeInTheDocument();
+  expect(getResidents).toHaveBeenCalledWith(
+    expect.objectContaining({ search: '', page: 1, pageSize: 10 }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+
+  await userEvent.click(screen.getByRole('option', { name: 'Choose Nguyen, Alex M.' }));
+  await waitFor(() => expect(screen.getByTestId('current-path')).toHaveTextContent('/residents/42/medical-records/clinical'));
+});
+
+test('resident picker debounces server search and loads the next page', async () => {
+  const firstResident = { resident_id: 51, first_name: 'Sam', last_name: 'Lee', sex: 'male' };
+  const nextResident = { resident_id: 52, first_name: 'Taylor', last_name: 'Park', sex: 'female' };
+  listAllHealthRecords.mockResolvedValue(success());
+  getResidents.mockImplementation(async ({ search, page }) => {
+    if (search === '52') {
+      return { success: true, data: { items: [nextResident], total: 1, page: 1, pageSize: 10, pagination: { totalPages: 1 } } };
+    }
+    if (page === 2) {
+      return { success: true, data: { items: [nextResident], total: 2, page: 2, pageSize: 10, pagination: { totalPages: 2 } } };
+    }
+    return { success: true, data: { items: [firstResident], total: 2, page: 1, pageSize: 10, pagination: { totalPages: 2 } } };
+  });
+  render(<MemoryRouter><HealthRecordsPage /></MemoryRouter>);
+
+  await userEvent.click(screen.getAllByRole('button', { name: 'New record' })[0]);
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Child Record' }));
+  const search = await screen.findByRole('searchbox', { name: 'Search residents by name, ID, or household' });
+  expect(await screen.findByRole('option', { name: 'Choose Lee, Sam' })).toBeInTheDocument();
+
+  const initialSignal = getResidents.mock.calls[0][1].signal;
+  const callsBeforeSearch = getResidents.mock.calls.length;
+  const setTimeoutSpy = jest.spyOn(window, 'setTimeout');
+  fireEvent.change(search, { target: { value: '52' } });
+  const usesThreeHundredMillisecondDelay = setTimeoutSpy.mock.calls.some(([, delay]) => delay === 300);
+  setTimeoutSpy.mockRestore();
+  expect(usesThreeHundredMillisecondDelay).toBe(true);
+  expect(getResidents).toHaveBeenCalledTimes(callsBeforeSearch);
+  expect(initialSignal.aborted).toBe(true);
+  await waitFor(() => {
+    expect(getResidents.mock.calls.some(([params]) => params.search === '52')).toBe(true);
+  });
+  expect(getResidents.mock.calls.find(([params]) => params.search === '52')[0]).toEqual(
+    expect.objectContaining({ search: '52', page: 1, pageSize: 10 }),
+  );
+
+  fireEvent.change(search, { target: { value: '' } });
+  await waitFor(() => {
+    expect(screen.getByRole('option', { name: 'Choose Lee, Sam' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Choose Park, Taylor' })).not.toBeInTheDocument();
+  });
+  await act(async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'Load more residents' }));
+  });
+  expect(await screen.findByRole('option', { name: 'Choose Park, Taylor' })).toBeInTheDocument();
+  expect(getResidents).toHaveBeenCalledWith(
+    expect.objectContaining({ page: 2, pageSize: 10 }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+});
+
+test('resident picker supports arrow selection, Escape, and trigger focus restoration', async () => {
+  const residents = [
+    { resident_id: 71, first_name: 'Jamie', last_name: 'Rivera' },
+    { resident_id: 72, first_name: 'Robin', last_name: 'Santos' },
+  ];
+  listAllHealthRecords.mockResolvedValue(success());
+  getResidents.mockResolvedValue({
+    success: true,
+    data: { items: residents, total: 2, page: 1, pageSize: 10, pagination: { totalPages: 1 } },
+  });
+  render(<MemoryRouter initialEntries={['/health-records']}><HealthRecordsPage /><CurrentPath /></MemoryRouter>);
+
+  await userEvent.click(screen.getAllByRole('button', { name: 'New record' })[0]);
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Immunization Record' }));
+  const search = await screen.findByRole('searchbox', { name: 'Search residents by name, ID, or household' });
+  await screen.findByRole('option', { name: 'Choose Rivera, Jamie' });
+
+  fireEvent.keyDown(search, { key: 'ArrowDown' });
+  fireEvent.keyDown(search, { key: 'Enter' });
+  await waitFor(() => expect(screen.getByTestId('current-path')).toHaveTextContent('/residents/72/medical-records/immunization'));
+
+  await userEvent.click(screen.getAllByRole('button', { name: 'New record' })[0]);
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Maternal Record' }));
+  await screen.findByRole('searchbox', { name: 'Search residents by name, ID, or household' });
+  await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'New record' })[0]).toHaveFocus());
 });

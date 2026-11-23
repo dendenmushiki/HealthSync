@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 
-const StatCard = ({ icon: Icon, label, value, trend, suffix = '' }) => {
+const StatCard = ({ icon: Icon, label, value, trend, suffix = '', animateOnMount = false }) => {
   const positive = trend?.changePercent > 0;
   const negative = trend?.changePercent < 0;
   const TrendIcon = positive ? ArrowUp : negative ? ArrowDown : ArrowUpDown;
-  const [displayValue, setDisplayValue] = useState(value);
-  const previousValueRef = useRef(value);
+  const initialValue = animateOnMount && Number.isFinite(Number(value)) ? 0 : value;
+  const [displayValue, setDisplayValue] = useState(initialValue);
+  const previousValueRef = useRef(initialValue);
 
   useEffect(() => {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -43,7 +44,7 @@ const StatCard = ({ icon: Icon, label, value, trend, suffix = '' }) => {
     return () => {
       if (frameId !== undefined) window.cancelAnimationFrame(frameId);
     };
-  }, [value]);
+  }, [value, animateOnMount]);
 
   const formattedValue = value === null || value === undefined
     ? '—'

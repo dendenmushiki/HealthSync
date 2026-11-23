@@ -13,7 +13,6 @@ import {
   Clock3,
   ExternalLink,
   HeartPulse,
-  History,
   Loader2,
   Plus,
   Save,
@@ -32,7 +31,7 @@ import {
   updateResidentMedicalRecord
 } from '../../services/api/residentMedicalRecordService';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
-import { formatDateLabel, formatDateOnly, getLocalDateInputValue, getLocalTimeInputValue, toDateInputValue } from '../../utils/dateUtils';
+import { formatDateOnly, getLocalDateInputValue, getLocalTimeInputValue, toDateInputValue } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 import { medicalRecordForms } from './medicalRecordFormConfig';
 
@@ -147,7 +146,6 @@ function validateField(name, form) {
 const ICONS = {
   clinical: ClipboardPenLine,
   person: UserRound,
-  history: History,
   pmh: HeartPulse,
   surgery: Scissors,
   social: Cigarette,
@@ -716,7 +714,6 @@ const ClinicalRecordForm = ({ resident }) => {
 
   if (loading) return <div className="clinical-form-skeleton" aria-busy="true" aria-label="Loading clinical records">
     <div className="clinical-skeleton-card clinical-skeleton-patient" />
-    <div className="clinical-skeleton-card clinical-skeleton-visit" />
     <div className="clinical-skeleton-card" />
     <div className="clinical-skeleton-card" />
   </div>;
@@ -732,25 +729,8 @@ const ClinicalRecordForm = ({ resident }) => {
         <strong>{formatResidentName(resident) || 'Resident name not provided'}</strong>
         <span>{age === null ? 'Age not provided' : `${age} ${age === 1 ? 'year' : 'years'}`} · {resident.sex ? `${String(resident.sex).charAt(0).toUpperCase()}${String(resident.sex).slice(1).toLowerCase()}` : 'Gender not provided'}</span>
       </div>
+      {editingId && <button type="button" className="clinical-primary-button" onClick={resetToNew} disabled={saving}><Icon name="plus" />New record</button>}
       <span className="clinical-patient-chip">Resident ID · {resident.resident_id ?? 'Not provided'}</span>
-    </section>
-
-    <section className="clinical-visit-history" aria-labelledby="clinical-visit-heading">
-      <div className="clinical-history-heading">
-        <div className="clinical-history-title"><span className="clinical-section-icon"><Icon name="history" /></span><div><h2 id="clinical-visit-heading">Visit history</h2><p>{editingId ? `${viewingRecord ? 'Viewing' : 'Editing'} record dated ${formatDateLabel(form.visit_date) || 'Unknown date'}` : 'Review past clinical encounters or start a new one.'}</p></div></div>
-        <button type="button" className="clinical-primary-button" onClick={resetToNew} disabled={saving}><Icon name="plus" />New record</button>
-      </div>
-      {records.length ? <div className="clinical-visit-list">{records.map((record) => {
-        const recordDate = formatDateLabel(record.record_data?.visit_date || record.created_at) || 'Date not recorded';
-        const assessment = record.record_data?.assessment || record.record_data?.history_of_present_illness;
-        const active = Number(record.id) === Number(editingId);
-        return <article className={`clinical-visit-item ${active ? 'active' : ''}`} key={record.id}>
-          <div className="clinical-visit-date"><strong>{recordDate}</strong><span>{record.record_data?.visit_time || 'Time not recorded'}</span></div>
-          <p>{assessment || <em>Not provided</em>}</p>
-          <small>Recorded by {record.recorded_by_name || 'Not provided'}</small>
-          <div className="clinical-visit-actions"><button type="button" onClick={() => loadRecord(record, true)}>View</button><button type="button" onClick={() => loadRecord(record, false)}>Edit</button></div>
-        </article>;
-      })}</div> : <div className="clinical-history-empty"><span className="clinical-empty-icon"><Icon name="list" /></span><strong>No clinical records yet</strong><span>Past visits will appear here after a clinical record is saved.</span></div>}
     </section>
 
     <div className="clinical-workspace-layout">

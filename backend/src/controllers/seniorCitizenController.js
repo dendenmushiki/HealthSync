@@ -7,7 +7,6 @@ const pool = require('../config/database');
 const { writeAudit } = require('../services/auditService');
 const logger = require('../services/logger');
 const { getManilaToday } = require('../services/manilaDateService');
-const { reconcileSeniorCitizenRegistry } = require('../services/seniorCitizenAutoRegistrationService');
 
 function dateParts(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').slice(0, 10));
@@ -31,7 +30,6 @@ function ageOnDate(birthdate, referenceDate) {
  */
 const listSeniorCitizens = async (req, res) => {
   try {
-    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const page = Math.max(1, Number(req.query.page || 1));
     const pageSize = [10, 25, 50].includes(Number(req.query.pageSize || req.query.limit)) ? Number(req.query.pageSize || req.query.limit) : 10;
     const offset = (page - 1) * pageSize;

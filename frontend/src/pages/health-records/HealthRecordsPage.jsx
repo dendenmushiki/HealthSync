@@ -27,7 +27,6 @@ import {
 import { deleteHealthRecord, listAllHealthRecords } from '../../services/api/healthRecordService';
 import { deleteChildHealthRecord } from '../../services/api/childHealthService';
 import { deleteResidentMedicalRecord } from '../../services/api/residentMedicalRecordService';
-import { getResidents } from '../../services/api/residentService';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import Pagination from '../../components/common/Pagination';
 import PageBanner from '../../components/common/PageBanner';
@@ -36,6 +35,7 @@ import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateLabel, formatDateOnly, getDateInputValueInTimeZone } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
+import ResidentPickerDialog from './ResidentPickerDialog';
 import './HealthRecordsPage.css';
 
 const TYPES = [
@@ -235,82 +235,6 @@ function DateRangeControl({ from, to, onApply, onPreset }) {
   </div>;
 }
 
-const RecordResidentPicker = ({ type, onClose, onSelect }) => {
-  const [query, setQuery] = useState('');
-  const [residents, setResidents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const inputRef = useRef(null);
-  const dialogRef = useRef(null);
-
-  const loadResidents = useCallback(async (search) => {
-    setLoading(true);
-    setError('');
-    try {
-      const response = await getResidents({ search, page: 1, pageSize: 8, limit: 8 });
-      if (!response?.success) throw new Error(response?.message || 'Unable to search residents.');
-      setResidents(response.data?.items || []);
-    } catch (loadError) {
-      console.error('Unable to search residents.', loadError);
-      setError(loadError);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    const timer = window.setTimeout(() => loadResidents(query.trim()), query ? 250 : 0);
-    return () => window.clearTimeout(timer);
-  }, [loadResidents, query]);
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key === 'Tab') {
-        const focusable = Array.from(dialogRef.current?.querySelectorAll('input:not(:disabled), button:not(:disabled), a[href]') || []);
-        if (!focusable.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-
-  return <div className="health-record-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef} className="health-record-picker" role="dialog" aria-modal="true" aria-labelledby="health-record-picker-title">
-      <div className="health-record-picker-heading">
-        <div><span className="health-record-eyebrow">NEW {type.toUpperCase()} RECORD</span><h2 id="health-record-picker-title">Choose a resident</h2></div>
-        <button type="button" className="health-record-icon-button" aria-label="Close resident selector" onClick={onClose}><X size={18} aria-hidden="true" /></button>
-      </div>
-      <label className="health-record-picker-search">
-        <Search size={17} strokeWidth={1.8} aria-hidden="true" />
-        <input ref={inputRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search residents by name" />
-      </label>
-      {error && <div className="health-record-picker-error" role="alert">
-        <CircleAlert size={18} strokeWidth={1.8} aria-hidden="true" />
-        <span>{getFriendlyError(error)}</span>
-        <button type="button" onClick={() => loadResidents(query.trim())}>Retry</button>
-      </div>}
-      {loading ? <div className="health-record-picker-loading" role="status">Searching residents…</div>
-        : residents.length ? <ul className="health-record-picker-list">{residents.map((resident) => <li key={resident.resident_id}>
-          <button type="button" onClick={() => onSelect(resident)}>
-            <span className="health-record-picker-avatar">{`${resident.first_name?.charAt(0) || ''}${resident.last_name?.charAt(0) || ''}`.toUpperCase()}</span>
-            <span><strong>{formatResidentName(resident)}</strong><small>{resident.household_no ? `Household ${resident.household_no}` : 'Resident'}</small></span>
-          </button>
-        </li>)}</ul>
-          : <p className="health-record-picker-empty">No residents match this search.</p>}
-    </section>
-  </div>;
-};
-
 const HealthRecordsPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -477,6 +401,12 @@ const HealthRecordsPage = () => {
     navigate(`/residents/${resident.resident_id}/medical-records/${newRecordType}`);
     setNewRecordType('');
   };
+  const closeResidentPicker = useCallback(() => {
+    setNewRecordType('');
+    const restoreFocus = () => newRecordButtonRef.current?.focus();
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(restoreFocus);
+    else window.setTimeout(restoreFocus, 0);
+  }, []);
 
   const allCount = Object.values(typeCounts).reduce((sum, count) => sum + Number(count || 0), 0);
   const visibleTypes = stats?.availableTypes
@@ -546,10 +476,10 @@ const HealthRecordsPage = () => {
           <span className="health-record-kpi-skeleton-copy"><i /><small>{label}</small></span>
         </div>)
         : <>
-          <StatCard icon={ClipboardList} label="Total Records" value={stats.totalRecords ?? 0} />
-          <StatCard icon={CalendarPlus} label="Added This Month" value={stats.addedThisMonth ?? 0} />
-          <StatCard icon={UsersRound} label="Residents With Records" value={stats.residentsWithRecords ?? 0} />
-          <StatCard icon={CalendarDays} label="Added This Week" value={stats.addedThisWeek ?? 0} />
+          <StatCard icon={ClipboardList} label="Total Records" value={stats.totalRecords ?? 0} animateOnMount />
+          <StatCard icon={CalendarPlus} label="Added This Month" value={stats.addedThisMonth ?? 0} animateOnMount />
+          <StatCard icon={UsersRound} label="Residents With Records" value={stats.residentsWithRecords ?? 0} animateOnMount />
+          <StatCard icon={CalendarDays} label="Added This Week" value={stats.addedThisWeek ?? 0} animateOnMount />
         </>}
     </section>
 
@@ -691,7 +621,7 @@ const HealthRecordsPage = () => {
     <ConfirmModal open={Boolean(recordToDelete)} title="Delete health record?"
       message={recordToDelete ? `Delete ${recordToDelete.record_label || 'health record'} for ${getResidentDisplayName(recordToDelete)} dated ${formatDateLabel(recordToDelete.record_date) || 'Date not provided'}? This cannot be undone.` : ''}
       busy={deleting} onCancel={() => setRecordToDelete(null)} onConfirm={removeRecord} />
-    {newRecordType && <RecordResidentPicker type={newRecordType} onClose={() => setNewRecordType('')} onSelect={selectResident} />}
+    {newRecordType && <ResidentPickerDialog key={newRecordType} typeInfo={TYPE_BY_KEY[newRecordType]} onClose={closeResidentPicker} onSelect={selectResident} />}
   </main>;
 };
 

@@ -34,6 +34,7 @@ async function fetchRows() {
 function matchesFilters(row, query) {
   const search = String(query.search || '').trim().toLowerCase();
   const name = [row.first_name, row.middle_name, row.last_name, row.suffix].filter(Boolean).join(' ').toLowerCase();
+  if (query.resident_id && String(row.resident_id) !== String(query.resident_id)) return false;
   if (search && !`${name} ${row.record_type} ${row.status}`.toLowerCase().includes(search)) return false;
   if (query.type && query.type !== 'All' && row.record_type !== query.type) return false;
   if (query.status === 'normal' && !normalStatus(row.status)) return false;

@@ -80,6 +80,14 @@ const calculateResidentAge = (resident) => calculateAge(
   new Date(`${getManilaToday()}T00:00:00`)
 );
 
+const normalizeResidentSearchTokens = (value) => String(value || '')
+  .trim()
+  .replace(/^id[\s:#]+/i, '')
+  .replace(/^#/, '')
+  .toLowerCase()
+  .split(/\s+/)
+  .filter(Boolean);
+
 const getCachedResidents = async (params = {}) => {
   const user = getAuthorizedOfflineAccount();
   const collection = await getResidentCacheCollection(user.user_id);
@@ -89,12 +97,12 @@ const getCachedResidents = async (params = {}) => {
     .map((item) => item.localRecord);
   const residentsById = new Map(cached.map((resident) => [String(resident.resident_id), resident]));
   queuedResidents.forEach((resident) => residentsById.set(String(resident.resident_id), resident));
-  const searchTokens = String(params.search || params.q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const searchTokens = normalizeResidentSearchTokens(params.search || params.q);
   const asOfDate = getManilaToday();
   let residents = [...residentsById.values()].filter((resident) => {
     const searchText = [
       resident.first_name, resident.middle_name, resident.last_name, resident.suffix,
-      resident.household_no, resident.contact_no, resident.philhealth_id_no
+      resident.resident_id, resident.household_no, resident.contact_no, resident.philhealth_id_no
     ].filter(Boolean).join(' ').toLowerCase();
     if (searchTokens.some((token) => !searchText.includes(token))) return false;
     if (params.status && resident.resident_status !== params.status) return false;
@@ -158,10 +166,10 @@ const getCachedResident = async (user, id) => {
   return cached;
 };
 
-export async function getResidents(params = {}) {
+export async function getResidents(params = {}, options = {}) {
   if (isOffline()) return getCachedResidents(params);
   try {
-    const resp = await api.get('/residents', { params });
+    const resp = await api.get('/residents', { params, signal: options.signal });
     if (resp.data?.success) {
       try {
         await cacheResidents(resp.data.data?.items);
@@ -171,6 +179,9 @@ export async function getResidents(params = {}) {
     }
     return resp.data;
   } catch (error) {
+    if (options.signal?.aborted || error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') {
+      throw error;
+    }
     if (!error.response) {
       return getCachedResidents(params);
     }

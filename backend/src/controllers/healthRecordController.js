@@ -124,6 +124,7 @@ const listAllHealthRecords = async (req, res) => {
   const pageSize = [10, 25, 50].includes(requestedSize) ? requestedSize : 10;
   const search = String(req.query.search || '').trim();
   const recordType = String(req.query.type || req.query.record_type || '').trim();
+  const residentIdValue = String(req.query.resident_id || '').trim();
   const startDate = String(req.query.from || req.query.startDate || '').trim();
   const endDate = String(req.query.to || req.query.endDate || '').trim();
   const sort = String(req.query.sort || 'date');
@@ -136,7 +137,10 @@ const listAllHealthRecords = async (req, res) => {
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
   };
   const sortColumns = { date: 'record_date', record_date: 'record_date', resident: "CONCAT_WS(' ', last_name, first_name, middle_name)", type: 'record_type', record_type: 'record_type' };
-  if ((recordType && !validTypes.includes(recordType)) || !validDate(startDate) || !validDate(endDate) ||
+  const residentId = Number(residentIdValue);
+  if ((recordType && !validTypes.includes(recordType)) ||
+      (residentIdValue && (!/^\d+$/.test(residentIdValue) || !Number.isSafeInteger(residentId) || residentId <= 0)) ||
+      !validDate(startDate) || !validDate(endDate) ||
       (startDate && endDate && startDate > endDate) || !sortColumns[sort] || !['asc', 'desc'].includes(order)) {
     return res.status(400).json({ success: false, message: 'Invalid health record filters.' });
   }
@@ -145,9 +149,11 @@ const listAllHealthRecords = async (req, res) => {
   const commonFilters = [
     `(? = '' OR CONCAT_WS(' ', first_name, middle_name, last_name, suffix, record_label, record_type, record_date, summary, search_text) LIKE ?)`,
     `(? = '' OR record_date >= ?)`,
-    `(? = '' OR record_date <= ?)`
+    `(? = '' OR record_date <= ?)`,
+    `(? = 0 OR resident_id = ?)`
   ].join(' AND ');
-  const commonParams = [search, `%${search}%`, startDate, startDate, endDate, endDate];
+  const residentFilter = residentIdValue ? residentId : 0;
+  const commonParams = [search, `%${search}%`, startDate, startDate, endDate, endDate, residentFilter, residentFilter];
   const filters = `${commonFilters} AND (? = '' OR record_type = ?)`;
   const filterParams = [...commonParams, recordType, recordType];
   const offset = (page - 1) * pageSize;

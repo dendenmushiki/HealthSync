@@ -6,10 +6,6 @@ const { resolveResidentLocation } = require('../services/psgcService');
 const { ensureResidentSchema } = require('../services/residentSchemaService');
 const { getManilaToday } = require('../services/manilaDateService');
 const dashboardSummaryCache = require('../services/dashboardSummaryCache');
-const {
-  ensureSeniorCitizenRecord,
-  reconcileSeniorCitizenRegistry,
-} = require('../services/seniorCitizenAutoRegistrationService');
 
 const CIVIL_STATUSES = new Set(['Single', 'Married', 'Widowed', 'Separated', 'Annulled']);
 const RESIDENT_STATUSES = new Set(['Active', 'Inactive', 'Transferred', 'Deceased']);
@@ -125,18 +121,23 @@ function buildWhere(query) {
   const asOfDate = getManilaToday();
 
   if (term) {
-    const searchTokens = String(term).trim().split(/\s+/).filter(Boolean);
+    const searchTokens = String(term)
+      .trim()
+      .replace(/^id[\s:#]+/i, '')
+      .replace(/^#/, '')
+      .split(/\s+/)
+      .filter(Boolean);
     if (searchTokens.length > 0) {
       const searchClauses = searchTokens.map(() => `(
         r.first_name LIKE ? OR r.middle_name LIKE ? OR r.last_name LIKE ? OR r.suffix LIKE ? OR
         CONCAT_WS(' ', r.first_name, r.middle_name, r.last_name, r.suffix) LIKE ? OR
         CONCAT_WS(' ', r.last_name, r.first_name, r.middle_name, r.suffix) LIKE ? OR
-        r.household_no LIKE ? OR r.contact_no LIKE ? OR r.philhealth_id_no LIKE ?
+        CAST(r.resident_id AS CHAR) LIKE ? OR r.household_no LIKE ? OR r.contact_no LIKE ? OR r.philhealth_id_no LIKE ?
       )`);
       where.push(`(${searchClauses.join(' AND ')})`);
       searchTokens.forEach((token) => {
         const like = `%${token}%`;
-        params.push(like, like, like, like, like, like, like, like, like);
+        params.push(like, like, like, like, like, like, like, like, like, like);
       });
     }
   }
@@ -226,7 +227,6 @@ function getMonthlyTrend(currentValue, previousValue) {
 const getResidentStats = async (req, res) => {
   try {
     await ensureResidentSchema();
-    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const today = getManilaToday();
     const currentMonthStart = getMonthStart(today);
     const nextMonthStart = getMonthStart(today, 1);
@@ -321,7 +321,6 @@ const getResidentSitios = async (req, res) => res.json({ success: true, data: SI
 const listResidents = async (req, res) => {
   try {
     await ensureResidentSchema();
-    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const page = normalizePage(req.query.page, 1);
     const requestedPageSize = req.query.pageSize ?? req.query.limit;
     const limit = Math.min(normalizePage(requestedPageSize, 10), 100);
@@ -341,7 +340,6 @@ const listResidents = async (req, res) => {
 const getResident = async (req, res) => {
   try {
     await ensureResidentSchema();
-    await reconcileSeniorCitizenRegistry(pool, { userId: req.user?.user_id });
     const [rows] = await pool.query(`${RESIDENT_SELECT_SQL} WHERE r.resident_id = ?`, [req.params.id]);
     if (!rows.length) return res.status(404).json({ success: false, message: 'Resident not found' });
     return res.json({ success: true, data: addDerivedFields(rows[0]) });
@@ -476,28 +474,6 @@ const createResident = async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, residentValues(req.body, null, req.user?.user_id, location));
     dashboardSummaryCache.clear();
-    const autoSeniorRecord = await ensureSeniorCitizenRecord(connection, {
-      resident_id: result.insertId,
-      birthdate: req.body.birthdate,
-      contact_no: req.body.contact_no,
-      category_flags: residentValues(req.body, null, req.user?.user_id, location)[13],
-    }, { userId: req.user?.user_id });
-    if (autoSeniorRecord) {
-      await writeAudit({
-        user_id: req.user?.user_id,
-        action: 'CREATE',
-        module: 'senior_citizens',
-        table_name: 'senior_citizen_records',
-        record_id: autoSeniorRecord.senior_id,
-        new_data: {
-          resident_id: result.insertId,
-          senior_citizen_id: autoSeniorRecord.senior_citizen_id,
-          date_registered: getManilaToday(),
-          automatically_registered: true,
-        },
-        connection: req.idempotencyConnection,
-      });
-    }
     await writeAudit({
       user_id: req.user?.user_id,
       action: 'CREATE',
@@ -541,29 +517,6 @@ const updateResident = async (req, res) => {
       WHERE resident_id = ?
     `, [...residentValues(req.body, existing, req.user?.user_id, location), req.params.id]);
     dashboardSummaryCache.clear();
-    const updatedBirthdate = req.body.birthdate ?? existing.birthdate;
-    const updateConnection = req.idempotencyConnection || pool;
-    const autoSeniorRecord = await ensureSeniorCitizenRecord(updateConnection, {
-      resident_id: req.params.id,
-      birthdate: updatedBirthdate,
-      contact_no: req.body.contact_no ?? existing.contact_no,
-      category_flags: residentValues(req.body, existing, req.user?.user_id, location)[13],
-    }, { userId: req.user?.user_id });
-    if (autoSeniorRecord) {
-      await writeAudit({
-        user_id: req.user?.user_id,
-        action: 'CREATE',
-        module: 'senior_citizens',
-        table_name: 'senior_citizen_records',
-        record_id: autoSeniorRecord.senior_id,
-        new_data: {
-          resident_id: req.params.id,
-          senior_citizen_id: autoSeniorRecord.senior_citizen_id,
-          date_registered: getManilaToday(),
-          automatically_registered: true,
-        },
-      });
-    }
     await writeAudit({ user_id: req.user?.user_id, action: 'UPDATE', module: 'residents', table_name: 'residents', record_id: req.params.id, old_data: existing, new_data: req.body });
     const [rows] = await pool.query(`${RESIDENT_SELECT_SQL} WHERE r.resident_id = ?`, [req.params.id]);
     return res.json({ success: true, data: addDerivedFields(rows[0]) });

@@ -86,6 +86,13 @@ test('lists and filters encrypted nutrition records while offline', async () => 
   expect(api.get).not.toHaveBeenCalled();
 });
 
+test('filters offline nutrition assessments to the requested resident', async () => {
+  const response = await listNutritionRecords({ resident_id: 999, pageSize: 50 });
+
+  expect(response.data.items).toEqual([]);
+  expect(response.data.total).toBe(0);
+});
+
 test('returns the cached nutrition record and its local history offline', async () => {
   const response = await getNutritionRecord('adult', 1);
 
@@ -140,9 +147,9 @@ test('loads synchronized Adult BMI records from the authenticated backend when o
     },
   });
 
-  const response = await listNutritionRecords({ type: 'Adult BMI' });
+  const response = await listNutritionRecords({ type: 'Adult BMI', resident_id: 21 });
 
-  expect(api.get).toHaveBeenCalledWith('/nutrition/records', { params: { type: 'Adult BMI' } });
+  expect(api.get).toHaveBeenCalledWith('/nutrition/records', { params: { type: 'Adult BMI', resident_id: 21 } });
   expect(response.data.items).toEqual([
     expect.objectContaining({ id: 91, record_type: 'Adult BMI', bmi: 22.77 }),
   ]);

@@ -53,10 +53,22 @@ const ResidentMedicalRecords = () => {
   const ActiveForm = selectedTab?.Form;
   const isRecordPage = Boolean(selectedTab);
   const isClinicalRoute = recordType === 'clinical';
-  const clinicalPageClasses = isClinicalRoute ? 'clinical-record-page clinical-form-page' : '';
+  const isStyledRecordRoute = ['clinical', 'child', 'immunization'].includes(recordType);
+  const isMaternalRoute = recordType === 'maternal';
+  const clinicalPageClasses = isStyledRecordRoute ? 'clinical-record-page clinical-form-page' : '';
 
-  if (loading) return isClinicalRoute
-    ? <main className={`resident-medical-records-page clinical-page-state-container ${clinicalPageClasses}`} aria-busy="true" aria-label="Loading clinical record">
+  if (loading) return isMaternalRoute
+    ? <main className="resident-medical-records-page maternal-record-page maternal-route-loading" aria-busy="true" aria-label="Loading maternal record">
+      <div className="maternal-form-page maternal-route-skeleton">
+        <div className="maternal-skeleton-breadcrumb" />
+        <div className="maternal-skeleton-title" />
+        <div className="maternal-skeleton-card maternal-skeleton-patient" />
+        <div className="maternal-skeleton-card" />
+        <div className="maternal-skeleton-card" />
+      </div>
+    </main>
+    : isStyledRecordRoute
+    ? <main className={`resident-medical-records-page clinical-page-state-container ${clinicalPageClasses}`} aria-busy="true" aria-label={`Loading ${selectedTab.label.toLowerCase()}`}>
       <div className="clinical-route-skeleton">
         <div className="clinical-skeleton-breadcrumb" />
         <div className="clinical-skeleton-page-title" />
@@ -68,10 +80,17 @@ const ResidentMedicalRecords = () => {
     : <main className="resident-medical-records-page clinical-page-state-container" aria-busy="true">
       <div className="clinical-page-state"><span className="clinical-page-spinner" aria-hidden="true" /><p>Loading health records…</p></div>
     </main>;
-  if (error || !resident) return isClinicalRoute
+  if (error || !resident) return isMaternalRoute
+    ? <main className="resident-medical-records-page maternal-record-page clinical-page-state-container">
+      <section className="clinical-page-error maternal-route-error" role="alert">
+        <h1>Maternal record unavailable</h1><p>{error || 'Resident not found.'}</p>
+        <div><button type="button" className="maternal-secondary-button" onClick={() => setRetryToken((current) => current + 1)}>Retry</button><Link to="/residents" className="clinical-text-link">Back to residents</Link></div>
+      </section>
+    </main>
+    : isStyledRecordRoute
     ? <main className={`resident-medical-records-page clinical-page-state-container ${clinicalPageClasses}`}>
       <section className="clinical-page-error clinical-route-error" role="alert">
-        <h1>Clinical record unavailable</h1><p>{error || 'Resident not found.'}</p>
+        <h1>{isClinicalRoute ? 'Clinical record unavailable' : `${selectedTab.label} unavailable`}</h1><p>{error || 'Resident not found.'}</p>
         <div><button type="button" className="clinical-secondary-button" onClick={() => setRetryToken((current) => current + 1)}>Try again</button><Link to="/residents" className="clinical-text-link">Back to residents</Link></div>
       </section>
     </main>
@@ -79,7 +98,10 @@ const ResidentMedicalRecords = () => {
       <section className="clinical-page-error" role="alert"><h1>Health records unavailable</h1><p>{error || 'Resident not found.'}</p><Link to="/residents" className="resident-action-button resident-action-back">Back to residents</Link></section>
     </main>;
 
-  return <div className={`${isClinicalRoute ? '' : 'container mt-2'} resident-medical-records-page ${isRecordPage ? 'clinical-record-page' : ''} ${isClinicalRoute ? 'clinical-form-page' : ''}`}>
+  return <div className={`${isMaternalRoute ? '' : 'container mt-2'} resident-medical-records-page ${isRecordPage && !isMaternalRoute ? 'clinical-record-page' : ''} ${isStyledRecordRoute ? 'clinical-form-page' : ''} ${isMaternalRoute ? 'maternal-record-page' : ''}`}>
+    {isMaternalRoute
+      ? <ActiveForm resident={resident} />
+      : <>
     {isRecordPage ? <>
       <nav className="clinical-breadcrumb" aria-label="Breadcrumb">
         <Link to="/residents">Residents</Link><span aria-hidden="true">/</span>
@@ -88,7 +110,7 @@ const ResidentMedicalRecords = () => {
       </nav>
       <header className="clinical-page-header">
         <div><span className="overview-eyebrow">HEALTH RECORDS</span><h1>{selectedTab.label}</h1><p>{isClinicalRoute ? 'Document visits, vital signs, and health history for this resident.' : `${formDescriptions[selectedTab.key]} Resident: ${formatResidentName(resident)}.`}</p></div>
-        <Link to={`/residents/${id}`} className={`resident-action-button resident-action-back ${isClinicalRoute ? 'clinical-header-action' : ''}`}>{isClinicalRoute && <UserRound size={17} strokeWidth={1.8} aria-hidden="true" />}Resident details</Link>
+        <Link to={`/residents/${id}`} className={`resident-action-button resident-action-back ${isStyledRecordRoute ? 'clinical-header-action' : ''}`}>{isStyledRecordRoute && <UserRound size={17} strokeWidth={1.8} aria-hidden="true" />}Resident details</Link>
       </header>
     </> : <header className="medical-records-header">
       <div><span className="overview-eyebrow">HEALTH RECORDS</span><h1>{formatResidentName(resident)}</h1><p>Select a health record type to view or create an entry.</p></div>
@@ -109,6 +131,7 @@ const ResidentMedicalRecords = () => {
         <span><strong>{tab.label}</strong><small>{formDescriptions[tab.key]}</small></span><span className="resident-medical-link-arrow" aria-hidden="true">&#8594;</span>
       </Link>)}
     </div>}
+    </>}
   </div>;
 };
 

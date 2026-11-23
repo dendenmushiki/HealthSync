@@ -72,6 +72,7 @@ const needsAttention = (status) => !normalStatus(status);
 function matchesFilters(record, params) {
   const search = String(params.search || '').trim().toLowerCase();
   const name = [record.first_name, record.middle_name, record.last_name, record.suffix].filter(Boolean).join(' ').toLowerCase();
+  if (params.resident_id && String(record.resident_id) !== String(params.resident_id)) return false;
   if (search && !`${name} ${record.record_type} ${record.status}`.toLowerCase().includes(search)) return false;
   if (params.type && params.type !== 'All' && record.record_type !== params.type) return false;
   if (params.status === 'normal' && !normalStatus(record.status)) return false;

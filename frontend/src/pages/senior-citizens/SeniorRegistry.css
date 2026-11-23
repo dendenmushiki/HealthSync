@@ -527,6 +527,10 @@ html[data-theme='dark'] .senior-registry-page .senior-highlight { animation: sen
 .senior-search-control input::placeholder { color: var(--sr-muted); opacity: 1; }
 .senior-filter-select { position: relative; }
 .senior-filter-select select { padding-right: 2px; appearance: none; cursor: pointer; }
+html .healthsync-content-panel .senior-registry-page .senior-filter-select select:focus,
+html .healthsync-content-panel .senior-registry-page .senior-filter-select select:focus-visible,
+.senior-registry-page .senior-filter-select select:focus,
+.senior-registry-page .senior-filter-select select:focus-visible { outline: none; box-shadow: none; }
 .senior-filter-select > svg:last-child { flex: 0 0 auto; color: var(--sr-muted); pointer-events: none; }
 .senior-filter-select option { background: var(--sr-bg); color: var(--sr-text); }
 .senior-clear-search { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--sr-muted); cursor: pointer; }

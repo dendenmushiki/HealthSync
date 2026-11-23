@@ -196,6 +196,7 @@ export async function listAllHealthRecords(params = {}) {
     const startDate = String(params.from || '');
     const endDate = String(params.to || '');
     const common = allRecords.filter((record) => (
+      (!params.resident_id || String(record.resident_id) === String(params.resident_id)) &&
       (!search || `${record.first_name || ''} ${record.middle_name || ''} ${record.last_name || ''} ${record.suffix || ''} ${record.record_label} ${record.record_type} ${record.record_date} ${record.summary} ${record.search_text}`.toLowerCase().includes(search)) &&
       (!startDate || record.record_date >= startDate) &&
       (!endDate || record.record_date <= endDate)

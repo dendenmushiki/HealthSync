@@ -286,3 +286,20 @@ html:not([data-theme='dark']) .nutrition-page {
   .nutrition-record-filters { grid-template-columns: minmax(0, 1fr); }
   .nutrition-switch { grid-column: auto; }
 }
+
+.nutrition-action-bar {
+  box-sizing: border-box;
+  left: var(--hs-sidebar-width, 260px);
+}
+
+.nutrition-action-buttons .nutrition-button--secondary {
+  flex: 0 1 auto;
+}
+
+@media (max-width: 1023px) {
+  .nutrition-action-bar { left: 0; }
+}
+
+@media (max-width: 767px) {
+  .nutrition-action-buttons .nutrition-button--secondary { flex: 1 1 0; }
+}

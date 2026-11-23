@@ -13,12 +13,16 @@ import {
   MoreHorizontal,
   Pencil,
   Printer,
+  Plus,
   Stethoscope,
   Trash2,
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
+import { listAllHealthRecords } from '../../services/api/healthRecordService';
+import { listNutritionRecords } from '../../services/api/nutritionRecordsService';
 import { deleteResident, getResident, getResidentSummary } from '../../services/api/residentService';
+import Pagination from '../../components/common/Pagination';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
@@ -26,9 +30,10 @@ import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 const TABS = [
   ['overview', 'Overview', 'person'],
   ['records', 'Health Records', 'clipboard'],
-  ['visits', 'Visit History', 'calendar'],
+  ['visits', 'Nutritional Assessment History', 'calendar'],
   ['activity', 'Activity Log', 'activity']
 ];
+const HISTORY_PAGE_SIZE = 10;
 
 const RECORD_TYPES = [
   ['clinical', 'Clinical Record', 'Visit notes, vital signs, history, assessment, and plan.', 'Clinical notes'],
@@ -53,6 +58,7 @@ const ICONS = {
   edit: Pencil,
   printer: Printer,
   trash: Trash2,
+  plus: Plus,
 };
 
 const Icon = ({ name, className = '', size = 18 }) => {
@@ -101,11 +107,46 @@ const createEmptySummary = (resident) => ({
   resident,
   records: Object.fromEntries(RECORD_TYPES.map(([type]) => [type, { exists: false, lastUpdated: null, count: 0 }])),
   healthSnapshot: { weightKg: null, heightCm: null, bmi: null, nutritionStatus: null, lastVisitDate: null, nextCheckupDue: null, nextImmunizationDue: null, alerts: [] },
-  visitHistory: [],
   recentActivity: [],
   lastUpdated: null,
   offline: true
 });
+
+async function loadAllResidentPages(fetchPage, residentId) {
+  const items = [];
+  const pageSize = 50;
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const response = await fetchPage({
+      resident_id: residentId,
+      page,
+      pageSize,
+      sort: 'date',
+      order: 'desc',
+    });
+    const data = response?.data;
+    if (!response?.success || !Array.isArray(data?.items)) {
+      throw new Error(response?.message || 'Unable to load resident records.');
+    }
+
+    items.push(...data.items);
+    const reportedPages = Number(data.pagination?.totalPages);
+    if (Number.isFinite(reportedPages)) {
+      totalPages = reportedPages;
+    } else {
+      const total = Number(data.total);
+      const returnedPageSize = Number(data.pageSize) || pageSize;
+      totalPages = Number.isFinite(total)
+        ? Math.ceil(total / returnedPageSize)
+        : data.items.length === pageSize ? page + 1 : page;
+    }
+    page += 1;
+  }
+
+  return items;
+}
 
 const CopyButton = ({ value, label, onCopied }) => {
   const handleCopy = async () => {
@@ -202,7 +243,16 @@ const ResidentDetails = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [offlineNotice, setOfflineNotice] = useState('');
-  const [showAllRecords, setShowAllRecords] = useState(false);
+  const [healthRecords, setHealthRecords] = useState(null);
+  const [healthRecordsLoading, setHealthRecordsLoading] = useState(false);
+  const [healthRecordsError, setHealthRecordsError] = useState('');
+  const [healthRecordsRetry, setHealthRecordsRetry] = useState(0);
+  const [healthRecordsPage, setHealthRecordsPage] = useState(1);
+  const [nutritionRecords, setNutritionRecords] = useState(null);
+  const [nutritionRecordsLoading, setNutritionRecordsLoading] = useState(false);
+  const [nutritionRecordsError, setNutritionRecordsError] = useState('');
+  const [nutritionRecordsRetry, setNutritionRecordsRetry] = useState(0);
+  const [nutritionRecordsPage, setNutritionRecordsPage] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -213,6 +263,18 @@ const ResidentDetails = () => {
   const activeTab = TABS.some(([tab]) => tab === searchParams.get('tab')) ? searchParams.get('tab') : 'overview';
   const resident = summary?.resident;
   const editHref = `/residents/${id}/edit`;
+  const healthRecordsTotal = healthRecords?.length || 0;
+  const healthRecordsTotalPages = Math.ceil(healthRecordsTotal / HISTORY_PAGE_SIZE);
+  const currentHealthRecordsPage = Math.min(healthRecordsPage, Math.max(healthRecordsTotalPages, 1));
+  const firstHealthRecord = healthRecordsTotal ? (currentHealthRecordsPage - 1) * HISTORY_PAGE_SIZE + 1 : 0;
+  const lastHealthRecord = Math.min(currentHealthRecordsPage * HISTORY_PAGE_SIZE, healthRecordsTotal);
+  const visibleHealthRecords = (healthRecords || []).slice(firstHealthRecord - 1, lastHealthRecord);
+  const nutritionRecordsTotal = nutritionRecords?.length || 0;
+  const nutritionRecordsTotalPages = Math.ceil(nutritionRecordsTotal / HISTORY_PAGE_SIZE);
+  const currentNutritionRecordsPage = Math.min(nutritionRecordsPage, Math.max(nutritionRecordsTotalPages, 1));
+  const firstNutritionRecord = nutritionRecordsTotal ? (currentNutritionRecordsPage - 1) * HISTORY_PAGE_SIZE + 1 : 0;
+  const lastNutritionRecord = Math.min(currentNutritionRecordsPage * HISTORY_PAGE_SIZE, nutritionRecordsTotal);
+  const visibleNutritionRecords = (nutritionRecords || []).slice(firstNutritionRecord - 1, lastNutritionRecord);
 
   const showToast = useCallback((message, isError = false) => {
     window.clearTimeout(toastTimer.current);
@@ -255,6 +317,37 @@ const ResidentDetails = () => {
     loadSummary();
     return () => window.clearTimeout(toastTimer.current);
   }, [loadSummary]);
+
+  useEffect(() => {
+    setHealthRecordsPage(1);
+    setNutritionRecordsPage(1);
+  }, [id]);
+
+  useEffect(() => {
+    if (activeTab !== 'records') return undefined;
+    let active = true;
+    setHealthRecords(null);
+    setHealthRecordsLoading(true);
+    setHealthRecordsError('');
+    loadAllResidentPages(listAllHealthRecords, id)
+      .then((records) => { if (active) setHealthRecords(records); })
+      .catch((error) => { if (active) setHealthRecordsError(error.response?.data?.message || error.message || 'Unable to load this resident’s health records.'); })
+      .finally(() => { if (active) setHealthRecordsLoading(false); });
+    return () => { active = false; };
+  }, [activeTab, healthRecordsRetry, id]);
+
+  useEffect(() => {
+    if (activeTab !== 'visits') return undefined;
+    let active = true;
+    setNutritionRecords(null);
+    setNutritionRecordsLoading(true);
+    setNutritionRecordsError('');
+    loadAllResidentPages(listNutritionRecords, id)
+      .then((records) => { if (active) setNutritionRecords(records); })
+      .catch((error) => { if (active) setNutritionRecordsError(error.response?.data?.message || error.message || 'Unable to load this resident’s nutritional assessments.'); })
+      .finally(() => { if (active) setNutritionRecordsLoading(false); });
+    return () => { active = false; };
+  }, [activeTab, nutritionRecordsRetry, id]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -356,14 +449,6 @@ const ResidentDetails = () => {
   const initials = `${resident.first_name?.charAt(0) || ''}${resident.last_name?.charAt(0) || ''}`.toUpperCase() || 'R';
   const avatarColor = [...initials].reduce((total, character) => total + character.charCodeAt(0), 0) % 5;
   const snapshot = summary.healthSnapshot || {};
-  const recordItems = RECORD_TYPES.map(([type, title, description, icon]) => {
-    const applicable = type === 'clinical' || summary.records?.[type]?.exists ||
-      (type === 'child' && age !== null && age < 18) ||
-      (type === 'maternal' && String(resident.sex).toLowerCase() === 'female') ||
-      (type === 'immunization' && age !== null && age < 18);
-    return { type, title, description, icon, applicable, status: summary.records?.[type] || { exists: false } };
-  });
-  const visibleRecordItems = showAllRecords ? recordItems : recordItems.filter((item) => item.applicable);
   const getMetricText = (value, suffix) => value === null || value === undefined ? null : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${suffix}`;
   const isMissingDate = (value) => !value;
 
@@ -466,19 +551,57 @@ const ResidentDetails = () => {
       </section>}
 
       {activeTab === 'records' && <section id="resident-panel-records" role="tabpanel" aria-labelledby="resident-tab-records" className="resident-detail-info-card resident-records-panel">
-        <div className="resident-panel-heading"><div><h2>Health Records</h2><p>Open an existing record or create a new one for this resident.</p></div><label className="resident-show-all"><input type="checkbox" checked={showAllRecords} onChange={(event) => setShowAllRecords(event.target.checked)} />Show all record types</label></div>
-        <div className="resident-record-card-grid">{visibleRecordItems.map((item) => <Link key={item.type} className={`resident-record-card ${!item.applicable ? 'not-applicable' : ''}`} to={`/residents/${id}/medical-records/${item.type}`} aria-label={`${item.status.exists ? 'Open' : 'Create'} ${item.title}`}>
-          <div className="resident-record-card-top"><span className="resident-info-card-icon"><Icon name={item.icon === 'Clinical notes' ? 'medical' : item.type === 'child' ? 'person' : item.type === 'maternal' ? 'person' : 'clipboard'} /></span><span className={`resident-record-status ${item.status.exists ? 'has-record' : ''}`}>{item.status.exists ? `Updated ${formatDate(item.status.lastUpdated) || 'recently'}` : 'No record yet'}</span></div>
-          <h3>{item.title}</h3><p>{item.description}</p>
-          {!item.applicable && <span className="resident-not-applicable-note">Not applicable based on recorded profile details</span>}
-          <span className="resident-record-action">{item.status.exists ? 'Open record' : 'Create record'}<Icon name="chevron" /></span>
-        </Link>)}</div>
-        <p className="resident-record-footer">Record types marked not applicable remain available and can be shown at any time.</p>
+        <div className="resident-panel-heading">
+          <div><h2>Health Records</h2><p>Saved clinical, child, maternal, and immunization records for this resident.</p></div>
+          <Link className="resident-primary-button" to={`/residents/${id}/medical-records/clinical`}><Icon name="plus" />New clinical record</Link>
+        </div>
+        {healthRecordsError ? <div className="resident-history-error" role="alert"><p>{healthRecordsError}</p><button className="resident-secondary-button" type="button" onClick={() => setHealthRecordsRetry((retry) => retry + 1)}>Retry</button></div>
+          : healthRecordsLoading || healthRecords === null ? <div className="resident-history-loading" role="status" aria-busy="true">Loading health records...</div>
+            : healthRecords.length ? <><div className="resident-visit-table-wrap"><table className="resident-visit-table" aria-label="Resident health records"><thead><tr><th scope="col">Date</th><th scope="col">Record</th><th scope="col">Summary</th><th scope="col">Recorded by</th><th scope="col">Action</th></tr></thead><tbody>{visibleHealthRecords.map((record) => {
+              const recordHref = `/health-records/${record.record_type}/${encodeURIComponent(`${record.source_table}-${record.record_id}`)}`;
+              return <tr key={`${record.source_table}-${record.record_id}`}>
+                <td>{formatDate(record.record_date) || 'Date not recorded'}</td>
+                <td>{record.record_label || capitalize(record.record_type) || 'Health record'}</td>
+                <td>{record.summary ? record.summary : <em>Not provided</em>}</td>
+                <td>{record.recorded_by_name || <em>Not provided</em>}</td>
+                <td><Link className="resident-record-action" to={recordHref} aria-label={`View ${record.record_label || 'health record'}`}><span>View</span><Icon name="chevron" /></Link></td>
+              </tr>;
+            })}</tbody></table></div><Pagination currentPage={currentHealthRecordsPage} totalPages={healthRecordsTotalPages} first={firstHealthRecord} last={lastHealthRecord} total={healthRecordsTotal} itemLabel="records" compact onPageChange={setHealthRecordsPage} /></>
+              : <div className="resident-empty-state"><Icon name="clipboard" /><h3>No health records yet</h3><p>Saved records for this resident will appear here.</p></div>}
       </section>}
 
       {activeTab === 'visits' && <section id="resident-panel-visits" role="tabpanel" aria-labelledby="resident-tab-visits" className="resident-detail-info-card">
-        <div className="resident-panel-heading"><div><h2>Visit History</h2><p>Recorded visits, health measurements, and nutrition assessments.</p></div></div>
-        {summary.visitHistory?.length ? <div className="resident-visit-table-wrap"><table className="resident-visit-table"><thead><tr><th scope="col">Date</th><th scope="col">Record</th><th scope="col">Weight</th><th scope="col">Height</th><th scope="col">BMI</th><th scope="col">Status</th></tr></thead><tbody>{summary.visitHistory.map((visit) => <tr key={visit.id}><td>{formatDate(visit.date) || 'Date not recorded'}</td><td>{visit.title}</td><td>{getMetricText(visit.weightKg, 'kg') || '—'}</td><td>{getMetricText(visit.heightCm, 'cm') || '—'}</td><td>{getMetricText(visit.bmi, 'kg/m²') || '—'}</td><td>{visit.nutritionStatus || '—'}</td></tr>)}</tbody></table></div> : <div className="resident-empty-state"><Icon name="calendar" /><h3>No visits recorded yet</h3><p>Visit and measurement entries will appear here when available.</p></div>}
+        <div className="resident-panel-heading"><div><h2>Nutritional Assessment History</h2><p>Operation Timbang, Adolescent BMI, and Adult BMI assessments for this resident.</p></div></div>
+        {nutritionRecordsError ? <div className="resident-history-error" role="alert"><p>{nutritionRecordsError}</p><button className="resident-secondary-button" type="button" onClick={() => setNutritionRecordsRetry((retry) => retry + 1)}>Retry</button></div>
+          : nutritionRecordsLoading || nutritionRecords === null ? <div className="resident-history-loading" role="status" aria-busy="true">Loading nutritional assessments...</div>
+            : nutritionRecords.length ? <><div className="resident-visit-table-wrap"><table className="resident-visit-table" aria-label="Resident nutritional assessment history"><thead><tr><th scope="col">Date</th><th scope="col">Assessment</th><th scope="col">Measurements</th><th scope="col">Result</th><th scope="col">Action</th></tr></thead><tbody>{visibleNutritionRecords.map((record) => {
+              const typeKey = {
+                'Operation Timbang': 'operation',
+                'Adolescent BMI': 'adolescent',
+                'Adult BMI': 'adult',
+              }[record.record_type];
+              const detailHref = `/nutrition?record=${encodeURIComponent(`${typeKey}-${record.id}`)}`;
+              const measurements = [
+                record.weight_kg === null || record.weight_kg === undefined ? null : `Weight ${getMetricText(record.weight_kg, 'kg')}`,
+                record.height_cm === null || record.height_cm === undefined ? null : `Height ${getMetricText(record.height_cm, 'cm')}`,
+                record.bmi === null || record.bmi === undefined ? null : `BMI ${getMetricText(record.bmi, 'kg/m²')}`,
+              ].filter(Boolean);
+              const indicators = Array.isArray(record.indicators) ? record.indicators.filter(Boolean) : [];
+              const indicatorSummary = indicators.map((indicator) => (
+                typeof indicator === 'string'
+                  ? indicator
+                  : [indicator.code, indicator.status].filter(Boolean).join(': ')
+              )).filter(Boolean).join(', ');
+              const status = record.status || 'Not provided';
+              return <tr key={`${record.record_type}-${record.id}`}>
+                <td>{formatDate(record.record_date) || 'Date not recorded'}</td>
+                <td>{record.record_type}</td>
+                <td>{measurements.length ? measurements.join(' · ') : <em>Not provided</em>}</td>
+                <td><span className={`resident-nutrition-badge ${/normal/i.test(status) ? 'neutral' : 'warning'}`}>{status}</span>{indicatorSummary && <small className="resident-assessment-indicators">{indicatorSummary}</small>}</td>
+                <td><Link className="resident-record-action" to={detailHref} aria-label={`View ${record.record_type} assessment`}><span>View</span><Icon name="chevron" /></Link></td>
+              </tr>;
+            })}</tbody></table></div><Pagination currentPage={currentNutritionRecordsPage} totalPages={nutritionRecordsTotalPages} first={firstNutritionRecord} last={lastNutritionRecord} total={nutritionRecordsTotal} itemLabel="assessments" compact onPageChange={setNutritionRecordsPage} /></>
+              : <div className="resident-empty-state"><Icon name="calendar" /><h3>No nutritional assessments yet</h3><p>Assessments for this resident will appear here when available.</p></div>}
       </section>}
 
       {activeTab === 'activity' && <section id="resident-panel-activity" role="tabpanel" aria-labelledby="resident-tab-activity" className="resident-detail-info-card">

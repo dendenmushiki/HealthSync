@@ -8,7 +8,7 @@ function getPageItems(currentPage, totalPages) {
   return [1, 2, 'ellipsis-start', currentPage, 'ellipsis-end', totalPages - 1, totalPages];
 }
 
-const Pagination = ({ currentPage, totalPages, first, last, total, itemLabel = 'items', onPageChange, pageSize, onPageSizeChange, pageSizeOptions = [10, 25, 50, 100], compact = false, compactButtons = false, formatCounts = false }) => {
+const Pagination = ({ currentPage, totalPages, first, last, total, itemLabel = 'items', onPageChange, pageSize, onPageSizeChange, pageSizeOptions = [10, 25, 50, 100], compact = false, compactButtons = true, formatCounts = false }) => {
   if (!total) return null;
   const displayCount = (value) => formatCounts ? Number(value).toLocaleString() : value;
   const pageItems = compact && totalPages > 5
@@ -17,12 +17,14 @@ const Pagination = ({ currentPage, totalPages, first, last, total, itemLabel = '
 
   return (
     <div className="app-pagination-row">
-      <span className="app-pagination-summary">Showing {displayCount(first)}-{displayCount(last)} of {displayCount(total)} {itemLabel}</span>
-      {!compact && pageSize && onPageSizeChange && <label className="app-pagination-size">Rows per page
-        <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} aria-label={`Rows per page for ${itemLabel}`}>
-          {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
-        </select>
-      </label>}
+      <div className="app-pagination-info">
+        <span className="app-pagination-summary">Showing {displayCount(first)}-{displayCount(last)} of {displayCount(total)} {itemLabel}</span>
+        {!compact && pageSize && onPageSizeChange && <label className="app-pagination-size">Rows per page
+          <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} aria-label={`Rows per page for ${itemLabel}`}>
+            {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>}
+      </div>
       {totalPages > 1 && (
         <nav className="app-pagination" aria-label={`${itemLabel} pages`}>
           <ul className="app-pagination-list">

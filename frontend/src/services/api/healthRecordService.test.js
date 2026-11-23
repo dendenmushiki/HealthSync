@@ -64,6 +64,13 @@ test('offline health overview exposes aggregate statistics and available record 
   }));
 });
 
+test('offline health overview filters records to the requested resident', async () => {
+  const result = await listAllHealthRecords({ resident_id: 999, page: 1, pageSize: 50 });
+
+  expect(result.data.items).toEqual([]);
+  expect(result.data.total).toBe(0);
+});
+
 test('offline health record detail returns downloaded record and resident context', async () => {
   const result = await getHealthRecordDetails('maternal_records', 30);
 

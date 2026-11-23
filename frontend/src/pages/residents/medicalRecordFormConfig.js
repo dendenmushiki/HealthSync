@@ -1,5 +1,11 @@
 const yesNo = [{ value: 'Yes', label: 'Yes' }, { value: 'No', label: 'No' }];
 const familyHealthOptions = ['DM', 'BA', 'HPN', 'CA'].map((value) => ({ value, label: value }));
+const maternalHistoryOptions = [
+  { value: 'DM', label: 'Diabetes mellitus (DM)' },
+  { value: 'BA', label: 'Bronchial asthma (BA)' },
+  { value: 'HPN', label: 'Hypertension (HPN)' },
+  { value: 'CA', label: 'Cancer (CA)' }
+];
 const field = (name, label, type = 'text', options) => ({ name, label, type, ...(options ? { options } : {}) });
 
 export const medicalRecordForms = {
@@ -78,7 +84,7 @@ export const medicalRecordForms = {
     tableName: 'ChildRecord',
     demographics: [
       field('name', 'Name', 'resident', 'full_name'), field('age', 'Age', 'resident', 'age'),
-      field('sex', 'Sex', 'resident', 'sex'), field('family_serial_number', 'Family Serial Number', 'resident', 'household_no'),
+      field('sex', 'Gender', 'resident', 'sex'), field('family_serial_number', 'Family Serial Number', 'resident', 'household_no'),
       field('address', 'Address', 'resident', 'address'), field('birthdate', 'Date of Birth', 'resident', 'birthdate'),
       field('nhts_number', 'NHTS#'), field('religion', 'Religion'), field('birthplace', 'Birthplace'),
       field('philhealth_number', 'PhilHealth #', 'resident', 'philhealth_id_no'), field('philhealth_category', 'PhilHealth Category'),
@@ -90,8 +96,8 @@ export const medicalRecordForms = {
       { title: 'Visit Details', column: 'left', fields: [
         field('visit_date', 'Date', 'date'), field('visit_time', 'Time', 'time'),
         field('history_of_present_illness', 'S: History of Present Illness', 'textarea'),
-        field('blood_pressure', 'BP'), field('pulse_rate', 'PR/CR'), field('temperature', 'T (°C)', 'number'),
-        field('weight_kg', 'WT (kg)', 'number'), field('respiratory_rate', 'RR'), field('height_cm', 'HT (cm)', 'number'),
+        field('blood_pressure', 'Blood pressure (BP)'), field('pulse_rate', 'Pulse rate (PR/CR)'), field('temperature', 'Temperature', 'number'),
+        field('weight_kg', 'Weight', 'number'), field('respiratory_rate', 'Respiratory rate (RR)'), field('height_cm', 'Height', 'number'),
         field('findings', 'Findings', 'textarea'), field('assessment', 'A: Assessment', 'textarea'), field('plan', 'P: Plan', 'textarea')
       ] },
       { title: 'Medical History', column: 'right', fields: [
@@ -108,7 +114,7 @@ export const medicalRecordForms = {
     tableName: 'MaternalRecord',
     demographics: [
       field('family_serial_number', 'Family Serial Number', 'resident', 'household_no'), field('age', 'Age', 'resident', 'age'),
-      field('sex', 'Sex', 'resident', 'sex'), field('first_name', 'First Name', 'resident', 'first_name'),
+      field('sex', 'Gender', 'resident', 'sex'), field('first_name', 'First Name', 'resident', 'first_name'),
       field('middle_name', 'Middle Name', 'resident', 'middle_name'), field('last_name', 'Last Name', 'resident', 'last_name'),
       field('address', 'Address', 'resident', 'address'), field('birthdate', 'Date of Birth', 'resident', 'birthdate'),
       field('nhts_number', 'NHTS#'), field('civil_status', 'Civil Status', 'resident', 'civil_status'),
@@ -121,20 +127,20 @@ export const medicalRecordForms = {
     sections: [
       { title: 'Visit Details', column: 'left', fields: [
         field('visit_date', 'Date', 'date'), field('visit_time', 'Time', 'time'),
-        field('gravida', 'G', 'number'), field('para', 'P', 'number'), field('abortion', 'A', 'number'),
-        field('lmp', 'LMP', 'date'), field('aog', 'AOG', 'date'),
+        field('gravida', 'Gravida (G)', 'number'), field('para', 'Parity (P)', 'number'), field('abortion', 'Abortion (A)', 'number'),
+        field('lmp', 'Last menstrual period (LMP)', 'date'), field('edc', 'EDC', 'date'), field('aog', 'Age of gestation (AOG)'),
         field('blood_pressure', 'BP (mmHg)'), field('temperature', 'Temp (°C)', 'number'), field('weight_kg', 'Wt (kg)', 'number'),
         field('pulse_rate', 'PR (bpm)'), field('respiratory_rate', 'RR (bpm)'), field('height_cm', 'Ht (cm)', 'number'),
-        field('fht_cm', 'FHT (cm)', 'number'), field('fhb_bpm', 'FHB (bpm)', 'number'),
-        field('presentation', 'PRES', 'select', ['Cephalic', 'Breech', 'Transverse'].map((value) => ({ value, label: value }))),
-        field('muac_cm', 'MUAC (cm)', 'number'), field('tt_status', 'TT STATUS', 'textarea')
+        field('fht_cm', 'Fundal height (FHT)', 'number'), field('fhb_bpm', 'Fetal heart beat (FHB)', 'number'),
+        field('presentation', 'Presentation (PRES)', 'select', ['Cephalic', 'Breech', 'Transverse'].map((value) => ({ value, label: value }))),
+        field('muac_cm', 'Mid-upper arm circumference (MUAC)', 'number'), field('tt_status', 'Tetanus toxoid status (TT)', 'textarea')
       ] },
       { title: 'Medical and Past History', column: 'right', fields: [
-        field('pmh_history', 'Past Medical History (DM, BA, HPN, CA, etc.)', 'checkboxes', familyHealthOptions),
+        field('pmh_history', 'Past Medical History', 'checkboxes', maternalHistoryOptions),
         field('maintenance_medications', 'Maintenance Meds', 'textarea'),
         field('hospitalization_history', 'History of hospitalization', 'textarea'),
         field('medication_allergies', 'Allergy to meds', 'textarea'), field('food_allergies', 'Allergy to foods', 'textarea'),
-        field('fmh_history', 'Family Medical History (DM, BA, HPN, CA, etc.)', 'checkboxes', familyHealthOptions)
+        field('fmh_history', 'Family Medical History', 'checkboxes', maternalHistoryOptions)
       ] }
     ]
   },
@@ -144,11 +150,11 @@ export const medicalRecordForms = {
     tableName: 'ImmunizationRecord',
     demographics: [
       field('name', 'Name', 'resident', 'full_name'), field('age', 'Age', 'resident', 'age'),
-      field('sex', 'Sex', 'resident', 'sex'), field('family_serial_number', 'Family Serial Number', 'resident', 'household_no'),
+      field('sex', 'Gender', 'resident', 'sex'), field('family_serial_number', 'Family Serial Number', 'resident', 'household_no'),
       field('birthdate', 'Date of Birth', 'resident', 'birthdate'), field('time_of_birth', 'Time of Birth', 'time'),
       field('address', 'Address', 'resident', 'address'), field('religion', 'Religion'), field('birthplace', 'Birthplace'),
       field('nhts_number', 'NHTS#'), field('philhealth_category', 'PhilHealth Category'),
-      field('birth_weight_kg', 'Birth Weight (kg)', 'number'), field('philhealth_number', 'PhilHealth #', 'resident', 'philhealth_id_no')
+      field('birth_weight_kg', 'Birth Weight', 'number'), field('philhealth_number', 'PhilHealth #', 'resident', 'philhealth_id_no')
     ],
     sections: [
       { title: 'Parent Information', fields: [
@@ -160,19 +166,19 @@ export const medicalRecordForms = {
       { title: 'Growth and Vital Signs', fields: [
         field('growth_rows', 'Growth records', 'table', { columns: [
           { name: 'date', label: 'Date', type: 'date' }, { name: 'age', label: 'Age', type: 'number' },
-          { name: 'weight', label: 'Weight', type: 'number' }, { name: 'height', label: 'Height', type: 'number' },
-          { name: 'muac', label: 'MUAC', type: 'number' }, { name: 'temperature', label: 'Temp.', type: 'number' }, { name: 'remarks', label: 'Remarks' }
+          { name: 'weight', label: 'Weight (kg)', type: 'number' }, { name: 'height', label: 'Height (cm)', type: 'number' },
+          { name: 'muac', label: 'MUAC (cm)', type: 'number' }, { name: 'temperature', label: 'Temperature (°C)', type: 'number' }, { name: 'remarks', label: 'Remarks' }
         ], addLabel: 'Add Row' })
       ] },
       { title: 'Immunization Details', fields: [
         field('newborn_screening_date', 'Date of Newborn Screening', 'date'),
         field('hearing_screening_date', 'Date of Hearing Screening', 'date'),
         field('vitamin_k_date', 'Vit. K', 'date'), field('bcg_date', 'BCG', 'date'),
-        field('hepa_b1_within_24_hours_date', 'Hepa B1 w/ in 24hrs', 'date'),
-        field('hepa_b1_after_24_hours_date', 'Hepa B1 more than 24hrs', 'date'),
+        field('hepa_b1_within_24_hours_date', 'Hepatitis B dose 1 (within 24 hours)', 'date'),
+        field('hepa_b1_after_24_hours_date', 'Hepatitis B dose 1 (after 24 hours)', 'date'),
         field('mcvo_date', 'MCVO', 'date'), field('measles_date', 'Measles', 'date'),
-        field('mmr_date', 'MMR', 'date'), field('vitamin_a_first_dose_date', 'Vit. A 1st dose (6-11 mos.)', 'date'),
-        field('vitamin_a_second_dose_date', 'Vit. A 2nd dose (12-15 mos.)', 'date'),
+        field('mmr_date', 'MMR', 'date'), field('vitamin_a_first_dose_date', 'Vitamin A first dose (6-11 months)', 'date'),
+        field('vitamin_a_second_dose_date', 'Vitamin A second dose (12-15 months)', 'date'),
         field('vaccine_rows', 'Vaccine doses', 'table', { columns: [
           { name: 'dose', label: 'Dose', type: 'readonly' },
           { name: 'penta_hib', label: 'PENTA Hib', type: 'date' },

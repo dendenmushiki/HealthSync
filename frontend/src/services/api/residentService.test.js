@@ -89,6 +89,26 @@ test('caches online residents encrypted and serves them to the owning account of
   expect(response.data.items[0].resident_id).toBe(19);
 });
 
+test('passes abort signals through to server-side resident searches', async () => {
+  const controller = new AbortController();
+
+  await getResidents({ search: 'ID 19', page: 2, pageSize: 10 }, { signal: controller.signal });
+
+  expect(api.get).toHaveBeenCalledWith('/residents', {
+    params: { search: 'ID 19', page: 2, pageSize: 10 },
+    signal: controller.signal,
+  });
+});
+
+test('does not fall back to cached residents when a search is cancelled', async () => {
+  const controller = new AbortController();
+  const cancelled = Object.assign(new Error('Request cancelled.'), { name: 'CanceledError', code: 'ERR_CANCELED' });
+  api.get.mockRejectedValueOnce(cancelled);
+  controller.abort();
+
+  await expect(getResidents({ search: '19' }, { signal: controller.signal })).rejects.toBe(cancelled);
+});
+
 test('does not expose encrypted residents to a different local account', async () => {
   await getResidents();
   Object.defineProperty(global.navigator, 'onLine', { configurable: true, value: false });
