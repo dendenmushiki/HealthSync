@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import {
   createResidentMedicalRecord,
-  deleteResidentMedicalRecord,
   listResidentMedicalRecords,
   updateResidentMedicalRecord
 } from '../../services/api/residentMedicalRecordService';
@@ -319,22 +318,6 @@ const MedicalRecordForm = ({ recordType, resident }) => {
     else if (!error) setError(`The requested ${recordNoun} record was not found.`);
   }, [error, loadRecord, loading, records, requestedRecordId, recordNoun]);
 
-  const removeRecord = async () => {
-    if (!editingId || !window.confirm('Delete this saved record? This cannot be undone.')) return;
-    setSaving(true);
-    setError('');
-    try {
-      await deleteResidentMedicalRecord(resident.resident_id, recordType, editingId);
-      resetForm();
-      setMessage('Record deleted.');
-      await refresh();
-    } catch (deleteError) {
-      setError(deleteError.response?.data?.message || 'Unable to delete record.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const profileFields = config.demographics.filter((item) => item.type === 'resident');
   const editableDemographics = config.demographics.filter((item) => item.type !== 'resident');
   const displayProfileValue = (field) => {
@@ -443,7 +426,6 @@ const MedicalRecordForm = ({ recordType, resident }) => {
         <div className="clinical-action-bar">
           <div className={`clinical-action-status ${dirty ? 'is-dirty' : ''}`} role="status" aria-live="polite" aria-atomic="true">{dirty ? <><span className="clinical-unsaved-dot" />Unsaved changes</> : saving ? 'Saving…' : message || 'All changes saved'}</div>
           <div className="clinical-action-buttons">
-            {editingId && <button type="button" className="clinical-danger-outline-button" onClick={removeRecord} disabled={saving}><Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />Delete record</button>}
             <button type="button" className="clinical-secondary-button" onClick={requestDiscard} disabled={saving}><X size={16} strokeWidth={1.9} aria-hidden="true" />Discard</button>
             <button type="submit" className="clinical-primary-button" disabled={saving || !dirty}>{saving ? <Loader2 className="is-loading" size={16} strokeWidth={2} aria-hidden="true" /> : <Save size={16} strokeWidth={1.9} aria-hidden="true" />}{saving ? 'Saving…' : editingId ? 'Save changes' : 'Save record'}</button>
           </div>

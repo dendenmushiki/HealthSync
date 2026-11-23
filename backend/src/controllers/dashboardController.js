@@ -8,6 +8,7 @@ const logger = require('../services/logger');
 const SITIOS = require('../config/sitios');
 const { getManilaToday: getManilaDate } = require('../services/manilaDateService');
 const dashboardSummaryCache = require('../services/dashboardSummaryCache');
+const { classifyOperationTimbang, normalizeNutritionStatus } = require('../services/nutritionClassificationService');
 
 /**
  * Get dashboard summary statistics
@@ -284,15 +285,37 @@ const getSummary = async (req, res) => {
 
     const [adultNutrition] = await pool.query('SELECT bmi_category AS category, COUNT(*) AS count FROM adult_bmi_records WHERE bmi_category IS NOT NULL GROUP BY bmi_category');
     const [adolescentNutrition] = await pool.query('SELECT bmi_for_age_category AS category, COUNT(*) AS count FROM adolescent_bmi_records WHERE bmi_for_age_category IS NOT NULL GROUP BY bmi_for_age_category');
-    const [childNutrition] = await pool.query('SELECT wflh_status AS category, COUNT(*) AS count FROM operation_timbang_assessments WHERE wflh_status IS NOT NULL GROUP BY wflh_status');
+    const [nutritionRecordRows] = await pool.query(`
+      SELECT 'child' AS record_group, ota.wfa_status, ota.hfa_status, ota.wflh_status, NULL AS status
+      FROM operation_timbang ot
+      LEFT JOIN operation_timbang_assessments ota ON ota.timbang_id = ot.timbang_id
+      UNION ALL
+      SELECT 'adolescent' AS record_group, NULL, NULL, NULL, abr.bmi_for_age_category
+      FROM adolescent_bmi_records abr
+      UNION ALL
+      SELECT 'adult' AS record_group, NULL, NULL, NULL, adult.bmi_category
+      FROM adult_bmi_records adult
+    `);
     const fixedCategories = ['Severely underweight','Moderately underweight','Underweight','Severely wasted/SAM','Moderately wasted/MAM','Thinness','Severe Thinness','Normal','Overweight','Obese','Tall','Moderately stunted','Severely stunted'];
     const normalizeNutrition = (rows) => {
       const map = {};
-      (rows || []).forEach((row) => { map[row.category || 'Unknown'] = Number(row.count || 0); });
+      (rows || []).forEach((row) => { map[row.category] = Number(row.count || 0); });
       const categories = [...fixedCategories];
       Object.keys(map).forEach((category) => { if (!categories.includes(category)) categories.push(category); });
       return categories.map((category) => ({ category, count: map[category] || 0 }));
     };
+    const nutritionByType = { child: new Map(), adolescent: new Map(), adult: new Map() };
+    (nutritionRecordRows || []).forEach((row) => {
+      const status = row.record_group === 'child'
+        ? classifyOperationTimbang(row).status
+        : normalizeNutritionStatus(row.status);
+      if (!status) return;
+      const counts = nutritionByType[row.record_group];
+      counts.set(status, (counts.get(status) || 0) + 1);
+    });
+    const nutritionCounts = (counts) => normalizeNutrition(
+      [...counts.entries()].map(([category, count]) => ({ category, count }))
+    );
 
     const [nutritionRiskRows] = await pool.query(`SELECT COUNT(DISTINCT resident_id) AS count FROM (
       SELECT ot.resident_id FROM operation_timbang_assessments ota JOIN operation_timbang ot ON ot.timbang_id=ota.timbang_id
@@ -394,7 +417,9 @@ const getSummary = async (req, res) => {
       recordsTrend: months.map((month) => trendMap[month]),
       nutritionTrend,
       nutrition:{
-        child:normalizeNutrition(childNutrition), adolescent:normalizeNutrition(adolescentNutrition), adult:normalizeNutrition(adultNutrition),
+        child:nutritionCounts(nutritionByType.child),
+        adolescent:nutritionCounts(nutritionByType.adolescent),
+        adult:nutritionCounts(nutritionByType.adult),
         assessed:{ child:timbangRows.length, adolescent:adolescentNutrition.reduce((sum,row)=>sum+Number(row.count || 0),0), adult:adultNutrition.reduce((sum,row)=>sum+Number(row.count || 0),0) },
         eligible:{ child:under5, adolescent:adolescentEligible, adult:adultEligible }
       },

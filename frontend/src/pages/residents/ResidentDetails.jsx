@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   ArrowLeft,
@@ -15,13 +15,12 @@ import {
   Printer,
   Plus,
   Stethoscope,
-  Trash2,
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
 import { listAllHealthRecords } from '../../services/api/healthRecordService';
 import { listNutritionRecords } from '../../services/api/nutritionRecordsService';
-import { deleteResident, getResident, getResidentSummary } from '../../services/api/residentService';
+import { getResident, getResidentSummary } from '../../services/api/residentService';
 import Pagination from '../../components/common/Pagination';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateOnly } from '../../utils/dateUtils';
@@ -57,7 +56,6 @@ const ICONS = {
   chevron: ChevronRight,
   edit: Pencil,
   printer: Printer,
-  trash: Trash2,
   plus: Plus,
 };
 
@@ -196,48 +194,8 @@ const StatusBadge = ({ status }) => {
   return <span className={`resident-status-badge resident-status-${className}`}><Icon name={className === 'active' ? 'check' : 'circle'} size={14} />{capitalize(status || 'Active')}</span>;
 };
 
-const ConfirmDeleteModal = ({ name, busy, onCancel, onConfirm }) => {
-  const dialogRef = useRef(null);
-  const cancelRef = useRef(null);
-  const confirmRef = useRef(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && !busy) onCancel();
-      if (event.key !== 'Tab') return;
-      const first = cancelRef.current;
-      const last = confirmRef.current;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [busy, onCancel]);
-
-  return (
-    <div className="resident-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
-      <section ref={dialogRef} className="resident-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="resident-delete-title" aria-describedby="resident-delete-description">
-        <div className="resident-delete-icon"><Icon name="trash" /></div>
-        <h2 id="resident-delete-title">Delete resident?</h2>
-        <p id="resident-delete-description">You are about to permanently delete <strong>{name}</strong> and their related health records. This action cannot be undone.</p>
-        <div className="resident-modal-actions">
-          <button ref={cancelRef} className="resident-secondary-button" type="button" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button ref={confirmRef} className="resident-danger-button" type="button" onClick={onConfirm} disabled={busy}>{busy ? 'Deleting…' : 'Delete resident'}</button>
-        </div>
-      </section>
-    </div>
-  );
-};
-
 const ResidentDetails = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -254,8 +212,6 @@ const ResidentDetails = () => {
   const [nutritionRecordsRetry, setNutritionRecordsRetry] = useState(0);
   const [nutritionRecordsPage, setNutritionRecordsPage] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const menuButtonRef = useRef(null);
@@ -404,18 +360,6 @@ const ResidentDetails = () => {
     window.requestAnimationFrame(() => document.getElementById(`resident-tab-${nextTab}`)?.focus());
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      const response = await deleteResident(id);
-      navigate('/residents', { replace: true, state: { residentToast: response?.queued ? 'Resident deletion queued for sync.' : 'Resident deleted.' } });
-    } catch (error) {
-      setDeleting(false);
-      setConfirmDelete(false);
-      showToast(error.response?.data?.message || 'Unable to delete resident. Please try again.', true);
-    }
-  };
-
   const printSummary = () => {
     setTab('overview');
     window.setTimeout(() => window.print(), 100);
@@ -478,7 +422,6 @@ const ResidentDetails = () => {
             <button ref={menuButtonRef} type="button" className="resident-overflow-button" aria-label="More resident actions" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><Icon name="more" /></button>
             {menuOpen && <div ref={menuRef} className="resident-overflow-menu" role="menu">
               <button type="button" role="menuitem" onClick={printSummary}><Icon name="printer" />Print summary</button>
-              <button type="button" role="menuitem" className="resident-menu-delete" onClick={() => { setMenuOpen(false); setConfirmDelete(true); }}><Icon name="trash" />Delete resident</button>
             </div>}
           </div>
           <Link className="resident-primary-button" to={editHref}><Icon name="edit" />Edit resident</Link>
@@ -616,7 +559,6 @@ const ResidentDetails = () => {
       </footer>
 
       {toast && <div className={`resident-toast ${toast.isError ? 'error' : ''}`} role={toast.isError ? 'alert' : 'status'}>{toast.message}</div>}
-      {confirmDelete && <ConfirmDeleteModal name={fullName} busy={deleting} onCancel={() => setConfirmDelete(false)} onConfirm={handleDelete} />}
     </main>
   );
 };

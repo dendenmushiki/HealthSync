@@ -83,6 +83,17 @@ function matchesFilters(record, params) {
   return true;
 }
 
+function matchesBaseFilters(record, params) {
+  const search = String(params.search || '').trim().toLowerCase();
+  const name = [record.first_name, record.middle_name, record.last_name, record.suffix].filter(Boolean).join(' ').toLowerCase();
+  if (search && !`${name} ${record.record_type} ${record.status}`.toLowerCase().includes(search)) return false;
+  if (params.status === 'normal' && !normalStatus(record.status)) return false;
+  if (params.status === 'attention' && !needsAttention(record.status)) return false;
+  if (params.from && record.record_date < params.from) return false;
+  if (params.to && record.record_date > params.to) return false;
+  return true;
+}
+
 function sortNutritionRecords(records, params) {
   const direction = params.order === 'asc' ? 1 : -1;
   const sort = String(params.sort || 'date');
@@ -112,6 +123,12 @@ async function listOfflineNutritionRecords(params = {}) {
     month: records.filter((record) => String(record.record_date || '').startsWith(currentMonth)).length,
     childrenThisYear: new Set(records.filter((record) => record.record_type === 'Operation Timbang' &&
       String(record.record_date || '').startsWith(String(currentYear))).map((record) => record.resident_id)).size,
+  };
+  const tabCountRows = records.filter((record) => matchesBaseFilters(record, params));
+  counts.type = {
+    operation: tabCountRows.filter((record) => record.record_type === 'Operation Timbang').length,
+    adolescent: tabCountRows.filter((record) => record.record_type === 'Adolescent BMI').length,
+    adult: tabCountRows.filter((record) => record.record_type === 'Adult BMI').length,
   };
   let filtered = records.filter((record) => matchesFilters(record, params));
   if (params.latestOnly === 'true') {

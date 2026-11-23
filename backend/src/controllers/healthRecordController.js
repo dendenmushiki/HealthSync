@@ -248,6 +248,7 @@ const getHealthRecordDetails = async (req, res) => {
     if (!recordRows.length) return res.status(404).json({ success: false, message: 'Health record not found.' });
     const record = recordRows[0];
     if (source.json && typeof record.record_data === 'string') record.record_data = JSON.parse(record.record_data);
+    const [patientRows] = await pool.query('SELECT * FROM residents WHERE resident_id = ?', [record.resident_id]);
     const [residentRows] = await pool.query(
       `SELECT * FROM (${buildRecordsUnion()}) records WHERE resident_id = ? ORDER BY record_date DESC, created_at DESC, record_id DESC`,
       [record.resident_id]
@@ -259,14 +260,11 @@ const getHealthRecordDetails = async (req, res) => {
       success: true,
       data: {
         record: { ...record, record_type: source.type, record_label: source.label, source_table: source.table, record_date: selected?.record_date || record.record_date || record.visit_date || record.record_data?.visit_date || null },
-        resident: {
-          resident_id: record.resident_id, first_name: record.first_name, middle_name: record.middle_name,
-          last_name: record.last_name, suffix: record.suffix, birthdate: record.birthdate, sex: record.sex,
-          age: record.age, household_no: record.household_no, profile_photo: record.profile_photo
-        },
+        resident: { ...(patientRows[0] || {}), resident_id: record.resident_id, age: record.age },
         previousRecord: currentIndex > 0 ? getRecordKey(residentRows[currentIndex - 1]) : null,
         nextRecord: currentIndex >= 0 && currentIndex < residentRows.length - 1 ? getRecordKey(residentRows[currentIndex + 1]) : null,
-        otherRecords: residentRows.filter((item) => !(item.source_table === sourceTable && Number(item.record_id) === recordId)).slice(0, 5)
+        otherRecords: residentRows.filter((item) => !(item.source_table === sourceTable && Number(item.record_id) === recordId)).slice(0, 5),
+        clinicalVisits: residentRows.filter((item) => item.record_type === 'clinical')
       }
     });
   } catch (error) {

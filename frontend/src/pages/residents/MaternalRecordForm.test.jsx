@@ -4,14 +4,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import MaternalRecordForm from './MaternalRecordForm';
 import {
   createResidentMedicalRecord,
-  deleteResidentMedicalRecord,
   listResidentMedicalRecords,
   updateResidentMedicalRecord,
 } from '../../services/api/residentMedicalRecordService';
 
 jest.mock('../../services/api/residentMedicalRecordService', () => ({
   createResidentMedicalRecord: jest.fn(),
-  deleteResidentMedicalRecord: jest.fn(),
   listResidentMedicalRecords: jest.fn(),
   updateResidentMedicalRecord: jest.fn(),
 }));
@@ -36,7 +34,6 @@ beforeEach(() => {
   listResidentMedicalRecords.mockResolvedValue({ success: true, data: [] });
   createResidentMedicalRecord.mockResolvedValue({ success: true, data: {} });
   updateResidentMedicalRecord.mockResolvedValue({ success: true, data: {} });
-  deleteResidentMedicalRecord.mockResolvedValue({ success: true });
 });
 
 test('suggests EDC from LMP, allows an override, and retains it when LMP is cleared', async () => {

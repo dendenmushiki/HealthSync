@@ -26,7 +26,6 @@ import {
 } from 'lucide-react';
 import {
   createResidentMedicalRecord,
-  deleteResidentMedicalRecord,
   listResidentMedicalRecords,
   updateResidentMedicalRecord
 } from '../../services/api/residentMedicalRecordService';
@@ -527,29 +526,6 @@ const ClinicalRecordForm = ({ resident }) => {
     }
   };
 
-  const removeRecord = async () => {
-    if (!editingId) return;
-    const remove = async () => {
-      setSaving(true);
-      setError('');
-      try {
-        const response = await deleteResidentMedicalRecord(resident.resident_id, 'clinical', editingId);
-        if (!response?.success) throw new Error(response?.message || 'Unable to delete record.');
-        showToast(response.offline ? 'Record deletion saved offline.' : 'Clinical record deleted.');
-        setForm(defaultForm);
-        baselineRef.current = snapshot(defaultForm);
-        setEditingId(null);
-        setViewingRecord(false);
-        if (!response.offline) await refreshRecords();
-      } catch (deleteError) {
-        setError(deleteError.response?.data?.message || deleteError.message || 'Unable to delete record.');
-      } finally {
-        setSaving(false);
-      }
-    };
-    requestLeave(remove);
-  };
-
   const discardChanges = () => requestLeave(() => navigate(`/residents/${resident.resident_id}`));
 
   const errorFor = (name) => touched[name] ? fieldErrors[name] || '' : '';
@@ -822,7 +798,6 @@ const ClinicalRecordForm = ({ resident }) => {
         <div className="clinical-action-bar">
           <div className={`clinical-action-status ${dirty ? 'is-dirty' : ''}`} role="status" aria-live="polite" aria-atomic="true">{dirty ? <><span className="clinical-unsaved-dot" />Unsaved changes</> : <span>{saving ? 'Saving…' : draftStatus || 'All changes saved'}</span>}</div>
           <div className="clinical-action-buttons">
-            {editingId && !viewingRecord && <button type="button" className="clinical-danger-outline-button" onClick={removeRecord} disabled={saving}><Icon name="trash" />Delete record</button>}
             <button type="button" className="clinical-secondary-button" onClick={discardChanges} disabled={saving || viewingRecord}><Icon name="close" />Discard</button>
             <button type="submit" className="clinical-primary-button" disabled={saving || !dirty || viewingRecord}>{saving ? <Icon name="loader" className="is-loading" /> : <Icon name="save" />}{saving ? 'Saving...' : editingId ? 'Save changes' : 'Save record'}</button>
           </div>

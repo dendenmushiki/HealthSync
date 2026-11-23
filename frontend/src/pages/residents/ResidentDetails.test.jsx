@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ResidentDetails from './ResidentDetails';
 import { listAllHealthRecords } from '../../services/api/healthRecordService';
 import { listNutritionRecords } from '../../services/api/nutritionRecordsService';
-import { deleteResident, getResidentSummary } from '../../services/api/residentService';
+import { getResidentSummary } from '../../services/api/residentService';
 
 jest.mock('../../services/api/healthRecordService', () => ({
   listAllHealthRecords: jest.fn(),
@@ -15,7 +15,6 @@ jest.mock('../../services/api/nutritionRecordsService', () => ({
 }));
 
 jest.mock('../../services/api/residentService', () => ({
-  deleteResident: jest.fn(),
   getResident: jest.fn(),
   getResidentSummary: jest.fn()
 }));
@@ -231,17 +230,12 @@ test('shows a retry action when resident health records fail to load', async () 
   expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
 });
 
-test('requires explicit confirmation before deleting and then returns to residents', async () => {
-  deleteResident.mockResolvedValue({ success: true });
+test('keeps the resident print action without exposing resident deletion', async () => {
   renderPage();
 
   fireEvent.click(await screen.findByRole('button', { name: 'More resident actions' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete resident' }));
-  expect(screen.getByRole('dialog')).toHaveTextContent('Reyes, Marco Luis');
-  fireEvent.click(screen.getByRole('button', { name: 'Delete resident' }));
-
-  await waitFor(() => expect(deleteResident).toHaveBeenCalledWith('15'));
-  expect(await screen.findByText('Resident list')).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: 'Print summary' })).toBeInTheDocument();
+  expect(screen.queryByText('Delete resident')).not.toBeInTheDocument();
 });
 
 test('shows a retry and residents link when the summary endpoint returns 404', async () => {

@@ -1,34 +1,29 @@
 const pool = require('../config/database');
 const logger = require('../services/logger');
+const { classifyOperationTimbang, normalizeNutritionStatus } = require('../services/nutritionClassificationService');
 
 const dateOnly = (value) => value ? String(value).slice(0, 10) : null;
 const normalStatus = (status) => /^normal$/i.test(String(status || '').trim());
-const needsAttention = (status) => !normalStatus(status);
-const childStatus = (row) => {
-  const rank = { 'Severely stunted': 7, 'Severely wasted/SAM': 7, 'Severely underweight': 7, 'Moderately stunted': 6, 'Moderately wasted/MAM': 6, 'Moderately underweight': 6, 'Underweight': 5, 'Wasted': 5, 'Stunted': 5, 'Tall': 4, Overweight: 3, 'Obese': 3, Normal: 0 };
-  const indicators = [['WAZ', row.wfa_status], ['HAZ', row.hfa_status], ['WHZ', row.wflh_status]].map(([code, status]) => ({ code, status: status || 'Normal' }));
-  indicators.sort((a, b) => (rank[b.status] || 1) - (rank[a.status] || 1));
-  return { status: indicators[0].status, indicators };
-};
+const needsAttention = (status) => Boolean(status) && !normalStatus(status);
 
 async function fetchRows() {
   const [children] = await pool.query(`SELECT ot.timbang_id id, ot.resident_id, 'Operation Timbang' record_type, ot.date_recorded record_date, ot.created_at,
     ot.weight_kg, ot.measurement_cm height_cm, ot.measurement_type, ota.wfa_status, ota.hfa_status, ota.wflh_status, ota.wfa_zscore, ota.hfa_zscore, ota.wflh_zscore,
-    ot.recorded_by, u.full_name recorded_by_name, r.first_name, r.middle_name, r.last_name, r.suffix, r.birthdate, r.sex, r.household_no, r.sitio
+    ot.recorded_by, u.full_name recorded_by_name, r.first_name, r.middle_name, r.last_name, r.suffix, r.birthdate, r.sex, r.civil_status, r.address, r.household_no, r.sitio, r.contact_no, r.philhealth_id_no, r.occupation, r.profile_photo
     FROM operation_timbang ot LEFT JOIN users u ON ot.recorded_by=u.user_id LEFT JOIN residents r ON ot.resident_id=r.resident_id LEFT JOIN operation_timbang_assessments ota ON ota.timbang_id=ot.timbang_id`);
   const [adolescent] = await pool.query(`SELECT abr.record_id id, abr.resident_id, 'Adolescent BMI' record_type, abr.record_date, abr.created_at,
     abr.weight_kg, abr.height_cm, NULL measurement_type, NULL wfa_status, NULL hfa_status, NULL wflh_status, NULL wfa_zscore, NULL hfa_zscore, NULL wflh_zscore,
     abr.bmi, abr.bmi_for_age_zscore, abr.bmi_for_age_category status, abr.recorded_by, u.full_name recorded_by_name,
-    r.first_name, r.middle_name, r.last_name, r.suffix, r.birthdate, r.sex, r.household_no, r.sitio
+    r.first_name, r.middle_name, r.last_name, r.suffix, r.birthdate, r.sex, r.civil_status, r.address, r.household_no, r.sitio, r.contact_no, r.philhealth_id_no, r.occupation, r.profile_photo
     FROM adolescent_bmi_records abr LEFT JOIN users u ON abr.recorded_by=u.user_id LEFT JOIN residents r ON abr.resident_id=r.resident_id`);
   const [adult] = await pool.query(`SELECT abr.bmi_id id, abr.resident_id, 'Adult BMI' record_type, abr.date_recorded record_date, abr.created_at,
     abr.weight_kg, abr.height_cm, NULL measurement_type, NULL wfa_status, NULL hfa_status, NULL wflh_status, NULL wfa_zscore, NULL hfa_zscore, NULL wflh_zscore,
     abr.bmi, NULL bmi_for_age_zscore, abr.bmi_category status, abr.recorded_by, u.full_name recorded_by_name,
-    r.first_name, r.middle_name, r.last_name, r.suffix, r.birthdate, r.sex, r.household_no, r.sitio
+    r.first_name, r.middle_name, r.last_name, r.suffix, r.birthdate, r.sex, r.civil_status, r.address, r.household_no, r.sitio, r.contact_no, r.philhealth_id_no, r.occupation, r.profile_photo
     FROM adult_bmi_records abr LEFT JOIN users u ON abr.recorded_by=u.user_id LEFT JOIN residents r ON abr.resident_id=r.resident_id`);
-  return children.map((row) => { const child = childStatus(row); return { ...row, status: child.status, indicators: child.indicators, record_date: dateOnly(row.record_date) }; })
-    .concat(adolescent.map((row) => ({ ...row, record_date: dateOnly(row.record_date), indicators: [] })))
-    .concat(adult.map((row) => ({ ...row, record_date: dateOnly(row.record_date), indicators: [] })));
+  return children.map((row) => { const child = classifyOperationTimbang(row); return { ...row, status: child.status, indicators: child.indicators, record_date: dateOnly(row.record_date) }; })
+    .concat(adolescent.map((row) => ({ ...row, status: normalizeNutritionStatus(row.status), record_date: dateOnly(row.record_date), indicators: [] })))
+    .concat(adult.map((row) => ({ ...row, status: normalizeNutritionStatus(row.status), record_date: dateOnly(row.record_date), indicators: [] })));
 }
 
 function matchesFilters(row, query) {
@@ -38,10 +33,21 @@ function matchesFilters(row, query) {
   if (search && !`${name} ${row.record_type} ${row.status}`.toLowerCase().includes(search)) return false;
   if (query.type && query.type !== 'All' && row.record_type !== query.type) return false;
   if (query.status === 'normal' && !normalStatus(row.status)) return false;
-  if (query.status === 'attention' && !needsAttention(row.status)) return false;
+  if (query.status === 'attention' && (!row.status || !needsAttention(row.status))) return false;
   if (query.from && row.record_date < query.from) return false;
   if (query.to && row.record_date > query.to) return false;
   if (query.sitio && String(row.sitio || '') !== query.sitio) return false;
+  return true;
+}
+
+function matchesBaseFilters(row, query) {
+  const search = String(query.search || '').trim().toLowerCase();
+  const name = [row.first_name, row.middle_name, row.last_name, row.suffix].filter(Boolean).join(' ').toLowerCase();
+  if (search && !`${name} ${row.record_type} ${row.status}`.toLowerCase().includes(search)) return false;
+  if (query.status === 'normal' && !normalStatus(row.status)) return false;
+  if (query.status === 'attention' && (!row.status || !needsAttention(row.status))) return false;
+  if (query.from && row.record_date < query.from) return false;
+  if (query.to && row.record_date > query.to) return false;
   return true;
 }
 
@@ -61,6 +67,12 @@ async function listNutritionRecords(req, res) {
     const currentMonth = new Date().toISOString().slice(0, 7);
     counts.month = rows.filter((row) => String(row.record_date || '').startsWith(currentMonth)).length;
     counts.childrenThisYear = new Set(rows.filter((row) => row.record_type === 'Operation Timbang' && String(row.record_date || '').startsWith(String(currentYear))).map((row) => row.resident_id)).size;
+    const tabCountRows = rows.filter((row) => matchesBaseFilters(row, req.query));
+    counts.type = {
+      operation: tabCountRows.filter((row) => row.record_type === 'Operation Timbang').length,
+      adolescent: tabCountRows.filter((row) => row.record_type === 'Adolescent BMI').length,
+      adult: tabCountRows.filter((row) => row.record_type === 'Adult BMI').length,
+    };
     rows = rows.filter((row) => matchesFilters(row, req.query));
     if (req.query.latestOnly === 'true') {
       const latest = new Map();

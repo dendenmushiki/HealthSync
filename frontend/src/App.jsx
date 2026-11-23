@@ -15,6 +15,8 @@ import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminSettingsPage from './pages/admin/AdminSettingsPage';
 import HealthRecordsPage from './pages/health-records/HealthRecordsPage';
 import HealthRecordDetailPage from './pages/health-records/HealthRecordDetailPage';
+import NutritionRecordDetailPage from './pages/health-records/NutritionRecordDetailPage';
+import SeniorCitizenDocumentPage from './pages/health-records/SeniorCitizenDocumentPage';
 import ClinicalRecordsPage from './pages/health-records/ClinicalRecordsPage';
 import ChildHealthPage from './pages/child-health/ChildHealthPage';
 import NutritionPage from './pages/nutrition/NutritionPage';
@@ -551,14 +553,16 @@ function AppShellContent() {
               <Route path="/health-records" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><HealthRecordsPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/health-records/:sourceTable/:residentId/:recordId" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><LegacyHealthRecordDetailRedirect /></RoleGuard></ProtectedRoute>} />
               <Route path="/health-records/:type/:recordKey" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><HealthRecordDetailPage /></RoleGuard></ProtectedRoute>} />
+              <Route path="/nutrition/records/:type/:id" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><NutritionRecordDetailPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><RoleGuard allowed={['bhw', 'official']} denied={['admin']}><ReportsPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/nutrition" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><NutritionPage /></RoleGuard></ProtectedRoute>} />
-              <Route path="/operation-timbang" element={<Navigate to="/nutrition" replace />} />
-              <Route path="/adolescent-bmi" element={<Navigate to="/nutrition" replace />} />
-              <Route path="/adult-bmi" element={<Navigate to="/nutrition" replace />} />
+              <Route path="/operation-timbang" element={<Navigate to="/nutrition?tab=operation-timbang" replace />} />
+              <Route path="/adolescent-bmi" element={<Navigate to="/nutrition?tab=bmi-computation&bmi=adolescent" replace />} />
+              <Route path="/adult-bmi" element={<Navigate to="/nutrition?tab=bmi-computation&bmi=adult" replace />} />
               <Route path="/senior-citizens" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><SeniorRegistryPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/senior-citizens/new" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><SeniorRegistryPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/senior-citizens/:id/edit" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><SeniorRegistryPage /></RoleGuard></ProtectedRoute>} />
+              <Route path="/senior-citizens/records/:id" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><SeniorCitizenDocumentPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/audit-logs" element={<ProtectedRoute><RoleGuard allowed={['admin']}><AuditLogsPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><RoleGuard allowed={['admin']}><UserManagementPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/sync-status" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><SyncStatus /></RoleGuard></ProtectedRoute>} />

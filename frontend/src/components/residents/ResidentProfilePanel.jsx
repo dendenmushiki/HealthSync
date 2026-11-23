@@ -12,6 +12,7 @@ import {
   Scale,
   UserRound,
   VenusAndMars,
+  X,
 } from 'lucide-react';
 import { getResidentSummary } from '../../services/api/residentService';
 import { calculateAdultBMIOffline, calculateAdolescentBMIOffline } from '../../services/nutrition/offlineNutritionCalculator';
@@ -168,7 +169,8 @@ function getLatestAssessment(resident, visits, snapshot) {
   return result;
 }
 
-const ResidentProfilePanel = ({ resident }) => {
+const ResidentProfilePanel = ({ resident, onClose }) => {
+  const dialogRef = useRef(null);
   const navigate = useNavigate();
   const cache = useRef(new Map());
   const activeResidentId = useRef(null);
@@ -177,6 +179,39 @@ const ResidentProfilePanel = ({ resident }) => {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('health');
   const tabButtonRefs = useRef({});
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll('button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])') || []);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.focus();
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, [onClose]);
 
   const loadProfile = async (force = false) => {
     const id = resident?.resident_id;
@@ -257,10 +292,11 @@ const ResidentProfilePanel = ({ resident }) => {
   };
 
   return (
-    <aside className="resident-profile-panel" aria-label="Resident profile">
-      <header className="resident-profile-heading">
-        <UserRound size={20} strokeWidth={1.8} aria-hidden="true" />
-        <strong>Resident Profile</strong>
+    <div className="resident-profile-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef} className="resident-profile-panel resident-profile-modal" role="dialog" aria-modal="true" aria-labelledby="resident-profile-dialog-title" tabIndex={-1}>
+        <header className="resident-profile-heading">
+          <span><UserRound size={20} strokeWidth={1.8} aria-hidden="true" /><strong id="resident-profile-dialog-title">Resident Profile</strong></span>
+          <button type="button" className="resident-profile-close" aria-label="Close resident profile" onClick={onClose}><X size={19} aria-hidden="true" /></button>
       </header>
 
       {resident ? <>
@@ -387,7 +423,8 @@ const ResidentProfilePanel = ({ resident }) => {
         </span>
         <ChevronRight className="resident-full-record-chevron" size={16} aria-hidden="true" />
       </button>
-    </aside>
+      </section>
+    </div>
   );
 };
 

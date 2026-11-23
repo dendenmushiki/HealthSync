@@ -7482,14 +7482,16 @@ html[data-theme='dark'] .login-form-panel .login-alert.alert-danger {
 .health-record-error button { border: 0; background: transparent; color: inherit; font-weight: 700; cursor: pointer; }
 .health-record-table-card { overflow: visible; border: 1px solid var(--record-border); border-radius: .8rem; background: var(--record-surface); box-shadow: 0 .35rem 1.2rem rgba(25, 65, 85, .045); }
 .health-record-table-wrap { overflow-x: auto; overflow-y: visible; border-radius: .8rem .8rem 0 0; }
-.health-records-table { width: 100%; min-width: 940px; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: .86rem; }
+.health-records-table { width: 100%; min-width: 1160px; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: .86rem; }
 .health-records-table th { position: sticky; z-index: 2; top: 0; padding: .72rem .8rem; border-bottom: 1px solid var(--record-border); background: var(--record-surface); color: var(--record-muted); font-size: .75rem; font-weight: 700; text-align: left; white-space: nowrap; }
-.health-records-table th:nth-child(1) { width: 22%; }
-.health-records-table th:nth-child(2) { width: 13%; }
-.health-records-table th:nth-child(3) { width: 16%; }
-.health-records-table th:nth-child(4) { width: 23%; }
-.health-records-table th:nth-child(5) { width: 14%; }
-.health-records-table th:nth-child(6) { width: 12%; }
+.health-records-table th:nth-child(1) { width: 19%; }
+.health-records-table th:nth-child(2) { width: 12%; }
+.health-records-table th:nth-child(3) { width: 13%; }
+.health-records-table th:nth-child(4) { width: 18%; }
+.health-records-table th:nth-child(5) { width: 13%; }
+.health-records-table th:nth-child(6) { width: 9%; }
+.health-records-table th:nth-child(7) { width: 11%; }
+.health-records-table th:nth-child(8) { width: 5%; }
 .health-records-table th button { display: inline-flex; align-items: center; gap: .28rem; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .health-records-table th[aria-sort='ascending'] button,
 .health-records-table th[aria-sort='descending'] button { color: var(--record-primary); }
@@ -9920,16 +9922,16 @@ html:not([data-theme='dark']) .healthsync-content-panel .resident-health-card.st
   }
 
   .residents-directory-page > .page-banner {
-    min-height: 70px;
-    flex: 0 0 70px;
+    min-height: 76px;
+    flex: 0 0 76px;
     margin: 0;
     padding: 8px 16px;
   }
 
   .residents-directory-page > .page-banner .page-banner-icon {
-    width: 38px;
-    height: 38px;
-    flex-basis: 38px;
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
   }
 
   .residents-directory-page > .page-banner .page-banner-heading {
@@ -9937,7 +9939,7 @@ html:not([data-theme='dark']) .healthsync-content-panel .resident-health-card.st
   }
 
   .residents-directory-page > .page-banner .page-banner-heading h1 {
-    font-size: 20px;
+    font-size: 21px;
   }
 
   .residents-directory-page > .page-banner .page-banner-heading p {
@@ -9952,7 +9954,7 @@ html:not([data-theme='dark']) .healthsync-content-panel .resident-health-card.st
 
   .resident-stat-grid {
     min-height: 0;
-    flex: 0 0 58px;
+    flex: 0 0 64px;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
     margin: 0;
@@ -9965,9 +9967,9 @@ html:not([data-theme='dark']) .healthsync-content-panel .resident-health-card.st
   }
 
   .resident-stat-icon {
-    width: 34px;
-    height: 34px;
-    flex-basis: 34px;
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
   }
 
   .resident-stat-content { gap: 2px; }
@@ -10106,12 +10108,13 @@ html:not([data-theme='dark']) .healthsync-content-panel .resident-health-card.st
 
 @media (min-width: 1280px) and (min-height: 600px) and (max-height: 800px) {
   .residents-directory-page:has(.resident-directory-toolbar) { gap: 6px; }
-  .residents-directory-page > .page-banner { min-height: 64px; flex-basis: 64px; }
-  .resident-stat-grid { flex-basis: 54px; gap: 6px; }
-  .resident-stat-card { gap: 6px; padding: 5px 7px; }
-  .resident-stat-icon { width: 30px; height: 30px; flex-basis: 30px; }
-  .resident-stat-content strong { font-size: 17px; }
-  .resident-stat-content small { font-size: 9px; }
+  .residents-directory-page > .page-banner { min-height: 72px; flex-basis: 72px; }
+  .resident-stat-grid { flex-basis: 62px; gap: 6px; }
+  .resident-stat-card { gap: 6px; }
+  .residents-directory-page .resident-stat-grid > .resident-stat-card { padding: 6px 9px; }
+  .resident-stat-icon { width: 34px; height: 34px; flex-basis: 34px; }
+  .resident-stat-content strong { font-size: 18px; }
+  .resident-stat-content small { font-size: 10px; }
   .resident-stat-trend { font-size: 7px; }
   .resident-record-table-area .residents-table thead th { height: 28px; padding: 3px 4px; }
   .resident-record-table-area .residents-table tbody td { height: 27px; padding: 2px 4px; }
@@ -10129,10 +10132,10 @@ html:not([data-theme='dark']) .healthsync-content-panel .resident-health-card.st
     display: grid;
     min-width: 0;
     min-height: 0;
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 36px minmax(0, 1fr);
     align-items: center;
     gap: 6px;
-    padding: 5px 7px;
+    padding: 6px 9px;
     box-sizing: border-box;
   }
 
@@ -12891,5 +12894,188 @@ html[data-theme='dark'] #maternal-form-page .maternal-control::placeholder { col
 @media (prefers-reduced-motion: reduce) {
   #root .healthsync-content-panel .app-pagination-button {
     transition: none;
+  }
+}
+
+.resident-record-workspace {
+  display: block;
+}
+
+.resident-record-table-area {
+  width: 100%;
+}
+
+.resident-profile-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, .58);
+  backdrop-filter: blur(2px);
+}
+
+.resident-profile-panel.resident-profile-modal {
+  position: relative;
+  top: auto;
+  display: flex;
+  width: min(680px, calc(100vw - 32px));
+  height: auto;
+  min-height: 0;
+  max-height: min(780px, calc(100dvh - 48px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #dfe7ed;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .28);
+}
+
+.resident-profile-modal .resident-profile-heading {
+  min-height: 52px;
+  flex: 0 0 auto;
+  justify-content: space-between;
+}
+
+.resident-profile-modal .resident-profile-heading > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.resident-profile-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.resident-profile-close:hover,
+.resident-profile-close:focus-visible {
+  background: rgba(255, 255, 255, .14);
+}
+
+.resident-profile-modal .resident-profile-content {
+  min-height: 140px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+@media (max-width: 600px) {
+  .resident-profile-modal-backdrop {
+    padding: 12px;
+  }
+
+  .resident-profile-panel.resident-profile-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+}
+
+.residents-directory-page .resident-record-table-area .residents-table-wrap {
+  min-height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+.residents-directory-page .resident-record-table-area .residents-table {
+  width: 100%;
+  min-width: 0 !important;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(1),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(1) { width: 6%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(2),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(2) { width: 23%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(3),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(3) { width: 6%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(4),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(4) { width: 9%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(5),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(5) { width: 10%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(6),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(6) { width: 18%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(7),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(7) { width: 16%; }
+.residents-directory-page .resident-record-table-area .residents-table th:nth-child(8),
+.residents-directory-page .resident-record-table-area .residents-table td:nth-child(8) { width: 12%; }
+
+.residents-directory-page .resident-record-table-area .residents-table thead th {
+  height: 36px;
+  padding: 5px 6px;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.residents-directory-page .resident-record-table-area .residents-table tbody td {
+  height: 44px;
+  padding: 5px 6px;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.residents-directory-page .resident-record-table-area .residents-name-cell {
+  min-width: 0;
+  gap: 7px;
+}
+
+.residents-directory-page .resident-record-table-area .residents-name-button {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .residents-directory-page .resident-record-table-area .residents-table-wrap {
+    display: block;
+  }
+
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(1),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(1),
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(4),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(4),
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(5),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(5),
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(7),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(7) {
+    display: none;
+  }
+
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(2),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(2) { width: 44%; }
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(3),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(3) { width: 8%; }
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(6),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(6) { width: 30%; }
+  .residents-directory-page .resident-record-table-area .residents-table th:nth-child(8),
+  .residents-directory-page .resident-record-table-area .residents-table td:nth-child(8) { width: 18%; }
+
+  .residents-directory-page .resident-record-table-area .residents-table tbody td {
+    height: 42px;
+    padding: 4px 5px;
+    font-size: 12px;
+  }
+
+  .residents-directory-page .resident-record-table-area .residents-name-button {
+    font-size: 12px;
+  }
+
+  .residents-directory-page .resident-record-table-area .residents-icon-button {
+    width: 24px;
+    height: 26px;
   }
 }

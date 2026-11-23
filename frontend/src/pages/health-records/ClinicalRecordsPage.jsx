@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { getResident } from '../../services/api/residentService';
-import { listHealthRecords, createHealthRecord, deleteHealthRecord, updateHealthRecord } from '../../services/api/healthRecordService';
-import ConfirmModal from '../../components/common/ConfirmModal';
+import { listHealthRecords, createHealthRecord, updateHealthRecord } from '../../services/api/healthRecordService';
 import { formatDateLabel, getLocalDateInputValue } from '../../utils/dateUtils';
 import StatusBanner from '../../components/common/StatusBanner';
 
@@ -45,8 +44,6 @@ const ClinicalRecordsPage = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [saving, setSaving] = useState(false);
-  const [recordToDelete, setRecordToDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -127,20 +124,6 @@ const ClinicalRecordsPage = () => {
       setError(err);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await deleteHealthRecord(recordToDelete.health_record_id);
-      setRecords((current) => current.filter((record) => record.health_record_id !== recordToDelete.health_record_id));
-      setRecordToDelete(null);
-    } catch (err) {
-      console.error('Unable to delete clinical record.', err);
-      setError(err);
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -285,7 +268,7 @@ const ClinicalRecordsPage = () => {
                         const next = new URLSearchParams(searchParams);
                         next.set('recordId', String(record.health_record_id));
                         setSearchParams(next, { replace: true });
-                      }}>Edit</button> <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setRecordToDelete(record)}>Delete</button></td>
+                      }}>Edit</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -294,7 +277,6 @@ const ClinicalRecordsPage = () => {
           )}
         </div>
       </div>
-      <ConfirmModal open={Boolean(recordToDelete)} title="Delete clinical record?" message="This permanently removes this record and records the action in the admin audit log." busy={deleting} onCancel={() => setRecordToDelete(null)} onConfirm={handleDelete} />
     </div>
   );
 };

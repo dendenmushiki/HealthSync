@@ -8,6 +8,7 @@ const pool = require('../config/database');
 const { writeAudit } = require('../services/auditService');
 const { calculateAssessment } = require('../services/nutrition/adolescentBmiAssessment');
 const logger = require('../services/logger');
+const dashboardSummaryCache = require('../services/dashboardSummaryCache');
 
 /**
  * List adolescent BMI records
@@ -208,6 +209,7 @@ const createAdolescentBMI = async (req, res) => {
       [newId]
     );
 
+    dashboardSummaryCache.clear();
     return res.status(201).json({ success: true, data: rows[0] });
   } catch (err) {
     logger.error('createAdolescentBMI error', err);
@@ -291,6 +293,7 @@ const updateAdolescentBMI = async (req, res) => {
 
     const sql = `UPDATE adolescent_bmi_records SET ${updates.join(', ')} WHERE record_id = ?`;
     await pool.query(sql, values);
+    dashboardSummaryCache.clear();
 
     const [rows] = await pool.query(
       'SELECT * FROM adolescent_bmi_records WHERE record_id = ?',
@@ -344,6 +347,7 @@ const deleteAdolescentBMI = async (req, res) => {
     if (!records.length) return res.status(404).json({ success: false, message: 'Adolescent BMI record not found.' });
 
     await pool.query('DELETE FROM adolescent_bmi_records WHERE record_id = ?', [id]);
+    dashboardSummaryCache.clear();
     await writeAudit({
       user_id: req.user.user_id,
       action: 'DELETE',

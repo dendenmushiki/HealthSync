@@ -9,7 +9,6 @@ jest.mock('../../services/api/seniorCitizenService', () => ({
   getSeniorCitizen: jest.fn(),
   createSeniorCitizen: jest.fn(),
   updateSeniorCitizen: jest.fn(),
-  removeSeniorCitizen: jest.fn(),
   searchEligibleResidents: jest.fn(),
   getNextSeniorId: jest.fn(),
 }));

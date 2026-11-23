@@ -6,6 +6,7 @@ const { resolveResidentLocation } = require('../services/psgcService');
 const { ensureResidentSchema } = require('../services/residentSchemaService');
 const { getManilaToday } = require('../services/manilaDateService');
 const dashboardSummaryCache = require('../services/dashboardSummaryCache');
+const { latestNutritionStatusSql } = require('../services/nutritionClassificationService');
 
 const CIVIL_STATUSES = new Set(['Single', 'Married', 'Widowed', 'Separated', 'Annulled']);
 const RESIDENT_STATUSES = new Set(['Active', 'Inactive', 'Transferred', 'Deceased']);
@@ -20,25 +21,7 @@ const SORTS = {
   status: 'r.resident_status ASC, r.last_name ASC, r.first_name ASC'
 };
 
-const LATEST_NUTRITION_STATUS_SQL = `CASE
-  WHEN r.birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, r.birthdate, CURDATE()) <= 5 THEN (
-    SELECT COALESCE(NULLIF(ota.wflh_status, ''), NULLIF(ota.wfa_status, ''), NULLIF(ota.hfa_status, ''))
-    FROM operation_timbang ot
-    LEFT JOIN operation_timbang_assessments ota ON ota.timbang_id = ot.timbang_id
-    WHERE ot.resident_id = r.resident_id
-    ORDER BY ot.date_recorded DESC, ot.timbang_id DESC LIMIT 1
-  )
-  WHEN r.birthdate IS NOT NULL AND TIMESTAMPDIFF(YEAR, r.birthdate, CURDATE()) <= 19 THEN (
-    SELECT abr.bmi_for_age_category FROM adolescent_bmi_records abr
-    WHERE abr.resident_id = r.resident_id
-    ORDER BY abr.record_date DESC, abr.record_id DESC LIMIT 1
-  )
-  ELSE (
-    SELECT adult.bmi_category FROM adult_bmi_records adult
-    WHERE adult.resident_id = r.resident_id
-    ORDER BY adult.date_recorded DESC, adult.bmi_id DESC LIMIT 1
-  )
-END`;
+const LATEST_NUTRITION_STATUS_SQL = latestNutritionStatusSql('r');
 
 const RESIDENT_SELECT_SQL = `
   SELECT r.resident_id, r.first_name, r.middle_name, r.last_name, r.suffix,

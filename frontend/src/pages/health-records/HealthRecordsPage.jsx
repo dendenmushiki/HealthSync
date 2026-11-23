@@ -13,7 +13,6 @@ import {
   Eye,
   FileText,
   HeartPulse,
-  MoreHorizontal,
   Plus,
   RotateCcw,
   Search,
@@ -24,15 +23,12 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
-import { deleteHealthRecord, listAllHealthRecords } from '../../services/api/healthRecordService';
-import { deleteChildHealthRecord } from '../../services/api/childHealthService';
-import { deleteResidentMedicalRecord } from '../../services/api/residentMedicalRecordService';
-import ConfirmModal from '../../components/common/ConfirmModal';
+import { listAllHealthRecords } from '../../services/api/healthRecordService';
 import Pagination from '../../components/common/Pagination';
 import PageBanner from '../../components/common/PageBanner';
 import StatCard from '../../components/residents/StatCard';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
-import { formatDateLabel, formatDateOnly, getDateInputValueInTimeZone } from '../../utils/dateUtils';
+import { formatDateOnly, getDateInputValueInTimeZone } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
 import ResidentPickerDialog from './ResidentPickerDialog';
@@ -112,24 +108,8 @@ const TypeBadge = ({ type }) => {
   </span>;
 };
 
-function RecordActions({ item, residentName, returnTo, onDelete }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const triggerRef = useRef(null);
-  const menuRef = useRef(null);
-  const menuId = `health-record-actions-${item.source_table}-${item.record_id}`;
+function RecordActions({ item, residentName, returnTo }) {
   const recordPath = buildRecordPath(item);
-
-  useEffect(() => {
-    if (menuOpen) menuRef.current?.querySelector('[role="menuitem"]')?.focus();
-  }, [menuOpen]);
-
-  const handleMenuKeyDown = (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setMenuOpen(false);
-      triggerRef.current?.focus();
-    }
-  };
 
   return <div className="health-record-row-actions" onClick={(event) => event.stopPropagation()}>
     <Link to={recordPath} state={{ from: returnTo }} className="health-record-action-button" aria-label={`View ${residentName}`} title="View record">
@@ -138,15 +118,6 @@ function RecordActions({ item, residentName, returnTo, onDelete }) {
     <Link to={buildEditPath(item)} state={{ from: returnTo }} className="health-record-action-button" aria-label={`Edit ${residentName}`} title="Edit record">
       <SquarePen size={17} strokeWidth={1.8} aria-hidden="true" />
     </Link>
-    <div className="health-record-row-menu">
-      <button ref={triggerRef} type="button" className="health-record-action-button" aria-label={`More actions for ${residentName}`}
-        aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} onClick={() => setMenuOpen((open) => !open)}>
-        <MoreHorizontal size={18} strokeWidth={1.8} aria-hidden="true" />
-      </button>
-      {menuOpen && <div ref={menuRef} id={menuId} className="health-record-menu" role="menu" onKeyDown={handleMenuKeyDown}>
-        <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenuOpen(false); onDelete(item); }}>Delete record</button>
-      </div>}
-    </div>
   </div>;
 }
 
@@ -248,8 +219,6 @@ const HealthRecordsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [recordToDelete, setRecordToDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState('');
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [newRecordType, setNewRecordType] = useState('');
@@ -378,24 +347,6 @@ const HealthRecordsPage = () => {
   };
   const sortState = (field) => urlState.sort === field ? (urlState.order === 'asc' ? 'ascending' : 'descending') : 'none';
   const showRecord = (item) => navigate(buildRecordPath(item), { state: { from: `${location.pathname}${location.search}` } });
-
-  const removeRecord = async () => {
-    if (!recordToDelete) return;
-    setDeleting(true);
-    try {
-      if (recordToDelete.source_table === 'health_records') await deleteHealthRecord(recordToDelete.record_id);
-      else if (recordToDelete.source_table === 'child_health_records') await deleteChildHealthRecord(recordToDelete.record_id);
-      else await deleteResidentMedicalRecord(recordToDelete.resident_id, recordToDelete.record_type, recordToDelete.record_id);
-      setRecordToDelete(null);
-      setToast('Record deleted.');
-      setRetry((current) => current + 1);
-    } catch (deleteError) {
-      console.error('Unable to delete health record.', deleteError);
-      setToast(getFriendlyError(deleteError));
-    } finally {
-      setDeleting(false);
-    }
-  };
 
   const selectResident = (resident) => {
     navigate(`/residents/${resident.resident_id}/medical-records/${newRecordType}`);
@@ -543,10 +494,12 @@ const HealthRecordsPage = () => {
               })}
               <th className="health-record-hide-tablet" scope="col">Summary</th>
               <th className="health-record-hide-tablet" scope="col">Recorded By</th>
+              <th className="health-record-hide-tablet" scope="col">Status</th>
+              <th className="health-record-hide-tablet" scope="col">Last updated</th>
               <th scope="col">Actions</th>
             </tr></thead>
             <tbody>
-              {loading && !items.length ? Array.from({ length: 7 }, (_, index) => <tr className="health-record-skeleton-row" key={`skeleton-${index}`} aria-hidden="true">{Array.from({ length: 6 }, (_, cell) => <td key={cell}><span /></td>)}</tr>)
+              {loading && !items.length ? Array.from({ length: 7 }, (_, index) => <tr className="health-record-skeleton-row" key={`skeleton-${index}`} aria-hidden="true">{Array.from({ length: 8 }, (_, cell) => <td key={cell}><span /></td>)}</tr>)
                 : items.map((item) => {
                   const residentName = getResidentDisplayName(item);
                   const age = item.age ?? calculateAge(item.birthdate);
@@ -569,10 +522,12 @@ const HealthRecordsPage = () => {
                     <td><TypeBadge type={item.record_type} /></td>
                     <td className="health-record-hide-tablet"><span className="health-record-summary" title={summary || undefined}>{summary || <i>No summary</i>}</span></td>
                     <td className="health-record-hide-tablet"><span className="health-record-recorded-by"><UserRound size={15} strokeWidth={1.8} aria-hidden="true" />{item.recorded_by_name || <i>Not provided</i>}</span></td>
-                    <td><RecordActions item={item} residentName={residentName} returnTo={returnTo} onDelete={setRecordToDelete} /></td>
+                    <td className="health-record-hide-tablet"><span className="health-record-recorded-by">{item.status || <i>Not provided</i>}</span></td>
+                    <td className="health-record-hide-tablet"><time dateTime={String(item.updated_at || item.created_at || '').slice(0, 10)}>{formatDateOnly(item.updated_at || item.created_at, { month: 'short', day: 'numeric', year: 'numeric' }) || <i>Not provided</i>}</time></td>
+                    <td><RecordActions item={item} residentName={residentName} returnTo={returnTo} /></td>
                   </tr>;
                 })}
-              {!loading && !items.length && <tr><td colSpan="6"><div className="health-record-empty-state">
+              {!loading && !items.length && <tr><td colSpan="8"><div className="health-record-empty-state">
                 <span className="health-record-empty-icon"><ClipboardList size={23} strokeWidth={1.8} aria-hidden="true" /></span>
                 <strong>{isFiltered ? 'No health records found' : 'No health records found'}</strong>
                 <p>{isFiltered ? 'Try changing your search or date range.' : 'There are no health records to display yet.'}</p>
@@ -599,7 +554,9 @@ const HealthRecordsPage = () => {
                 </div>
                 <p className={`health-record-mobile-summary ${summary ? '' : 'is-empty'}`} title={summary || undefined}>{summary || 'No summary'}</p>
                 <span className="health-record-mobile-recorded-by"><UserRound size={15} strokeWidth={1.8} aria-hidden="true" />{item.recorded_by_name || <i>Not provided</i>}</span>
-                <RecordActions item={item} residentName={residentName} returnTo={returnTo} onDelete={setRecordToDelete} />
+                <span className="health-record-mobile-recorded-by">Status: {item.status || 'Not provided'}</span>
+                <span className="health-record-mobile-recorded-by">Last updated: {formatDateOnly(item.updated_at || item.created_at, { month: 'short', day: 'numeric', year: 'numeric' }) || 'Not provided'}</span>
+                <RecordActions item={item} residentName={residentName} returnTo={returnTo} />
               </article>;
             })}
           {!loading && !error && !items.length && <div className="health-record-empty-state">
@@ -618,9 +575,6 @@ const HealthRecordsPage = () => {
       </footer>}
     </section>
 
-    <ConfirmModal open={Boolean(recordToDelete)} title="Delete health record?"
-      message={recordToDelete ? `Delete ${recordToDelete.record_label || 'health record'} for ${getResidentDisplayName(recordToDelete)} dated ${formatDateLabel(recordToDelete.record_date) || 'Date not provided'}? This cannot be undone.` : ''}
-      busy={deleting} onCancel={() => setRecordToDelete(null)} onConfirm={removeRecord} />
     {newRecordType && <ResidentPickerDialog key={newRecordType} typeInfo={TYPE_BY_KEY[newRecordType]} onClose={closeResidentPicker} onSelect={selectResident} />}
   </main>;
 };

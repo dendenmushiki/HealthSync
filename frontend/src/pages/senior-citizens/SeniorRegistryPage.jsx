@@ -11,7 +11,6 @@ import {
   CircleAlert,
   Eye,
   House,
-  MoreHorizontal,
   Phone,
   RotateCcw,
   Search,
@@ -22,10 +21,9 @@ import {
   X,
 } from 'lucide-react';
 import PageBanner from '../../components/common/PageBanner';
-import ConfirmModal from '../../components/common/ConfirmModal';
 import Pagination from '../../components/common/Pagination';
 import StatCard from '../../components/residents/StatCard';
-import { listSeniorCitizens, getSeniorCitizen, createSeniorCitizen, updateSeniorCitizen, removeSeniorCitizen, searchEligibleResidents, getNextSeniorId } from '../../services/api/seniorCitizenService';
+import { listSeniorCitizens, getSeniorCitizen, createSeniorCitizen, updateSeniorCitizen, searchEligibleResidents, getNextSeniorId } from '../../services/api/seniorCitizenService';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateOnly, getLocalDateInputValue } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
@@ -138,47 +136,15 @@ function SeniorMobileCard({ resident, age, onView, actions }) {
   );
 }
 
-function SeniorRowActions({ resident, onEdit, onRemove, variant }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const triggerRef = useRef(null);
-  const menuRef = useRef(null);
-  const menuId = `senior-actions-${variant}-${resident.senior_id}`;
-
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    menuRef.current?.querySelector('[role="menuitem"]')?.focus();
-    return undefined;
-  }, [menuOpen]);
-
-  const handleMenuKeyDown = (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setMenuOpen(false);
-      triggerRef.current?.focus();
-    }
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      menuRef.current?.querySelector('[role="menuitem"]')?.focus();
-    }
-  };
-
+function SeniorRowActions({ resident, onEdit }) {
   return (
     <div className="senior-row-actions" onClick={(event) => event.stopPropagation()}>
-      <Link className="senior-action-button" to={`/residents/${resident.resident_id}`} title="View resident" aria-label="View resident">
+      <Link className="senior-action-button" to={`/senior-citizens/records/${resident.senior_id}`} title="View registration record" aria-label="View registration record">
         <Eye size={17} strokeWidth={1.8} aria-hidden="true" />
       </Link>
       <button className="senior-action-button" type="button" title="Edit registration" aria-label="Edit registration" onClick={() => onEdit(resident)}>
         <SquarePen size={17} strokeWidth={1.8} aria-hidden="true" />
       </button>
-      <div className="senior-action-menu-wrap">
-        <button ref={triggerRef} className="senior-action-button" type="button" title="More actions" aria-label="More actions"
-          aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} onClick={() => setMenuOpen((open) => !open)}>
-          <MoreHorizontal size={18} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-        {menuOpen && <div ref={menuRef} id={menuId} className="senior-action-menu" role="menu" onKeyDown={handleMenuKeyDown}>
-          <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenuOpen(false); onRemove(resident); }}>Remove from registry</button>
-        </div>}
-      </div>
     </div>
   );
 }
@@ -208,10 +174,7 @@ export default function SeniorRegistryPage() {
   const [conditionOptions, setConditionOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [removing, setRemoving] = useState(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
   const [toast, setToast] = useState('');
-  const [toastError, setToastError] = useState(false);
   const [highlight, setHighlight] = useState(searchParams.get('highlight') || '');
   const [searchDraft, setSearchDraft] = useState(state.search);
   const searchRef = useRef(null);
@@ -286,23 +249,6 @@ export default function SeniorRegistryPage() {
     setSearchDraft('');
   };
   const viewResident = (resident) => navigate(`/residents/${resident.resident_id}`);
-  const handleRemove = async () => {
-    setDeleteBusy(true);
-    try {
-      await removeSeniorCitizen(removing.senior_id);
-      setRemoving(null);
-      setToast('Senior removed from registry');
-      setToastError(false);
-      await load();
-    } catch (removeError) {
-      setRemoving(null);
-      setToast(removeError?.response?.data?.message || 'Unable to remove senior');
-      setToastError(true);
-    } finally {
-      setDeleteBusy(false);
-    }
-  };
-
   if (isNew) {
     return <SeniorForm editId={editId} onCancel={() => navigate('/senior-citizens')} onSaved={(id, offline) => {
       navigate(`/senior-citizens?highlight=${id}`);
@@ -327,13 +273,11 @@ export default function SeniorRegistryPage() {
     const SortIcon = !activeSort ? ArrowUpDown : direction === 'ascending' ? ArrowUp : ArrowDown;
     return <th scope="col" aria-sort={direction}><button type="button" className="senior-sort-button" onClick={() => sortBy(ascending, descending)}>{label}<SortIcon size={14} strokeWidth={1.8} aria-hidden="true" /></button></th>;
   };
-  const renderActions = (resident, variant) => (
+  const renderActions = (resident) => (
     <SeniorRowActions
-      key={`${variant}-${resident.senior_id}`}
-      variant={variant}
+      key={resident.senior_id}
       resident={resident}
       onEdit={(row) => navigate(`/senior-citizens/${row.senior_id}/edit`)}
-      onRemove={setRemoving}
     />
   );
   const renderSkeletons = () => (
@@ -386,7 +330,7 @@ export default function SeniorRegistryPage() {
                 </td>
                 <td data-label="Conditions"><ConditionChips value={resident.health_conditions} /></td>
                 <td data-label="Registered" className="senior-hide-tablet"><span className="senior-date"><CalendarDays size={15} strokeWidth={1.8} aria-hidden="true" />{formatDateOnly(resident.date_registered, { month: 'short', day: 'numeric', year: 'numeric' }) || <i>Not provided</i>}</span></td>
-                <td data-label="Actions">{renderActions(resident, 'table')}</td>
+                <td data-label="Actions">{renderActions(resident)}</td>
               </tr>
             );
           })}
@@ -416,7 +360,7 @@ export default function SeniorRegistryPage() {
         <StatCard icon={UserPlus} label="Registered This Month" value={stats?.registeredThisMonth ?? null} />
       </section>
 
-      {toast && <div className={`senior-toast ${toastError ? 'is-error' : ''}`} role={toastError ? 'alert' : 'status'} aria-live={toastError ? 'assertive' : 'polite'}>{toast}</div>}
+      {toast && <div className="senior-toast" role="status" aria-live="polite">{toast}</div>}
 
       <section className="senior-filter-card" aria-label="Senior registry filters">
         <div className="senior-filter-controls">
@@ -489,7 +433,7 @@ export default function SeniorRegistryPage() {
                   resident={resident}
                   age={resident.age ?? calculateAge(resident.birthdate)}
                   onView={() => viewResident(resident)}
-                  actions={renderActions(resident, 'mobile')}
+                  actions={renderActions(resident)}
                 />
               ))}
             </div>
@@ -503,9 +447,6 @@ export default function SeniorRegistryPage() {
             compactButtons formatCounts />
         </footer>}
       </section>
-      <ConfirmModal open={Boolean(removing)} title="Remove from registry?"
-        message={removing ? `Remove ${getSeniorName(removing)} (${removing.senior_citizen_id || 'Senior ID'}) from the Senior Registry? This removes the registry entry only, not the resident.` : ''}
-        confirmLabel="Remove" busy={deleteBusy} onCancel={() => setRemoving(null)} onConfirm={handleRemove} />
     </main>
   );
 }

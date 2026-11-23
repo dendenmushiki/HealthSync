@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, MoreHorizontal, SquarePen } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Eye, SquarePen } from 'lucide-react';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 
@@ -27,35 +27,18 @@ const StatusBadge = ({ status }) => {
   return <span className={`residents-nutrition residents-nutrition-${className}`}>{value}</span>;
 };
 
-const ResidentActions = ({ resident, name, onDelete, menuOpen, setMenuOpen }) => (
+const ResidentActions = ({ resident, name, onSelect }) => (
   <div className="residents-row-actions" onClick={(event) => event.stopPropagation()}>
-    <Link to={`/residents/${resident.resident_id}`} className="residents-icon-button" aria-label={`View ${name}`} title="View resident">
+    <button type="button" className="residents-icon-button" aria-label={`View ${name}`} title="View resident" onClick={() => onSelect(resident)}>
       <Eye size={16} strokeWidth={1.8} aria-hidden="true" />
-    </Link>
+    </button>
     <Link to={`/residents/${resident.resident_id}/edit`} className="residents-icon-button" aria-label={`Edit ${name}`} title="Edit resident">
       <SquarePen size={16} strokeWidth={1.8} aria-hidden="true" />
     </Link>
-    <div className="residents-row-menu-wrap">
-      <button type="button" className="residents-icon-button residents-menu-trigger" aria-label={`More actions for ${name}`}
-        aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(menuOpen ? null : resident.resident_id)}>
-        <MoreHorizontal size={17} strokeWidth={1.8} aria-hidden="true" />
-      </button>
-      {menuOpen && <div className="residents-row-menu" role="menu">
-        <button type="button" role="menuitem" onClick={() => { setMenuOpen(null); onDelete(resident); }}>Delete resident</button>
-      </div>}
-    </div>
   </div>
 );
 
-const ResidentsTable = ({ items, onDelete, sort = 'id-asc', onSort = () => {}, onSelect = () => {}, selectedId = null }) => {
-  const [openMenuId, setOpenMenuId] = useState(null);
-  useEffect(() => {
-    if (openMenuId === null) return undefined;
-    const closeOnEscape = (event) => { if (event.key === 'Escape') setOpenMenuId(null); };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [openMenuId]);
-
+const ResidentsTable = ({ items, sort = 'id-asc', onSort = () => {}, onSelect = () => {}, selectedId = null }) => {
   const sortHeader = (key, label) => {
     const selected = sort.startsWith(`${key}-`);
     const direction = selected ? sort.slice(key.length + 1) : '';
@@ -115,8 +98,7 @@ const ResidentsTable = ({ items, onDelete, sort = 'id-asc', onSort = () => {}, o
                 <td>{resident.sitio || '—'}</td>
                 <td><StatusBadge status={resident.nutrition_status} /></td>
                 <td>{formatDate(updated)}</td>
-                <td><ResidentActions resident={resident} name={name} onDelete={onDelete}
-                  menuOpen={openMenuId === resident.resident_id} setMenuOpen={setOpenMenuId} /></td>
+                <td><ResidentActions resident={resident} name={name} onSelect={onSelect} /></td>
               </tr>
             );
           })}</tbody>

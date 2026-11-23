@@ -1,10 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
+const dashboardSummaryCache = require('../src/services/dashboardSummaryCache');
 
 const originalLoad = Module._load;
 
 test('creates an Adult BMI record and audit entry through the idempotency transaction', async () => {
+  dashboardSummaryCache.set('nutrition-cache-test', { nutrition: {} });
   const queries = [];
   const auditEntries = [];
   const connection = {
@@ -77,6 +79,7 @@ test('creates an Adult BMI record and audit entry through the idempotency transa
   assert.equal(queries.length, 3);
   assert.equal(auditEntries.length, 1);
   assert.equal(auditEntries[0].connection, connection);
+  assert.equal(dashboardSummaryCache.get('nutrition-cache-test'), null);
 });
 
 test('enables atomic idempotency specifically on Adult BMI creation', () => {

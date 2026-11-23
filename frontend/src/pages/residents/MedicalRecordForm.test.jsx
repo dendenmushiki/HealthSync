@@ -15,7 +15,6 @@ jest.mock('../../services/api/residentMedicalRecordService', () => ({
   listResidentMedicalRecords: jest.fn(),
   createResidentMedicalRecord: jest.fn(),
   updateResidentMedicalRecord: jest.fn(),
-  deleteResidentMedicalRecord: jest.fn()
 }));
 
 test('clinical form shows profile demographics as read-only and keeps record fields editable', async () => {

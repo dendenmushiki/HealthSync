@@ -1,8 +1,9 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import StatusBanner from '../../components/common/StatusBanner';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
+import TermsPrivacyModal from './TermsPrivacyModal';
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -12,10 +13,18 @@ const LoginPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [error, setError] = useState(null);
+  const [legalModalSection, setLegalModalSection] = useState(null);
+  const legalTriggerRef = useRef(null);
 
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const openLegalModal = (section, event) => {
+    legalTriggerRef.current = event.currentTarget;
+    setLegalModalSection(section);
+  };
+  const closeLegalModal = useCallback(() => setLegalModalSection(null), []);
 
   useEffect(() => {
     const updateNetworkState = () => setOnline(navigator.onLine);
@@ -214,6 +223,12 @@ const LoginPage = () => {
               </button>
               <p className="login-admin-note">Accounts are created by the administrator.</p>
             </form>
+            <p className="login-legal-consent">
+              By logging in, you agree to HealthSync&apos;s{' '}
+              <button className="login-legal-link" type="button" onClick={(event) => openLegalModal('terms', event)}>Terms of Use</button>
+              {' and '}
+              <button className="login-legal-link" type="button" onClick={(event) => openLegalModal('privacy', event)}>Privacy Policy</button>.
+            </p>
           </div>
         </div>
         <footer className="login-page-footer">
@@ -228,6 +243,7 @@ const LoginPage = () => {
           <span>HealthSync · Barangay Health Monitoring · {new Date().getFullYear()}</span>
         </footer>
       </section>
+      {legalModalSection && <TermsPrivacyModal initialSection={legalModalSection} returnFocusRef={legalTriggerRef} onClose={closeLegalModal} />}
     </main>
   );
 };

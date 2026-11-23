@@ -7,8 +7,7 @@ import { getResidentStats, getResidentSummary, getResidents } from '../../servic
 jest.mock('../../services/api/residentService', () => ({
   getResidents: jest.fn(),
   getResidentStats: jest.fn(),
-  getResidentSummary: jest.fn(),
-  deleteResident: jest.fn()
+  getResidentSummary: jest.fn()
 }));
 
 jest.mock('./ResidentForm', () => () => <div>Resident form</div>);
@@ -92,9 +91,9 @@ test('directory search, filter dropdowns, sorting, and pagination work', async (
   expect(screen.getByText('Adults (13-59 yrs)')).toBeInTheDocument();
   expect(screen.getByText('Senior Citizens (60+)')).toBeInTheDocument();
   expect(screen.getByText('Record Completeness')).toBeInTheDocument();
-  expect((await screen.findAllByText('Household HH-7')).length).toBeGreaterThan(0);
-  await waitFor(() => expect(getResidentSummary).toHaveBeenCalledWith(7));
-  expect(screen.getByText('Showing 1-10 of 26 residents')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(getResidentSummary).not.toHaveBeenCalled();
+  expect(await screen.findByText('Showing 1-10 of 26 residents')).toBeInTheDocument();
 
   fireEvent.keyDown(window, { key: '/' });
   expect(screen.getByLabelText('Search by name, household no., contact no., or PhilHealth ID')).toHaveFocus();
@@ -125,9 +124,10 @@ test('directory search, filter dropdowns, sorting, and pagination work', async (
   await waitFor(() => expect(new URLSearchParams(window.location.search).get('page')).toBe('2'));
 });
 
-test('shows the selected resident profile and supports keyboard tab navigation', async () => {
+test('opens the selected resident profile in a modal and supports keyboard tab navigation', async () => {
   render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
-  expect(await screen.findByText('Ana Maria Santos')).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('row', { name: /Santos/ }));
+  expect(await screen.findByRole('dialog', { name: 'Resident Profile' })).toBeInTheDocument();
   await waitFor(() => expect(getResidentSummary).toHaveBeenCalledWith(7));
   expect(screen.getByText('ID 7')).toBeInTheDocument();
   expect(screen.getByText('Melgar')).toBeInTheDocument();
@@ -135,6 +135,8 @@ test('shows the selected resident profile and supports keyboard tab navigation',
   fireEvent.keyDown(screen.getByRole('tab', { name: 'Health Overview' }), { key: 'ArrowRight' });
   expect(screen.getByRole('tab', { name: 'Nutrition History' })).toHaveAttribute('aria-selected', 'true');
   expect(await screen.findByText('BMI 23.0')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Close resident profile' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
 test('shows an explicit fallback when the selected resident has no sitio assigned', async () => {
@@ -148,6 +150,7 @@ test('shows an explicit fallback when the selected resident has no sitio assigne
   });
 
   render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
+  fireEvent.click(await screen.findByRole('row', { name: /Santos/ }));
   expect(await screen.findByText('Not assigned')).toBeInTheDocument();
 });
 

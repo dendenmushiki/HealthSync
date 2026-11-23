@@ -2,12 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import NutritionPage from './NutritionPage';
-import { deleteOperationTimbang } from '../../services/api/operationTimbangService';
 import { listNutritionRecords } from '../../services/api/nutritionRecordsService';
-
-jest.mock('../../services/api/operationTimbangService', () => ({
-  deleteOperationTimbang: jest.fn()
-}));
 
 jest.mock('../../services/api/nutritionRecordsService', () => ({
   listNutritionRecords: jest.fn(),
@@ -54,21 +49,16 @@ beforeEach(() => {
     success: true,
     data: { items: nutritionRecords, total: nutritionRecords.length, counts: { type: {} } },
   }));
-  deleteOperationTimbang.mockImplementation(async (id) => {
-    nutritionRecords = nutritionRecords.filter((record) => record.id !== id);
-    return { success: true };
-  });
 });
 
-test('recent records show infant ages in months and delete only after confirmation', async () => {
+test('nutritional assessment records show infant ages without exposing delete actions', async () => {
   render(
     <MemoryRouter>
       <NutritionPage />
     </MemoryRouter>
   );
-  fireEvent.click(screen.getByRole('tab', { name: 'Recent Records' }));
-
   const table = await screen.findByRole('table');
+  await within(table).findByText('Ana Santos');
   const rows = within(table).getAllByRole('row');
   const loadsBeforeSync = listNutritionRecords.mock.calls.length;
   fireEvent(window, new Event('healthsync:sync-complete'));
@@ -77,10 +67,5 @@ test('recent records show infant ages in months and delete only after confirmati
   expect(rows[1]).toHaveTextContent('Ana Santos');
   expect(rows[1]).toHaveTextContent('8 mos');
   expect(rows[2]).toHaveTextContent('Pedro Cruz');
-  fireEvent.click(within(rows[1]).getByRole('button', { name: 'More actions for Ana Santos' }));
-  expect(await screen.findByRole('dialog')).toHaveTextContent('Permanently delete the Operation Timbang record for Ana Santos');
-
-  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-  await waitFor(() => expect(deleteOperationTimbang).toHaveBeenCalledWith(5));
-  await waitFor(() => expect(screen.queryByText('Ana Santos')).not.toBeInTheDocument());
+  expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
 });

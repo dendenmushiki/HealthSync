@@ -910,7 +910,6 @@ const DashboardPage = () => {
           <div className="dashboard-banner-range">
             <label className="dashboard-range-control">
               <CalendarDays size={16} strokeWidth={1.8} aria-hidden="true" />
-              <span>Reporting period</span>
               <select value={range} onChange={(event) => updateRange(event.target.value)} aria-label="Reporting period">
                 {Object.entries(rangeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>

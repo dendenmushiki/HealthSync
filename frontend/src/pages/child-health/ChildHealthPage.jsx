@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { getResident } from '../../services/api/residentService';
-import { listChildHealthRecords, createChildHealthRecord, deleteChildHealthRecord, updateChildHealthRecord } from '../../services/api/childHealthService';
-import ConfirmModal from '../../components/common/ConfirmModal';
+import { listChildHealthRecords, createChildHealthRecord, updateChildHealthRecord } from '../../services/api/childHealthService';
 import { formatDateLabel, getLocalDateInputValue } from '../../utils/dateUtils';
 import StatusBanner from '../../components/common/StatusBanner';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
@@ -50,8 +49,6 @@ const ChildHealthPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [recordToDelete, setRecordToDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -135,20 +132,6 @@ const ChildHealthPage = () => {
       setError(err);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await deleteChildHealthRecord(recordToDelete.id);
-      setRecords((current) => current.filter((record) => record.id !== recordToDelete.id));
-      setRecordToDelete(null);
-    } catch (err) {
-      console.error('Unable to delete child health record.', err);
-      setError(err);
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -290,7 +273,7 @@ const ChildHealthPage = () => {
                         const next = new URLSearchParams(searchParams);
                         next.set('recordId', String(record.id));
                         setSearchParams(next, { replace: true });
-                      }}>Edit</button> <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setRecordToDelete(record)}>Delete</button></td>
+                      }}>Edit</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -299,7 +282,6 @@ const ChildHealthPage = () => {
           )}
         </div>
       </div>
-      <ConfirmModal open={Boolean(recordToDelete)} title="Delete child health record?" message="This permanently removes this record and records the action in the admin audit log." busy={deleting} onCancel={() => setRecordToDelete(null)} onConfirm={handleDelete} />
     </div>
   );
 };

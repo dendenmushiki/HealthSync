@@ -15,7 +15,6 @@ import {
   Plus,
   Save,
   Stethoscope,
-  Trash2,
   UserRound,
   UsersRound,
   X,
@@ -24,7 +23,6 @@ import { calculateAge } from '../../utils/residentUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 import {
   createResidentMedicalRecord,
-  deleteResidentMedicalRecord,
   listResidentMedicalRecords,
   updateResidentMedicalRecord,
 } from '../../services/api/residentMedicalRecordService';
@@ -575,19 +573,6 @@ const MaternalRecordForm = ({ resident }) => {
     navigate(`/residents/${residentId}`);
   };
 
-  const handleDelete = async (record) => {
-    if (!window.confirm('Delete this maternal record? This action cannot be undone.')) return;
-    try {
-      const response = await deleteResidentMedicalRecord(residentId, 'maternal', record.id);
-      if (!response?.success) throw new Error(response?.message || 'Unable to delete the maternal record.');
-      if (String(selectedRecord?.id) === String(record.id)) performStartNewRecord();
-      setMessage('Maternal record deleted.');
-      showToast('Maternal record deleted.');
-    } catch (error) {
-      setSubmitError(error.response?.data?.message || error.message || 'Unable to delete the maternal record.');
-    }
-  };
-
   const renderField = (name, label, options = {}) => {
     const value = form[name] ?? '';
     const type = options.type || 'text';
@@ -838,10 +823,7 @@ const MaternalRecordForm = ({ resident }) => {
           <div className={`maternal-action-status ${dirty ? 'is-dirty' : ''}`} role="status" aria-live="polite" aria-atomic="true">
             {dirty ? <><span className="maternal-unsaved-dot" />Unsaved changes</> : 'All changes saved'}
           </div>
-          <div className={`maternal-action-buttons ${selectedRecord ? 'has-delete' : ''}`}>
-            {selectedRecord && <button type="button" className="maternal-danger-button" onClick={() => handleDelete(selectedRecord)} disabled={saving}>
-              <Trash2 size={17} strokeWidth={1.9} aria-hidden="true" />Delete record
-            </button>}
+          <div className="maternal-action-buttons">
             <button type="button" className="maternal-secondary-button" onClick={handleDiscard} disabled={saving}>
               <X size={17} strokeWidth={1.9} aria-hidden="true" />Discard
             </button>

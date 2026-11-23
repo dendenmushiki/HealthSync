@@ -18,12 +18,10 @@ import ResidentsTable from '../../components/residents/ResidentsTable';
 import ResidentProfilePanel from '../../components/residents/ResidentProfilePanel';
 import StatCard from '../../components/residents/StatCard';
 import ResidentForm from './ResidentForm';
-import { deleteResident, getResidentStats, getResidents } from '../../services/api/residentService';
-import ConfirmModal from '../../components/common/ConfirmModal';
+import { getResidentStats, getResidents } from '../../services/api/residentService';
 import Pagination from '../../components/common/Pagination';
 import PageBanner from '../../components/common/PageBanner';
 import StatusBanner from '../../components/common/StatusBanner';
-import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const DEFAULTS = { search: '', status: '', sex: '', sitio: '', classification: '', nutritionStatus: '', sort: 'id-asc', page: 1, pageSize: 10 };
 const SORT_OPTIONS = [
@@ -92,8 +90,6 @@ const ResidentsPage = () => {
   const [showingOfflineCache, setShowingOfflineCache] = useState(false);
   const [activeTab, setActiveTab] = useState('directory');
   const [openFilter, setOpenFilter] = useState('');
-  const [residentToDelete, setResidentToDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState('');
   const [selectedResident, setSelectedResident] = useState(null);
   const [stats, setStats] = useState(null);
@@ -119,17 +115,10 @@ const ResidentsPage = () => {
   useEffect(() => { setQuery(urlState.search); }, [urlState.search]);
 
   useEffect(() => {
-    if (!items.length) {
+    if (selectedResident && !items.some((item) => String(item.resident_id) === String(selectedResident.resident_id))) {
       setSelectedResident(null);
-      return;
     }
-    setSelectedResident((current) => {
-      if (current && items.some((item) => String(item.resident_id) === String(current.resident_id))) {
-        return items.find((item) => String(item.resident_id) === String(current.resident_id));
-      }
-      return items[0];
-    });
-  }, [items]);
+  }, [items, selectedResident]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -258,22 +247,7 @@ const ResidentsPage = () => {
     setSearchParams(new URLSearchParams());
   };
   const removeFilter = (key) => updateQueryParams({ [key]: '' }, { resetPage: true });
-
-  const handleDelete = async () => {
-    if (!residentToDelete) return;
-    setDeleting(true);
-    try {
-      await deleteResident(residentToDelete.resident_id);
-      setResidentToDelete(null);
-      setToast('Resident deleted.');
-      await Promise.all([fetchResidents(), fetchStats()]);
-    } catch (deleteError) {
-      console.error('Unable to delete resident.', deleteError);
-      setToast(getFriendlyError(deleteError));
-    } finally {
-      setDeleting(false);
-    }
-  };
+  const closeResidentProfile = useCallback(() => setSelectedResident(null), []);
 
   const emptyResults = !loading && items.length === 0;
   const retryResidents = () => fetchResidents();
@@ -295,7 +269,7 @@ const ResidentsPage = () => {
     {activeTab === 'directory' ? <>
       <PageBanner
         icon={Users}
-        title="Resident Records"
+        title="Residents"
         subtitle={stats?.barangayName
           ? `A centralized database of all residents in ${stats.barangayName}.`
           : 'A centralized database of all residents.'}
@@ -367,20 +341,17 @@ const ResidentsPage = () => {
         ) : (
           <div className="resident-record-workspace">
             <div className="resident-record-table-area">
-              <ResidentsTable items={items} onDelete={setResidentToDelete} sort={urlState.sort} onSort={setSort}
+              <ResidentsTable items={items} sort={urlState.sort} onSort={setSort}
                 onSelect={setSelectedResident} selectedId={selectedResident?.resident_id} />
               <Pagination currentPage={urlState.page} totalPages={pagination.totalPages} first={first} last={last}
                 total={pagination.total} itemLabel="residents" onPageChange={setPage} compact />
             </div>
-            <ResidentProfilePanel resident={selectedResident} />
           </div>
         )}
       </section>
     </> : <div className="residents-add-view"><ResidentForm onBack={() => setActiveTab('directory')} /></div>}
 
-    <ConfirmModal open={Boolean(residentToDelete)} title="Delete resident?"
-      message={residentToDelete ? `This permanently deletes ${residentToDelete.first_name} ${residentToDelete.last_name} and all related health records.` : ''}
-      busy={deleting} onCancel={() => setResidentToDelete(null)} onConfirm={handleDelete} />
+    {selectedResident && <ResidentProfilePanel resident={selectedResident} onClose={closeResidentProfile} />}
   </div>;
 };
 

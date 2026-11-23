@@ -7,13 +7,9 @@ import { getResidents } from '../../services/api/residentService';
 import HealthRecordsPage from './HealthRecordsPage';
 
 jest.mock('../../services/api/healthRecordService', () => ({
-  listAllHealthRecords: jest.fn(),
-  deleteHealthRecord: jest.fn()
+  listAllHealthRecords: jest.fn()
 }));
-jest.mock('../../services/api/childHealthService', () => ({ deleteChildHealthRecord: jest.fn() }));
-jest.mock('../../services/api/residentMedicalRecordService', () => ({ deleteResidentMedicalRecord: jest.fn() }));
 jest.mock('../../services/api/residentService', () => ({ getResidents: jest.fn() }));
-jest.mock('../../components/common/ConfirmModal', () => () => null);
 jest.mock('../../components/common/Pagination', () => () => null);
 
 const CurrentPath = () => <output data-testid="current-path">{useLocation().pathname}</output>;

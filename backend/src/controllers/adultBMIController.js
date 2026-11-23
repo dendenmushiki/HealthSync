@@ -8,6 +8,7 @@ const pool = require('../config/database');
 const { writeAudit } = require('../services/auditService');
 const { ageService, bmiService } = require('../services/nutrition');
 const logger = require('../services/logger');
+const dashboardSummaryCache = require('../services/dashboardSummaryCache');
 
 /**
  * List adult BMI records
@@ -213,6 +214,7 @@ const createAdultBMI = async (req, res) => {
       [newId]
     );
 
+    dashboardSummaryCache.clear();
     return res.status(201).json({ success: true, data: rows[0] });
   } catch (err) {
     logger.error('createAdultBMI error', err);
@@ -278,6 +280,7 @@ const updateAdultBMI = async (req, res) => {
 
     const sql = `UPDATE adult_bmi_records SET ${updates.join(', ')} WHERE bmi_id = ?`;
     await pool.query(sql, values);
+    dashboardSummaryCache.clear();
 
     // Get updated record
     const [rows] = await pool.query(
@@ -310,6 +313,7 @@ const deleteAdultBMI = async (req, res) => {
     if (!records.length) return res.status(404).json({ success: false, message: 'Adult BMI record not found.' });
 
     await pool.query('DELETE FROM adult_bmi_records WHERE bmi_id = ?', [id]);
+    dashboardSummaryCache.clear();
     await writeAudit({
       user_id: req.user.user_id,
       action: 'DELETE',

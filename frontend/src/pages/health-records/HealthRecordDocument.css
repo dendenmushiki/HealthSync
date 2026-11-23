@@ -1,0 +1,473 @@
+.health-record-document-page {
+  --document-teal: #0d9488;
+  --document-navy: #1e293b;
+  --document-muted: #64748b;
+  --document-border: #dbe2e8;
+  --document-background: #f8fafc;
+  min-width: 0;
+  color: var(--document-navy);
+}
+
+.health-record-document-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin: 0 auto .85rem;
+  max-width: 58rem;
+}
+
+.health-record-document-toolbar-meta {
+  display: grid;
+  min-width: 0;
+  gap: .18rem;
+}
+
+.health-record-document-toolbar-meta h1 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--document-navy);
+  font-size: .95rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-record-document-toolbar-meta span {
+  color: var(--document-muted);
+  font-size: .76rem;
+}
+
+.health-record-document-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+.health-record-document-toolbar button,
+.health-record-document-toolbar a {
+  display: inline-flex;
+  min-height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  padding: .38rem .7rem;
+  border: 1px solid var(--document-border);
+  border-radius: .45rem;
+  background: #fff;
+  color: var(--document-navy);
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.health-record-document-toolbar .health-record-document-edit {
+  border-color: var(--document-teal);
+  background: var(--document-teal);
+  color: #fff;
+}
+
+.health-record-document-toolbar .health-record-detail-menu {
+  position: relative;
+}
+
+.health-record-document-toolbar .health-record-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + .35rem);
+  right: 0;
+  min-width: 11rem;
+  padding: .35rem;
+  border: 1px solid var(--document-border);
+  border-radius: .45rem;
+  background: #fff;
+  box-shadow: 0 .4rem 1rem rgba(30, 41, 59, .12);
+}
+
+.health-record-document-toolbar .health-record-menu button {
+  width: 100%;
+  justify-content: flex-start;
+  border: 0;
+  color: #b42332;
+}
+
+.health-record-document-sheet {
+  page: health-record-document;
+  width: min(100%, 58rem);
+  min-height: 52rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3.5vw, 2.8rem);
+  border: 1px solid var(--document-border);
+  background: #fff;
+  color: var(--document-navy);
+  box-shadow: 0 .4rem 1.4rem rgba(30, 41, 59, .08);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.health-record-document-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: .8rem 1.2rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 2px solid var(--document-teal);
+}
+
+.health-record-document-brand {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+}
+
+.health-record-document-mark {
+  display: block;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 2.25rem;
+  object-fit: contain;
+  border-radius: .45rem;
+  background: #fff;
+}
+
+.health-record-document-brand > span:last-child,
+.health-record-document-office {
+  display: grid;
+  gap: .12rem;
+}
+
+.health-record-document-brand strong {
+  font-size: 1rem;
+  letter-spacing: .01em;
+}
+
+.health-record-document-brand small,
+.health-record-document-office span {
+  color: var(--document-muted);
+  font-size: .72rem;
+}
+
+.health-record-document-office {
+  justify-items: end;
+  text-align: right;
+}
+
+.health-record-document-office strong {
+  font-size: .82rem;
+}
+
+.health-record-document-title {
+  grid-column: 1 / -1;
+  margin-top: .5rem;
+}
+
+.health-record-document-title > span {
+  color: var(--document-teal);
+  font-size: .65rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.health-record-document-title h1 {
+  margin: .15rem 0 0;
+  color: var(--document-navy);
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.health-record-document-reference {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: .25rem .8rem;
+  grid-column: 1 / -1;
+  align-items: baseline;
+  padding-top: .15rem;
+  font-size: .72rem;
+}
+
+.health-record-document-reference span {
+  color: var(--document-muted);
+}
+
+.health-record-document-reference strong {
+  text-align: right;
+}
+
+.health-record-document-section {
+  margin-top: 1.25rem;
+  break-inside: auto;
+}
+
+.health-record-document-section > h2 {
+  margin: 0 0 .55rem;
+  padding-bottom: .35rem;
+  border-bottom: 1px solid var(--document-border);
+  color: var(--document-navy);
+  font-size: .88rem;
+  font-weight: 700;
+  break-after: avoid;
+}
+
+.health-record-document-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+}
+
+.health-record-document-field {
+  min-width: 0;
+  padding: .45rem .55rem .45rem 0;
+  border-bottom: 1px solid #edf1f4;
+  break-inside: avoid;
+}
+
+.health-record-document-field dt {
+  margin-bottom: .16rem;
+  color: var(--document-muted);
+  font-size: .67rem;
+  font-weight: 600;
+}
+
+.health-record-document-field dd {
+  margin: 0;
+  color: var(--document-navy);
+  font-size: .8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.health-record-document-full-field {
+  min-width: 0;
+  padding: .45rem .55rem .45rem 0;
+}
+
+.health-record-document-full-field > span {
+  display: block;
+  margin-bottom: .35rem;
+  color: var(--document-muted);
+  font-size: .67rem;
+  font-weight: 600;
+}
+
+.health-record-document-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.health-record-document-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .75rem;
+}
+
+.health-record-document-table th,
+.health-record-document-table td {
+  padding: .45rem .5rem;
+  border: 1px solid var(--document-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.health-record-document-table th {
+  background: #f8fafc;
+  color: var(--document-navy);
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.health-record-document-empty {
+  margin: 0;
+  color: var(--document-muted);
+  font-size: .78rem;
+}
+
+.health-record-document-footer {
+  margin-top: 1.6rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--document-border);
+  break-inside: avoid;
+}
+
+.health-record-document-footer-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .42rem 1rem;
+  color: var(--document-muted);
+  font-size: .68rem;
+}
+
+.health-record-document-footer-meta strong {
+  color: var(--document-navy);
+  font-weight: 600;
+}
+
+.health-record-document-signature {
+  display: grid;
+  width: min(100%, 18rem);
+  gap: .35rem;
+  margin: 1.5rem 0 .5rem auto;
+  color: var(--document-muted);
+  font-size: .68rem;
+  text-align: center;
+}
+
+.health-record-document-signature i {
+  height: 1.5rem;
+  border-bottom: 1px solid #64748b;
+}
+
+.health-record-document-signature small {
+  font-size: .62rem;
+}
+
+.health-record-document-footer > p {
+  margin: .9rem 0 0;
+  color: var(--document-muted);
+  font-size: .62rem;
+}
+
+.health-record-document-screening-note {
+  margin: .55rem 0 0;
+  color: var(--document-muted);
+  font-size: .68rem;
+}
+
+.health-record-document-bmi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .45rem;
+  margin: .55rem 0 0;
+  color: var(--document-muted);
+  font-size: .76rem;
+}
+
+.health-record-document-bmi strong {
+  color: var(--document-navy);
+}
+
+.health-record-document-vital-flag {
+  color: #a16207;
+  font-size: .65rem;
+  font-weight: 600;
+}
+
+.health-record-document-history-links {
+  display: grid;
+  gap: .35rem;
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--document-muted);
+  font-size: .75rem;
+}
+
+.health-record-document-history-links a {
+  color: var(--document-teal);
+}
+
+@media (max-width: 600px) {
+  .health-record-document-toolbar {
+    align-items: stretch;
+  }
+
+  .health-record-document-toolbar-actions {
+    width: 100%;
+  }
+
+  .health-record-document-toolbar-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .health-record-document-sheet {
+    min-height: 0;
+    padding: 1rem;
+  }
+
+  .health-record-document-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .health-record-document-header {
+    grid-template-columns: 1fr;
+  }
+
+  .health-record-document-office {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .health-record-document-title {
+    grid-column: auto;
+  }
+
+  .health-record-document-reference {
+    grid-column: auto;
+  }
+
+  .health-record-document-footer-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
+@page health-record-document {
+  size: A4 portrait;
+  margin: 14mm;
+}
+
+@media print {
+  body.healthsync-print-health-record,
+  body.healthsync-print-health-record #root {
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body.healthsync-print-health-record * {
+    visibility: hidden !important;
+  }
+
+  body.healthsync-print-health-record .health-record-document-sheet,
+  body.healthsync-print-health-record .health-record-document-sheet * {
+    visibility: visible !important;
+  }
+
+  body.healthsync-print-health-record .health-record-document-sheet {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    color: #1e293b !important;
+    font-size: 9pt !important;
+  }
+
+  .health-record-document-section {
+    margin-top: 1rem;
+  }
+
+  .health-record-document-section > h2,
+  .health-record-document-field,
+  .health-record-document-table tr,
+  .health-record-document-footer {
+    break-inside: avoid;
+  }
+
+  .health-record-document-field dt,
+  .health-record-document-field dd,
+  .health-record-document-table th,
+  .health-record-document-table td {
+    color: #1e293b !important;
+  }
+}

@@ -68,3 +68,22 @@ test('shows the credential message when invalid credentials reject with HTTP 401
   expect(await screen.findByText('Please check your username and password.')).toBeInTheDocument();
   logError.mockRestore();
 });
+
+test('opens the terms and privacy policy modal from the login agreement and closes with Escape', () => {
+  renderLoginPage(jest.fn());
+
+  const termsLink = screen.getByRole('button', { name: 'Terms of Use' });
+  fireEvent.click(termsLink);
+
+  const dialog = screen.getByRole('dialog', { name: 'Terms of Use and Privacy Policy for HealthSync' });
+  expect(dialog).toHaveTextContent('PART I: TERMS OF USE');
+  expect(dialog).toHaveTextContent('PART II: PRIVACY POLICY (RA 10173 COMPLIANCE)');
+  expect(dialog).toHaveTextContent('densane07@gmail.com');
+
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: 'Terms of Use and Privacy Policy for HealthSync' })).not.toBeInTheDocument();
+  expect(termsLink).toHaveFocus();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Privacy Policy' }));
+  expect(screen.getByRole('dialog', { name: 'Terms of Use and Privacy Policy for HealthSync' })).toBeInTheDocument();
+});

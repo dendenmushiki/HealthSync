@@ -8,6 +8,7 @@ const pool = require('../config/database');
 const { writeAudit } = require('../services/auditService');
 const { optPlusService } = require('../services/nutrition');
 const logger = require('../services/logger');
+const dashboardSummaryCache = require('../services/dashboardSummaryCache');
 
 const mapValidationErrors = (message) => {
   const text = String(message || '');
@@ -248,6 +249,7 @@ const createOperationTimbang = async (req, res) => {
         await conn.commit();
         transactionActive = false;
       }
+      dashboardSummaryCache.clear();
 
       await writeAudit({
         user_id: userId,
@@ -371,6 +373,7 @@ const updateOperationTimbang = async (req, res) => {
     }
     await conn.commit();
     transactionActive = false;
+    dashboardSummaryCache.clear();
     const [rows] = await conn.query(
       `SELECT ot.*, ota.assessment_id, ota.age_in_months, ota.wfa_zscore, ota.wfa_status,
         ota.hfa_zscore, ota.hfa_status, ota.wflh_zscore, ota.wflh_status
@@ -450,6 +453,7 @@ const deleteOperationTimbang = async (req, res) => {
     await conn.query('DELETE FROM operation_timbang WHERE timbang_id = ?', [id]);
     await conn.commit();
     transactionActive = false;
+    dashboardSummaryCache.clear();
 
     await writeAudit({
       user_id: req.user.user_id,

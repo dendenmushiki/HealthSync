@@ -80,7 +80,7 @@ test('official accounts are restricted to dashboard, report, and settings access
   assert.doesNotMatch(seniorCitizenRoutes, /official/);
   assert.match(childHealthRoutes, /authorizeRole\(\['bhw'\]\)/);
   assert.doesNotMatch(childHealthRoutes, /official/);
-  assert.match(nutritionRecordRoutes, /authorizeRole\(\['bhw', 'admin'\]\)/);
+  assert.match(nutritionRecordRoutes, /authorizeRole\(\['bhw'\]\)/);
   assert.doesNotMatch(nutritionRecordRoutes, /official/);
 
   assert.match(dashboardRoutes, /authorizeRole\(\['bhw', 'official'\]\)/);
