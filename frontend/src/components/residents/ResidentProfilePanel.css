@@ -1,0 +1,639 @@
+.resident-profile-modal-backdrop {
+  position: fixed;
+  z-index: 1300;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(15, 34, 63, .45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  animation: resident-profile-fade-in .18s ease-out both;
+}
+
+.resident-profile-modal.resident-profile-panel {
+  --rp-surface: #fff;
+  --rp-on-accent: #fff;
+  --rp-border: #e2e8f0;
+  --rp-text: #1e293b;
+  --rp-muted: #64748b;
+  --rp-label: #475569;
+  --rp-avatar-bg: #ccfbf1;
+  --rp-teal: #0d9488;
+  --rp-teal-hover: #0b8a84;
+  --rp-navy: #12223f;
+  --rp-neutral-bg: #f1f5f9;
+  --rp-neutral-border: #e2e8f0;
+  --rp-alert: #b4232f;
+  --rp-skeleton-base: #e8eff0;
+  --rp-skeleton-highlight: #f8fbfb;
+  --rp-normal-bg: #e6f6f4;
+  --rp-normal-border: #bfe6e1;
+  --rp-normal-text: #0f766e;
+  --rp-normal-icon: #0d9488;
+  --rp-overweight-bg: #fff4e0;
+  --rp-overweight-border: #fad9a1;
+  --rp-overweight-text: #a16207;
+  --rp-underweight-bg: #e8f0fe;
+  --rp-underweight-border: #bfd3f8;
+  --rp-underweight-text: #1d4ed8;
+  --rp-severe-bg: #fde8e8;
+  --rp-severe-border: #f5b5b5;
+  --rp-severe-text: #b91c1c;
+  --rp-obese-bg: #ffe9de;
+  --rp-obese-border: #f7bfa3;
+  --rp-obese-text: #c2410c;
+  --rp-status-bg: #f1f5f9;
+  --rp-status-border: #e2e8f0;
+  --rp-status-color: #64748b;
+  --rp-status-icon-bg: #64748b;
+  position: relative;
+  top: auto;
+  display: flex;
+  width: min(440px, 100%);
+  max-width: 440px;
+  height: auto;
+  max-height: min(90vh, 90dvh);
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  align-self: auto;
+  flex: 0 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rp-border);
+  border-radius: 16px;
+  background: var(--rp-surface);
+  color: var(--rp-text);
+  box-shadow: 0 20px 50px rgba(15, 34, 63, .25);
+  font-family: inherit;
+  animation: resident-profile-scale-in .18s cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.resident-profile-modal-backdrop.is-closing {
+  pointer-events: none;
+  animation: resident-profile-fade-out .17s ease-in both;
+}
+
+.resident-profile-modal-backdrop.is-closing .resident-profile-modal {
+  animation: resident-profile-scale-out .17s ease-in both;
+}
+
+html[data-theme='dark'] .resident-profile-modal-backdrop {
+  background: rgba(2, 6, 15, .65);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel {
+  --rp-surface: #111c2e;
+  --rp-on-accent: #fff;
+  --rp-border: #22304a;
+  --rp-text: #e5e7eb;
+  --rp-muted: #94a3b8;
+  --rp-label: #cbd5e1;
+  --rp-avatar-bg: rgba(45, 212, 191, .14);
+  --rp-teal: #2dd4bf;
+  --rp-teal-hover: #12b5ad;
+  --rp-neutral-bg: #16233a;
+  --rp-neutral-border: #22304a;
+  --rp-alert: #fda4af;
+  --rp-skeleton-base: #16233a;
+  --rp-skeleton-highlight: #22304a;
+  --rp-normal-bg: rgba(13, 148, 136, .2);
+  --rp-normal-border: rgba(45, 212, 191, .28);
+  --rp-normal-text: #5eead4;
+  --rp-normal-icon: #0e9f98;
+  --rp-overweight-bg: rgba(217, 119, 6, .18);
+  --rp-overweight-border: rgba(252, 211, 77, .25);
+  --rp-overweight-text: #fcd34d;
+  --rp-underweight-bg: rgba(37, 99, 235, .18);
+  --rp-underweight-border: rgba(147, 197, 253, .25);
+  --rp-underweight-text: #93c5fd;
+  --rp-severe-bg: rgba(220, 38, 38, .18);
+  --rp-severe-border: rgba(253, 164, 175, .25);
+  --rp-severe-text: #fda4af;
+  --rp-obese-bg: rgba(194, 65, 12, .18);
+  --rp-obese-border: rgba(253, 186, 116, .25);
+  --rp-obese-text: #fdba74;
+  --rp-status-bg: #16233a;
+  --rp-status-border: #22304a;
+  --rp-status-color: #94a3b8;
+  --rp-status-icon-bg: #475569;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .38);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-heading {
+  display: flex;
+  min-height: 56px;
+  flex: 0 0 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: #12223f;
+  color: #fff;
+}
+
+.resident-profile-modal .resident-profile-heading-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.resident-profile-modal .resident-profile-logo-tile {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e2e8f0;
+}
+
+.resident-profile-modal .resident-profile-logo-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-heading strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resident-profile-modal .resident-profile-close {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, .9);
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease;
+}
+
+.resident-profile-modal .resident-profile-close:hover {
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+}
+
+.resident-profile-modal .resident-profile-close:focus-visible {
+  outline: 2px solid #5eead4;
+  outline-offset: 2px;
+}
+
+.resident-profile-modal .resident-profile-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-summary {
+  min-height: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 8px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-avatar {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  border: 2px solid var(--rp-surface);
+  background: var(--rp-avatar-bg);
+  color: var(--rp-teal);
+  box-shadow: 0 0 0 1px var(--rp-border);
+  font-size: 20px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-name {
+  gap: 4px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-name-line {
+  flex-wrap: nowrap;
+  gap: 7px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-name-line strong {
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-id {
+  max-width: 106px;
+  overflow: hidden;
+  padding: 3px 8px;
+  background: var(--rp-avatar-bg);
+  color: var(--rp-teal);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-name small {
+  color: var(--rp-muted);
+  font-size: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-facts {
+  gap: 8px;
+  padding: 8px 18px 14px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-fact {
+  gap: 4px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-fact-label {
+  gap: 5px;
+  color: var(--rp-muted);
+  font-size: 11px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-fact-label svg {
+  width: 15px;
+  height: 15px;
+  color: var(--rp-teal);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-fact strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-tabs {
+  min-height: 42px;
+  border-bottom: 1px solid var(--rp-border);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-tabs button {
+  min-height: 42px;
+  padding: 10px 3px;
+  background: transparent;
+  color: var(--rp-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-tabs button:hover,
+.resident-profile-modal.resident-profile-panel .resident-profile-tabs button[aria-selected='true'] {
+  background: transparent;
+  color: var(--rp-teal);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-tabs button[aria-selected='true'] {
+  font-weight: 600;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-tabs button:focus-visible {
+  outline: 2px solid var(--rp-teal);
+  outline-offset: -3px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-content {
+  min-height: 0;
+  padding: 14px 18px 8px;
+  outline: none;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-content:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--rp-teal);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-health-overview {
+  gap: 6px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-health-card {
+  grid-template-columns: 40px minmax(0, 1fr) 20px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-health-heart {
+  width: 40px;
+  height: 40px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-health-card small {
+  color: var(--rp-label);
+  font-size: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-health-card strong {
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-metrics {
+  padding: 10px 0 4px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-metric {
+  min-height: 56px;
+  gap: 2px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-metric small {
+  color: var(--rp-muted);
+  font-size: 11px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-metric strong {
+  font-size: 17px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-metric-category {
+  font-size: 11px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-empty {
+  margin: 0 0 4px;
+  color: var(--rp-muted);
+  font-size: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-calculation-note {
+  font-size: 11px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-history-list {
+  max-height: 220px;
+  overscroll-behavior: contain;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-history-item {
+  gap: 5px;
+  padding: 9px 0;
+  border-color: var(--rp-border);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-history-item time {
+  font-size: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-history-item > span {
+  font-size: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-history-status {
+  font-size: 10px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-empty-state {
+  min-height: 96px;
+  gap: 6px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-empty-state svg {
+  width: 20px;
+  height: 20px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-empty-state p {
+  font-size: 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-message {
+  color: var(--rp-alert);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-message p {
+  line-height: 1.45;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-message button {
+  border-radius: 5px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-message button:focus-visible {
+  outline: 2px solid var(--rp-teal);
+  outline-offset: 3px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-skeleton {
+  gap: 8px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-skeleton-status {
+  min-height: 62px;
+  grid-template-columns: 40px minmax(0, 1fr) 20px;
+  padding: 10px 12px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-skeleton-status span {
+  width: 40px;
+  height: 40px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-profile-skeleton-metrics {
+  min-height: 56px;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-full-record-button {
+  width: auto;
+  min-height: 44px;
+  flex: 0 0 44px;
+  margin: 8px 18px 16px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: #0e9f98;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-full-record-button:hover:not(:disabled) {
+  background: #0b8a84;
+}
+
+.resident-profile-modal .resident-full-record-label {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.resident-profile-modal .resident-full-record-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resident-profile-modal.resident-profile-panel .resident-full-record-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--rp-surface), 0 0 0 5px var(--rp-teal);
+}
+
+.resident-profile-modal.resident-profile-panel .resident-full-record-button .resident-full-record-chevron {
+  flex: 0 0 auto;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card {
+  background-color: var(--rp-status-bg);
+  color: var(--rp-status-color);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--normal {
+  --rp-status-bg: var(--rp-normal-bg);
+  --rp-status-border: var(--rp-normal-border);
+  --rp-status-color: var(--rp-normal-text);
+  --rp-status-icon-bg: #0e9f98;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--overweight {
+  --rp-status-bg: var(--rp-overweight-bg);
+  --rp-status-border: var(--rp-overweight-border);
+  --rp-status-color: var(--rp-overweight-text);
+  --rp-status-icon-bg: #a16207;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--underweight {
+  --rp-status-bg: var(--rp-underweight-bg);
+  --rp-status-border: var(--rp-underweight-border);
+  --rp-status-color: var(--rp-underweight-text);
+  --rp-status-icon-bg: #1d4ed8;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--severely-underweight {
+  --rp-status-bg: var(--rp-severe-bg);
+  --rp-status-border: var(--rp-severe-border);
+  --rp-status-color: var(--rp-severe-text);
+  --rp-status-icon-bg: #b91c1c;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--obese {
+  --rp-status-bg: var(--rp-obese-bg);
+  --rp-status-border: var(--rp-obese-border);
+  --rp-status-color: var(--rp-obese-text);
+  --rp-status-icon-bg: #c2410c;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--unassessed,
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-health-card--other {
+  --rp-status-bg: #16233a;
+  --rp-status-border: #22304a;
+  --rp-status-color: #94a3b8;
+  --rp-status-icon-bg: #475569;
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-profile-metric-category--normal,
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--normal {
+  color: var(--rp-normal-text);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-profile-metric-category--overweight,
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--overweight {
+  color: var(--rp-overweight-text);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-profile-metric-category--underweight,
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--underweight {
+  color: var(--rp-underweight-text);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-profile-metric-category--severely-underweight,
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--severely-underweight {
+  color: var(--rp-severe-text);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-profile-metric-category--obese,
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--obese {
+  color: var(--rp-obese-text);
+}
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--normal { background: var(--rp-normal-bg); }
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--overweight { background: var(--rp-overweight-bg); }
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--underweight { background: var(--rp-underweight-bg); }
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--severely-underweight { background: var(--rp-severe-bg); }
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-history-status--obese { background: var(--rp-obese-bg); }
+
+html[data-theme='dark'] .resident-profile-modal.resident-profile-panel .resident-full-record-button:hover:not(:disabled) {
+  background: #12b5ad;
+}
+
+@media (max-width: 480px) {
+  .resident-profile-modal.resident-profile-panel {
+    width: 100%;
+    max-width: 440px;
+    max-height: min(90vh, 90dvh);
+  }
+
+  .resident-profile-modal.resident-profile-panel .resident-profile-summary {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .resident-profile-modal.resident-profile-panel .resident-profile-facts {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .resident-profile-modal.resident-profile-panel .resident-profile-content {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .resident-profile-modal.resident-profile-panel .resident-full-record-button {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+}
+
+@keyframes resident-profile-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes resident-profile-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes resident-profile-scale-in {
+  from { opacity: 0; transform: scale(.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes resident-profile-scale-out {
+  to { opacity: 0; transform: scale(.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resident-profile-modal-backdrop,
+  .resident-profile-modal-backdrop.is-closing,
+  .resident-profile-modal.resident-profile-panel,
+  .resident-profile-modal-backdrop.is-closing .resident-profile-modal {
+    animation: none;
+  }
+
+  .resident-profile-modal .resident-profile-close,
+  .resident-profile-modal.resident-profile-panel .resident-profile-tabs button,
+  .resident-profile-modal.resident-profile-panel .resident-full-record-button,
+  .resident-profile-modal.resident-profile-panel .resident-full-record-button svg:last-child {
+    animation: none;
+    transition: none;
+  }
+}

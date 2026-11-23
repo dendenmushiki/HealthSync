@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import offlineQueue from './offlineQueueService';
+import offlineQueue, { SYNCABLE_QUEUE_TABLES } from './offlineQueueService';
 import networkService from './networkService';
 
 const SyncStatusContext = createContext(null);
@@ -15,7 +15,7 @@ function useSyncStatusState() {
   const refresh = useCallback(async () => {
     try {
       const queue = await offlineQueue.getQueueItems();
-      setItems(queue);
+      setItems(queue.filter((item) => SYNCABLE_QUEUE_TABLES.has(item.table)));
       setError(null);
     } catch (error) {
       setItems([]);

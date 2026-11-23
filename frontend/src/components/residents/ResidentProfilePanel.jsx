@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertCircle,
   Cake,
   CheckCircle2,
   ClipboardList,
   ChevronRight,
-  CircleAlert,
   FileText,
   HeartPulse,
   MapPin,
@@ -14,6 +14,7 @@ import {
   VenusAndMars,
   X,
 } from 'lucide-react';
+import './ResidentProfilePanel.css';
 import { getResidentSummary } from '../../services/api/residentService';
 import { calculateAdultBMIOffline, calculateAdolescentBMIOffline } from '../../services/nutrition/offlineNutritionCalculator';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
@@ -179,6 +180,15 @@ const ResidentProfilePanel = ({ resident, onClose }) => {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('health');
   const tabButtonRefs = useRef({});
+  const closeTimer = useRef(null);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const requestClose = useCallback(() => {
+    if (closeTimer.current !== null) return;
+    setIsClosing(true);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    closeTimer.current = window.setTimeout(onClose, reducedMotion ? 0 : 170);
+  }, [onClose]);
 
   useEffect(() => {
     const previousFocus = document.activeElement;
@@ -186,7 +196,7 @@ const ResidentProfilePanel = ({ resident, onClose }) => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        requestClose();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -209,9 +219,10 @@ const ResidentProfilePanel = ({ resident, onClose }) => {
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
       if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
-  }, [onClose]);
+  }, [requestClose]);
 
   const loadProfile = async (force = false) => {
     const id = resident?.resident_id;
@@ -275,7 +286,7 @@ const ResidentProfilePanel = ({ resident, onClose }) => {
   const gender = details?.sex ? `${details.sex.charAt(0).toUpperCase()}${details.sex.slice(1)}` : 'Not recorded';
   const sitio = String(details?.sitio ?? '').trim() || 'Not assigned';
   const selectedTabRecords = tab === 'nutrition' ? history : timbangRecords;
-  const StatusIcon = statusTone === 'normal' ? CheckCircle2 : CircleAlert;
+  const StatusIcon = statusTone === 'normal' ? CheckCircle2 : AlertCircle;
 
   const handleTabKeyDown = (event, currentIndex) => {
     let nextIndex = currentIndex;
@@ -292,137 +303,150 @@ const ResidentProfilePanel = ({ resident, onClose }) => {
   };
 
   return (
-    <div className="resident-profile-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div
+      className={`resident-profile-modal-backdrop${isClosing ? ' is-closing' : ''}`}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}
+    >
       <section ref={dialogRef} className="resident-profile-panel resident-profile-modal" role="dialog" aria-modal="true" aria-labelledby="resident-profile-dialog-title" tabIndex={-1}>
         <header className="resident-profile-heading">
-          <span><UserRound size={20} strokeWidth={1.8} aria-hidden="true" /><strong id="resident-profile-dialog-title">Resident Profile</strong></span>
-          <button type="button" className="resident-profile-close" aria-label="Close resident profile" onClick={onClose}><X size={19} aria-hidden="true" /></button>
-      </header>
-
-      {resident ? <>
-        <section className="resident-profile-summary" aria-label="Resident identity">
-          <div
-            className="resident-profile-avatar"
-            role="img"
-            aria-label={avatar ? `${fullName} profile photo` : `${fullName} initials`}
-          >
-            <span aria-hidden="true">{initials}</span>
-            {avatar && <img src={avatar} alt="" onError={(event) => event.currentTarget.remove()} />}
+          <div className="resident-profile-heading-brand">
+            <span className="resident-profile-logo-tile">
+              <img src="/images/healthsynclogo.png" alt="HealthSync logo" />
+            </span>
+            <strong id="resident-profile-dialog-title">Resident Profile</strong>
           </div>
-          <div className="resident-profile-name">
-            <div className="resident-profile-name-line">
-              <strong title={fullName}>{fullName}</strong>
-              <span className="resident-profile-id">ID {details?.resident_id}</span>
+          <button type="button" className="resident-profile-close" aria-label="Close" onClick={requestClose}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className="resident-profile-body">
+          {resident ? <>
+            <section className="resident-profile-summary" aria-label="Resident identity">
+              <div
+                className="resident-profile-avatar"
+                role="img"
+                aria-label={avatar ? `${fullName} profile photo` : `${fullName} initials`}
+              >
+                <span aria-hidden="true">{initials}</span>
+                {avatar && <img src={avatar} alt="" onError={(event) => event.currentTarget.remove()} />}
+              </div>
+              <div className="resident-profile-name">
+                <div className="resident-profile-name-line">
+                  <strong title={fullName}>{fullName}</strong>
+                  <span className="resident-profile-id">ID {details?.resident_id ?? '—'}</span>
+                </div>
+                <small title={householdName}>{householdName}</small>
+              </div>
+            </section>
+
+            <section className="resident-profile-facts" aria-label="Resident details">
+              <div className="resident-profile-fact">
+                <span className="resident-profile-fact-label"><Cake size={15} aria-hidden="true" />Age</span>
+                <strong title={age === null || age === undefined || age === '' ? 'Not provided' : `${age} years`}>
+                  {age === null || age === undefined || age === '' ? 'Not provided' : `${age} years`}
+                </strong>
+              </div>
+              <div className="resident-profile-fact">
+                <span className="resident-profile-fact-label"><VenusAndMars size={15} aria-hidden="true" />Gender</span>
+                <strong title={gender}>{gender}</strong>
+              </div>
+              <div className="resident-profile-fact">
+                <span className="resident-profile-fact-label"><MapPin size={15} aria-hidden="true" />Sitio</span>
+                <strong title={sitio}>{sitio}</strong>
+              </div>
+            </section>
+
+            <div className="resident-profile-tabs" role="tablist" aria-label="Resident health details">
+              {PROFILE_TABS.map(([value, label], index) => (
+                <button
+                  key={value}
+                  ref={(element) => { tabButtonRefs.current[value] = element; }}
+                  type="button"
+                  role="tab"
+                  id={`profile-tab-${value}`}
+                  aria-controls="resident-profile-content"
+                  aria-selected={tab === value}
+                  tabIndex={tab === value ? 0 : -1}
+                  onClick={() => setTab(value)}
+                  onKeyDown={(event) => handleTabKeyDown(event, index)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <small>{householdName}</small>
-          </div>
-        </section>
 
-        <section className="resident-profile-facts" aria-label="Resident details">
-          <div className="resident-profile-fact">
-            <span className="resident-profile-fact-label"><Cake size={16} aria-hidden="true" />Age</span>
-            <strong>{age === null || age === undefined || age === '' ? 'Not provided' : `${age} years`}</strong>
-          </div>
-          <div className="resident-profile-fact">
-            <span className="resident-profile-fact-label"><VenusAndMars size={16} aria-hidden="true" />Gender</span>
-            <strong>{gender}</strong>
-          </div>
-          <div className="resident-profile-fact">
-            <span className="resident-profile-fact-label"><MapPin size={16} aria-hidden="true" />Sitio</span>
-            <strong title={sitio}>{sitio}</strong>
-          </div>
-        </section>
-
-        <div className="resident-profile-tabs" role="tablist" aria-label="Resident health details">
-          {PROFILE_TABS.map(([value, label], index) => (
-            <button
-              key={value}
-              ref={(element) => { tabButtonRefs.current[value] = element; }}
-              type="button"
-              role="tab"
-              id={`profile-tab-${value}`}
-              aria-controls="resident-profile-content"
-              aria-selected={tab === value}
-              tabIndex={tab === value ? 0 : -1}
-              onClick={() => setTab(value)}
-              onKeyDown={(event) => handleTabKeyDown(event, index)}
+            <div
+              className="resident-profile-content"
+              id="resident-profile-content"
+              role="tabpanel"
+              aria-labelledby={`profile-tab-${tab}`}
+              tabIndex={0}
             >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div
-          className="resident-profile-content"
-          id="resident-profile-content"
-          role="tabpanel"
-          aria-labelledby={`profile-tab-${tab}`}
-          tabIndex={0}
-        >
-          {loading ? <ProfileLoadingSkeleton tab={tab} /> : error ? (
-            <div className="resident-profile-message" role="alert">
-              <p>{error}</p>
-              <button type="button" onClick={() => loadProfile(true)}>Retry</button>
-            </div>
-          ) : tab === 'health' ? (
-            <div className="resident-health-overview">
-              <section className={`resident-health-card resident-health-card--${statusTone}`} aria-label="Nutritional status">
-                <span className="resident-health-heart"><HeartPulse size={22} strokeWidth={1.8} aria-hidden="true" /></span>
-                <div>
-                  <small>Nutritional Status</small>
-                  <strong>{status || 'Not assessed'}</strong>
+              {loading ? <ProfileLoadingSkeleton tab={tab} /> : error ? (
+                <div className="resident-profile-message" role="alert">
+                  <p>{error}</p>
+                  <button type="button" onClick={() => loadProfile(true)}>Retry</button>
                 </div>
-                <StatusIcon size={20} aria-label={statusTone === 'normal' ? 'Normal status' : 'Status notice'} />
-              </section>
+              ) : tab === 'health' ? (
+                <div className="resident-health-overview">
+                  <section className={`resident-health-card resident-health-card--${statusTone}`} aria-label="Nutritional status">
+                    <span className="resident-health-heart"><HeartPulse size={20} strokeWidth={1.8} aria-hidden="true" /></span>
+                    <div>
+                      <small>Nutritional Status</small>
+                      <strong>{status || 'Not assessed'}</strong>
+                    </div>
+                    <StatusIcon size={19} aria-label={statusTone === 'normal' ? 'Normal status' : 'Status notice'} />
+                  </section>
 
-              {hasMeasurements ? (
-                <div className="resident-profile-metrics" aria-label="Latest measurements">
-                  <div className="resident-profile-metric">
-                    <small>BMI</small>
-                    <strong>{formatMetric(assessment.bmi, 1, 1) || '—'}</strong>
-                    {status
-                      ? <span className={`resident-profile-metric-category resident-profile-metric-category--${statusTone}`}>({status})</span>
-                      : <span className="resident-profile-metric-category is-muted">Category not recorded</span>}
+                  <div className={`resident-profile-metrics${hasMeasurements ? '' : ' is-empty'}`} aria-label="Latest measurements">
+                    <div className="resident-profile-metric">
+                      <small>BMI</small>
+                      <strong>{formatMetric(assessment.bmi, 1, 1) || '—'}</strong>
+                      {status
+                        ? <span className={`resident-profile-metric-category resident-profile-metric-category--${statusTone}`}>({status})</span>
+                        : <span className="resident-profile-metric-category is-muted">Category not recorded</span>}
+                    </div>
+                    <div className="resident-profile-metric">
+                      <small>Height</small>
+                      <strong>{assessment.heightCm == null || assessment.heightCm === '' ? '—' : `${formatMetric(Number(assessment.heightCm) / 100, 2, 2) || '—'} m`}</strong>
+                    </div>
+                    <div className="resident-profile-metric">
+                      <small>Weight</small>
+                      <strong>{assessment.weightKg == null ? '—' : `${formatMetric(assessment.weightKg, 1, 1) || '—'} kg`}</strong>
+                    </div>
                   </div>
-                  <div className="resident-profile-metric">
-                    <small>Height</small>
-                    <strong>{assessment.heightCm == null || assessment.heightCm === '' ? '—' : `${formatMetric(Number(assessment.heightCm) / 100, 2, 2) || '—'} m`}</strong>
-                  </div>
-                  <div className="resident-profile-metric">
-                    <small>Weight</small>
-                    <strong>{assessment.weightKg == null ? '—' : `${formatMetric(assessment.weightKg, 1, 1) || '—'} kg`}</strong>
-                  </div>
+                  {!hasMeasurements && <p className="resident-profile-empty">No measurement yet</p>}
+                  {assessment.calculationUnavailable && (
+                    <p className="resident-profile-calculation-note" role="status">
+                      BMI unavailable: {assessment.calculationMessage}
+                    </p>
+                  )}
                 </div>
-              ) : <p className="resident-profile-empty">No measurement yet</p>}
-              {assessment.calculationUnavailable && (
-                <p className="resident-profile-calculation-note" role="status">
-                  BMI unavailable: {assessment.calculationMessage}
-                </p>
+              ) : (
+                <ResidentHistoryList tab={tab} records={selectedTabRecords} />
               )}
             </div>
-          ) : (
-            <ResidentHistoryList tab={tab} records={selectedTabRecords} />
+          </> : (
+            <div className="resident-profile-empty-selection">
+              <span><UserRound size={24} aria-hidden="true" /></span>
+              <p>Select a resident to view their profile</p>
+            </div>
           )}
         </div>
-      </> : (
-        <div className="resident-profile-empty-selection">
-          <span><UserRound size={24} aria-hidden="true" /></span>
-          <p>Select a resident to view their profile</p>
-        </div>
-      )}
 
-      <button
-        type="button"
-        className="resident-full-record-button"
-        disabled={!resident}
-        onClick={() => resident && navigate(`/residents/${resident.resident_id}`)}
-      >
-        <span className="resident-full-record-label">
-          <FileText size={14} aria-hidden="true" />
-          <span>View Full Record</span>
-        </span>
-        <ChevronRight className="resident-full-record-chevron" size={16} aria-hidden="true" />
-      </button>
+        <button
+          type="button"
+          className="resident-full-record-button"
+          disabled={!resident}
+          onClick={() => resident && navigate(`/residents/${resident.resident_id}`)}
+        >
+          <span className="resident-full-record-label">
+            <FileText size={16} aria-hidden="true" />
+            <span>View Full Record</span>
+          </span>
+          <ChevronRight className="resident-full-record-chevron" size={17} aria-hidden="true" />
+        </button>
       </section>
     </div>
   );

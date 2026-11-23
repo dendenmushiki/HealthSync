@@ -79,6 +79,7 @@ test('claims generic sync keys before validation so an ambiguous retry cannot ex
     ownerId: '7',
     requestFingerprint: 'request-fingerprint',
     outcome: 'PENDING',
+    offlineSync: false,
   });
   assert.equal(retry.fromCache, true);
   assert.equal(retry.record.status, 'PENDING');

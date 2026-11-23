@@ -10,6 +10,19 @@ jest.mock('./offlineQueueService', () => ({
     getOperation: jest.fn(),
     updateOperationStatus: jest.fn(),
   },
+  SYNCABLE_QUEUE_TABLES: new Set([
+  'residents',
+  'health_records',
+  'child_health_records',
+  'operation_timbang',
+  'adolescent_bmi_records',
+  'adult_bmi_records',
+  'senior_citizen_records',
+  'patient_clinical_records',
+  'child_records',
+  'maternal_records',
+  'immunization_records',
+  ]),
 }));
 
 jest.mock('../api/apiClient', () => ({
@@ -76,6 +89,7 @@ test('maps locally created resident IDs to server IDs before syncing dependent r
     data: expect.objectContaining({ resident_id: 77 }),
     headers: expect.objectContaining({
       'X-Idempotency-Key': 'clinical-operation',
+      'X-HealthSync-Offline-Sync': 'true',
       Authorization: 'Bearer account-a-token',
     }),
   }));
@@ -105,6 +119,7 @@ test('retries interrupted direct requests with the same idempotency key', async 
   expect(api.request).toHaveBeenCalledTimes(2);
   expect(api.request.mock.calls.map(([request]) => request.headers['X-Idempotency-Key']))
     .toEqual([item.offlineOperationId, item.offlineOperationId]);
+  expect(api.request.mock.calls.every(([request]) => request.headers['X-HealthSync-Offline-Sync'] === 'true')).toBe(true);
   expect(item.status).toBe('PENDING');
 });
 
@@ -121,7 +136,6 @@ test('automatically retries supported direct record types with their original ke
     'child_records',
     'maternal_records',
     'immunization_records',
-    'report_remarks',
   ];
   queue = tables.map((table) => ({
     offlineOperationId: `${table}-operation`,
@@ -151,6 +165,23 @@ test('automatically retries supported direct record types with their original ke
     .toEqual([...tables.map((table) => `${table}-operation`), ...tables.map((table) => `${table}-operation`)]);
 });
 
+test('does not synchronize legacy report remark queue entries', async () => {
+  const remark = {
+    offlineOperationId: 'legacy-report-remark',
+    userId: '7',
+    operation: 'UPDATE',
+    table: 'report_remarks',
+    status: 'PENDING',
+    request: { method: 'PUT', url: '/reports/fhsis/remarks', data: { remark: 'Draft' } },
+  };
+  queue = [remark];
+
+  await runSync();
+
+  expect(api.request).not.toHaveBeenCalled();
+  expect(remark.status).toBe('PENDING');
+});
+
 test('automatically retries generic sync operations after network loss using the same key', async () => {
   const item = {
     offlineOperationId: 'generic-health-record-operation',
@@ -174,6 +205,7 @@ test('automatically retries generic sync operations after network loss using the
   expect(api.post).toHaveBeenCalledTimes(2);
   expect(api.post.mock.calls.map(([, , config]) => config.headers['X-Idempotency-Key']))
     .toEqual([item.offlineOperationId, item.offlineOperationId]);
+  expect(api.post.mock.calls.every(([, , config]) => config.headers['X-HealthSync-Offline-Sync'] === 'true')).toBe(true);
   expect(item.status).toBe('SYNCED');
 });
 

@@ -41,8 +41,28 @@ test('a confirmed online write is sent directly without creating a queue item', 
 
   expect(response.data.success).toBe(true);
   expect(response.config.headers['X-Idempotency-Key']).toBeTruthy();
+  expect(response.config.headers['X-HealthSync-Offline-Sync']).toBeUndefined();
   expect(enqueueOperation).not.toHaveBeenCalled();
   expect(getOperation).not.toHaveBeenCalled();
+  expect(updateOperationStatus).not.toHaveBeenCalled();
+});
+
+test('report remarks are not queued when the client is offline', async () => {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+  api.defaults.adapter = jest.fn(async (config) => {
+    const error = new Error('Network Error');
+    error.code = 'ERR_NETWORK';
+    error.config = config;
+    throw error;
+  });
+
+  await expect(api.put('/reports/fhsis/remarks', {
+    reportPeriod: 'month:2026-11-01:2026-11-24',
+    indicatorKey: 'general',
+    remark: 'Draft',
+  })).rejects.toMatchObject({ message: 'Network Error' });
+
+  expect(enqueueOperation).not.toHaveBeenCalled();
   expect(updateOperationStatus).not.toHaveBeenCalled();
 });
 

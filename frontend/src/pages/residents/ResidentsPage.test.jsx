@@ -128,6 +128,7 @@ test('opens the selected resident profile in a modal and supports keyboard tab n
   render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
   fireEvent.click(await screen.findByRole('row', { name: /Santos/ }));
   expect(await screen.findByRole('dialog', { name: 'Resident Profile' })).toBeInTheDocument();
+  expect(screen.getByAltText('HealthSync logo')).toHaveAttribute('src', '/images/healthsynclogo.png');
   await waitFor(() => expect(getResidentSummary).toHaveBeenCalledWith(7));
   expect(screen.getByText('ID 7')).toBeInTheDocument();
   expect(screen.getByText('Melgar')).toBeInTheDocument();
@@ -135,8 +136,8 @@ test('opens the selected resident profile in a modal and supports keyboard tab n
   fireEvent.keyDown(screen.getByRole('tab', { name: 'Health Overview' }), { key: 'ArrowRight' });
   expect(screen.getByRole('tab', { name: 'Nutrition History' })).toHaveAttribute('aria-selected', 'true');
   expect(await screen.findByText('BMI 23.0')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Close resident profile' }));
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 
 test('shows an explicit fallback when the selected resident has no sitio assigned', async () => {
@@ -152,6 +153,19 @@ test('shows an explicit fallback when the selected resident has no sitio assigne
   render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
   fireEvent.click(await screen.findByRole('row', { name: /Santos/ }));
   expect(await screen.findByText('Not assigned')).toBeInTheDocument();
+});
+
+test('closes the profile modal on Escape and restores focus to the selected resident row', async () => {
+  render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
+  const residentRow = await screen.findByRole('row', { name: /Santos/ });
+  residentRow.focus();
+  fireEvent.click(residentRow);
+
+  expect(await screen.findByRole('dialog', { name: 'Resident Profile' })).toBeInTheDocument();
+  fireEvent.keyDown(document, { key: 'Escape' });
+
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(residentRow).toHaveFocus();
 });
 
 test('refreshes the resident list when offline changes finish synchronizing', async () => {

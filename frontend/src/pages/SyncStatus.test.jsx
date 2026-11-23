@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import SyncStatus from './SyncStatus';
@@ -55,7 +55,7 @@ const makeItem = (status) => ({
   ...(status === 'SYNCED' ? { syncedAt: '2026-11-16T00:01:00.000Z' } : {}),
 });
 
-function renderSyncStatus(item) {
+async function renderSyncStatus(item) {
   useSyncStatus.mockReturnValue({
     items: [item],
     online: true,
@@ -79,9 +79,12 @@ function renderSyncStatus(item) {
       </AuthContext.Provider>
     </MemoryRouter>
   );
-  fireEvent.click(screen.getByRole('button', {
-    name: item.status === 'SYNCED' ? /View synced/ : /Details for/,
-  }));
+  if (item.status !== 'SYNCED') {
+    fireEvent.click(screen.getByRole('button', { name: /Details for/ }));
+  }
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 beforeEach(() => {
@@ -89,12 +92,129 @@ beforeEach(() => {
   api.get.mockResolvedValue({ data: { success: true, data: { items: [] } } });
 });
 
-test('synced changes cannot be discarded from Sync Status', async () => {
-  renderSyncStatus(makeItem('SYNCED'));
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
-  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
-  expect(within(drawer).queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument();
+test('Synced status shows other BHWs server records and opens full saved details', async () => {
+  api.get.mockImplementation((path) => {
+    if (path === '/sync/activity') {
+      return Promise.resolve({
+        data: {
+          success: true,
+          data: {
+            items: [{
+              sync_activity_id: 42,
+              table_name: 'adult_bmi_records',
+              operation: 'POST',
+              server_record_id: 91,
+              created_at: '2026-11-16T00:01:00.000Z',
+              actor_id: 8,
+              actor_name: 'BHW Account A',
+            }],
+          },
+        },
+      });
+    }
+    if (path === '/sync/activity/42') {
+      return Promise.resolve({
+        data: {
+          success: true,
+          data: {
+            record_details: {
+              bmi_id: 91,
+              resident_id: 24,
+              bmi: 22.4,
+              bmi_category: 'Normal',
+            },
+          },
+        },
+      });
+    }
+    throw new Error(`Unexpected API request: ${path}`);
+  });
+  await renderSyncStatus(makeItem('SYNCED'));
+  expect(api.get).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+
+  const historySummary = /Added Adult BMI · Record #91 · Synced by BHW Account A/;
+  expect((await screen.findAllByRole('button', { name: historySummary })).length).toBeGreaterThan(0);
+  expect(api.get).toHaveBeenCalledWith('/sync/activity', { params: { scope: 'all' } });
+  fireEvent.click(screen.getByRole('button', { name: /Details for Added Adult BMI/ }));
+  const drawer = await screen.findByRole('dialog', { name: 'Synced record details' });
+  expect(within(drawer).getByText('Saved to server')).toBeInTheDocument();
+  expect(await within(drawer).findByText('Normal')).toBeInTheDocument();
+  expect(api.get).toHaveBeenCalledWith('/sync/activity/42');
+  expect(screen.queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument();
   expect(screen.queryByRole('dialog', { name: 'Discard this queued change?' })).not.toBeInTheDocument();
+});
+
+test('shared synced history refreshes after a synchronization completes', async () => {
+  api.get
+    .mockResolvedValueOnce({ data: { success: true, data: { items: [] } } })
+    .mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          items: [{
+            sync_activity_id: 104,
+            table_name: 'health_records',
+            operation: 'PUT',
+            server_record_id: 104,
+            created_at: '2026-11-16T00:01:00.000Z',
+            actor_id: 9,
+            actor_name: 'BHW Account B',
+          }],
+        },
+      },
+    });
+  await renderSyncStatus(makeItem('SYNCED'));
+  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+  await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+  expect(api.get).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    window.dispatchEvent(new Event('healthsync:sync-complete'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect((await screen.findAllByRole('button', {
+    name: /Updated Clinical record · Record #104 · Synced by BHW Account B/,
+  })).length).toBeGreaterThan(0);
+  await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+});
+
+test('synced history can be scoped to the current BHW or all BHW accounts', async () => {
+  const ownSync = {
+    sync_activity_id: 1,
+    table_name: 'health_records',
+    operation: 'CREATE',
+    server_record_id: 101,
+    created_at: '2026-11-16T00:01:00.000Z',
+    actor_id: 7,
+    actor_name: 'My BHW account',
+  };
+  const otherSync = {
+    ...ownSync,
+    sync_activity_id: 2,
+    server_record_id: 102,
+    actor_id: 8,
+    actor_name: 'Another BHW account',
+  };
+  api.get
+    .mockResolvedValueOnce({ data: { success: true, data: { items: [ownSync, otherSync] } } })
+    .mockResolvedValueOnce({ data: { success: true, data: { items: [ownSync] } } });
+  await renderSyncStatus(makeItem('SYNCED'));
+  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+
+  expect((await screen.findAllByText(/Synced by Another BHW account/)).length).toBeGreaterThan(0);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Synced history account filter' }), {
+    target: { value: 'mine' },
+  });
+
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith('/sync/activity', { params: { scope: 'mine' } }));
+  expect((await screen.findAllByText(/Synced by My BHW account/)).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/Synced by Another BHW account/)).not.toBeInTheDocument();
 });
 
 test('pending details show BHW-friendly status without internal operation data', async () => {
@@ -108,7 +228,7 @@ test('pending details show BHW-friendly status without internal operation data',
     },
     request: { url: '/internal/endpoint' },
   };
-  renderSyncStatus(pendingItem);
+  await renderSyncStatus(pendingItem);
 
   const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
   expect(within(drawer).getByText('Waiting to sync')).toBeInTheDocument();
@@ -119,7 +239,7 @@ test('pending details show BHW-friendly status without internal operation data',
 test('a change that syncs before discard confirmation is preserved', async () => {
   const pendingItem = makeItem('PENDING');
   offlineQueue.getOperation.mockResolvedValue({ ...pendingItem, status: 'SYNCED' });
-  renderSyncStatus(pendingItem);
+  await renderSyncStatus(pendingItem);
 
   const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
   fireEvent.click(within(drawer).getByRole('button', { name: 'Discard' }));
@@ -132,7 +252,7 @@ test('a change that syncs before discard confirmation is preserved', async () =>
 });
 
 test('unknown outcomes cannot be retried or discarded as unsent changes', async () => {
-  renderSyncStatus(makeItem('CONFLICT'));
+  await renderSyncStatus(makeItem('CONFLICT'));
 
   const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
   expect(offlineQueue.updateOperationStatus).not.toHaveBeenCalled();
@@ -186,30 +306,18 @@ test('BHWs can download offline data from Sync Status and inspect included datas
   await waitFor(() => expect(downloadOfflineData).toHaveBeenCalledTimes(1));
 });
 
-test('Synced History contains only confirmed offline changes and shows simple details', async () => {
-  const offlineSyncedItem = {
-    ...makeItem('SYNCED'),
-    userId: '8',
-    syncedAt: '2026-11-16T00:01:00.000Z',
-  };
-  const onlineSyncedItem = {
-    ...makeItem('SYNCED'),
-    userId: '8',
-    offlineOperationId: 'online-write',
-    savedOffline: false,
-    payload: { first_name: 'Online', last_name: 'Record' },
-    localRecord: { first_name: 'Online', last_name: 'Record' },
-  };
-  const otherAccountItem = {
-    ...makeItem('SYNCED'),
-    offlineOperationId: 'other-account',
-    userId: '99',
-    payload: { first_name: 'Private', last_name: 'Resident' },
-    localRecord: { first_name: 'Private', last_name: 'Resident' },
-    syncedAt: '2026-11-16T00:02:00.000Z',
-  };
+test('shared sync activity errors are surfaced instead of showing an empty success state', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  api.get.mockRejectedValue(new Error('Shared synced history is unavailable.'));
+  await renderSyncStatus(makeItem('SYNCED'));
+  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+
+  expect(await screen.findByText('Shared synced history is unavailable.')).toBeInTheDocument();
+});
+
+test('non-BHW accounts do not request shared synced history', async () => {
   useSyncStatus.mockReturnValue({
-    items: [offlineSyncedItem, onlineSyncedItem, otherAccountItem],
+    items: [],
     online: true,
     syncing: false,
     setSyncing: jest.fn(),
@@ -223,24 +331,17 @@ test('Synced History contains only confirmed offline changes and shows simple de
     waiting: 0,
     lastSynced: null,
   });
+
   render(
     <MemoryRouter>
-      <AuthContext.Provider value={{ user: { user_id: 8, role: 'bhw' }, offlineVaultReady: true }}>
+      <AuthContext.Provider value={{ user: { user_id: 7, role: 'official' }, offlineVaultReady: false }}>
         <SyncStatus />
       </AuthContext.Provider>
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('Synced History')).toBeInTheDocument();
-  expect(screen.getByText('Test Resident')).toBeInTheDocument();
-  expect(screen.queryByText('Online Record')).not.toBeInTheDocument();
-  expect(screen.queryByText('Private Resident')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /View synced Resident registration for Test Resident/i }));
-  const drawer = await screen.findByRole('dialog', { name: 'Saved change details' });
-  expect(within(drawer).getByText('Synced successfully')).toBeInTheDocument();
-  expect(within(drawer).getByText(/confirmed this change was saved/i)).toBeInTheDocument();
-  expect(within(drawer).queryByText(/offlineOperationId|raw JSON|technical ID/i)).not.toBeInTheDocument();
   expect(api.get).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Synced history' })).not.toBeInTheDocument();
 });
 
 test('locked local queue is not described as fully synchronized', async () => {

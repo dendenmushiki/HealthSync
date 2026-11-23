@@ -419,11 +419,20 @@ async function findIdempotency(key) {
   return rows && rows.length ? rows[0] : null;
 }
 
-async function claimIdempotencyRecord({ key, module_name, table_name, operation, ownerId, requestFingerprint }) {
+async function claimIdempotencyRecord({
+  key,
+  module_name,
+  table_name,
+  operation,
+  ownerId,
+  requestFingerprint,
+  offlineSync = false,
+}) {
   const metadata = {
     ownerId: String(ownerId),
     requestFingerprint,
     outcome: 'PENDING',
+    offlineSync: Boolean(offlineSync),
   };
   try {
     await pool.query(
@@ -459,9 +468,16 @@ async function saveIdempotency({
   status = 'SUCCESS',
   ownerId = null,
   requestFingerprint = null,
+  offlineSync = false,
 }) {
   const storedResponse = response && ownerId !== null && requestFingerprint
-    ? JSON.stringify({ ownerId: String(ownerId), requestFingerprint, outcome: 'SUCCESS', response })
+    ? JSON.stringify({
+      ownerId: String(ownerId),
+      requestFingerprint,
+      outcome: 'SUCCESS',
+      offlineSync: Boolean(offlineSync),
+      response,
+    })
     : response ? JSON.stringify(response) : null;
   if (ownerId !== null && requestFingerprint) {
     const [result] = await pool.query(
@@ -485,6 +501,7 @@ async function processOperation({
   ip = null,
   userAgent = null,
   requestFingerprint = null,
+  offlineSync = false,
 }) {
   // ensure idempotency table exists
   await ensureIdempotencyTable();
@@ -515,6 +532,7 @@ async function processOperation({
       operation,
       ownerId: userId,
       requestFingerprint,
+      offlineSync,
     });
     if (claimed) return { fromCache: true, record: claimed };
   }
@@ -599,6 +617,7 @@ async function processOperation({
           response,
           ownerId: userId,
           requestFingerprint,
+          offlineSync,
         });
         return { fromCache: false, response };
       } catch (err) {
@@ -655,6 +674,7 @@ async function processOperation({
           response,
           ownerId: userId,
           requestFingerprint,
+          offlineSync,
         });
         return { fromCache: false, response };
       } catch (err) {
@@ -750,6 +770,7 @@ async function processOperation({
         response,
         ownerId: userId,
         requestFingerprint,
+        offlineSync,
       });
       return { fromCache: false, response };
     } else if (operation === 'UPDATE') {
@@ -777,6 +798,7 @@ async function processOperation({
         response,
         ownerId: userId,
         requestFingerprint,
+        offlineSync,
       });
       return { fromCache: false, response };
     } else if (operation === 'DELETE' && ['patient_clinical_records', 'child_records', 'maternal_records', 'immunization_records'].includes(table)) {
@@ -798,6 +820,7 @@ async function processOperation({
         response,
         ownerId: userId,
         requestFingerprint,
+        offlineSync,
       });
       return { fromCache: false, response };
     }
@@ -818,6 +841,8 @@ module.exports = {
   findIdempotency,
   markIdempotencyRejected,
   initializeFromDatabase,
+  getPrimaryKeyColumn,
+  validateTableName,
 };
 
 // exported for debugging/tests

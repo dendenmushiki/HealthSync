@@ -24,7 +24,6 @@ const offlineQueueRoutes = {
   '/adolescent-bmi': { module: 'adolescent_bmi', table: 'adolescent_bmi_records' },
   '/adult-bmi': { module: 'adult_bmi', table: 'adult_bmi_records' },
   '/senior-citizens': { module: 'senior_citizens', table: 'senior_citizen_records' },
-  '/reports/fhsis/remarks': { module: 'report_remarks', table: 'report_remarks' },
 };
 
 const isQueueableRequest = (config) => {

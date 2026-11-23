@@ -1,22 +1,8 @@
-import offlineQueue from './offlineQueueService';
+import offlineQueue, { SYNCABLE_QUEUE_TABLES } from './offlineQueueService';
 import api from '../api/apiClient';
 
 const runningPromises = new Map();
 const MAX_UNKNOWN_CREATE_RETRIES = 3;
-const IDEMPOTENT_QUEUED_TABLES = new Set([
-  'residents',
-  'health_records',
-  'child_health_records',
-  'operation_timbang',
-  'adolescent_bmi_records',
-  'adult_bmi_records',
-  'senior_citizen_records',
-  'patient_clinical_records',
-  'child_records',
-  'maternal_records',
-  'immunization_records',
-  'report_remarks',
-]);
 
 const SERVER_RECORD_ID_FIELDS = {
   residents: ['resident_id', 'id'],
@@ -30,7 +16,6 @@ const SERVER_RECORD_ID_FIELDS = {
   child_records: ['id'],
   maternal_records: ['id'],
   immunization_records: ['id'],
-  report_remarks: ['id'],
 };
 
 function getServerRecordId(responseData, table) {
@@ -135,14 +120,14 @@ export function runSync() {
       item.status === 'CONFLICT' &&
       item.operation === 'CREATE' &&
       Boolean(item.request) &&
-      IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
+      SYNCABLE_QUEUE_TABLES.has(item.table) &&
       (!item.lastErrorCode || item.lastErrorCode === 'IDEMPOTENCY_OUTCOME_UNKNOWN') &&
       Number(item.retryCount || 0) < MAX_UNKNOWN_CREATE_RETRIES
     ));
     const pending = [
       ...(await offlineQueue.getPendingOperations(session.userId)),
       ...retryableConflicts,
-    ]
+    ].filter((item) => SYNCABLE_QUEUE_TABLES.has(item.table))
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     if (pending.some((item) => String(item.userId) !== session.userId)) {
       throw new Error('A queued change is not owned by the active account and was not synchronized.');
@@ -175,10 +160,15 @@ export function runSync() {
                 ...(item.request.headers || {}),
                 Authorization: `Bearer ${session.token}`,
                 'X-Idempotency-Key': item.offlineOperationId,
+                'X-HealthSync-Offline-Sync': 'true',
               },
             })
             : await api.post('/sync', { operation: item.operation, module: item.module, table: item.table, payload: item.payload }, {
-              headers: { Authorization: `Bearer ${session.token}`, 'X-Idempotency-Key': item.offlineOperationId },
+              headers: {
+                Authorization: `Bearer ${session.token}`,
+                'X-Idempotency-Key': item.offlineOperationId,
+                'X-HealthSync-Offline-Sync': 'true',
+              },
             });
           assertActiveSession(session);
           if (!response?.data?.success) throw new Error(response?.data?.message || 'Server did not accept this change.');
@@ -248,9 +238,9 @@ export function runSync() {
         // Create requests use atomic idempotency keys, so replaying this same request cannot duplicate a saved record.
         const safelyReplayableCreate = item.operation === 'CREATE' &&
           Boolean(item.request) &&
-          IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
+          SYNCABLE_QUEUE_TABLES.has(item.table) &&
           retryCount <= MAX_UNKNOWN_CREATE_RETRIES;
-        const canSafelyRetry = IDEMPOTENT_QUEUED_TABLES.has(item.table) &&
+        const canSafelyRetry = SYNCABLE_QUEUE_TABLES.has(item.table) &&
           (isNetworkFailure(err) || errorCode === 'IDEMPOTENCY_RETRY_SAFE' ||
             (errorCode === 'IDEMPOTENCY_OUTCOME_UNKNOWN' && safelyReplayableCreate));
         const requiresReview = ['IDEMPOTENCY_OUTCOME_UNKNOWN', 'IDEMPOTENCY_KEY_CONFLICT', 'IDEMPOTENCY_KEY_REUSE']

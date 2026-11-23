@@ -1,10 +1,34 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import {
+  Baby,
+  Calendar,
+  CalendarDays,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  ClipboardList,
+  Clock3,
+  Download,
+  FileBarChart,
+  FileText,
+  HeartHandshake,
+  HeartPulse,
+  Info,
+  LayoutDashboard,
+  Loader2,
+  MapPin,
+  MapPinOff,
+  MessageSquareText,
+  RefreshCw,
+  Stethoscope,
+  UserCheck,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import api from '../../services/api/apiClient';
-import StatusBanner from '../../components/common/StatusBanner';
+import PageBanner from '../../components/common/PageBanner';
 import { AuthContext } from '../../context/AuthContext';
 import { formatDateOnly, formatDateTimeInTimeZone, getDateInputValueInTimeZone } from '../../utils/dateUtils';
-import { getPendingOperations } from '../../services/offline/offlineQueueService';
 import {
   CHILD_INDICATORS,
   MATERNAL_INDICATORS,
@@ -13,10 +37,20 @@ import {
   REPORT_SECTIONS,
   SENIOR_INDICATORS,
 } from './reportConfig';
-import { DataQualitySummary, DrilldownDrawer, IndicatorTable, ReportLoading, ReportSection } from './ReportComponents';
+import {
+  AlertBanner,
+  DataQualitySummary,
+  DrilldownDrawer,
+  IndicatorTable,
+  NutritionPiePanel,
+  ReportLoading,
+  ReportSection,
+  SaveState,
+} from './ReportComponents';
 import './ReportsPage.css';
 
 const REMARK_LIMIT = 1000;
+const numberFormat = new Intl.NumberFormat();
 const todayManila = () => getDateInputValueInTimeZone('Asia/Manila');
 
 function rangeFor(period, params) {
@@ -208,6 +242,7 @@ const ReportsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [remarksError, setRemarksError] = useState('');
+  const [remarksRetry, setRemarksRetry] = useState(0);
   const [offlineNotice, setOfflineNotice] = useState('');
   const [retry, setRetry] = useState(0);
   const [remarks, setRemarks] = useState({});
@@ -215,10 +250,11 @@ const ReportsPage = () => {
   const [hideNotTracked, setHideNotTracked] = useState(false);
   const [remarksOnly, setRemarksOnly] = useState(false);
   const [exportScope, setExportScope] = useState('all');
-  const [activeSection, setActiveSection] = useState('overview');
   const [drawer, setDrawer] = useState(null);
   const [generalNote, setGeneralNote] = useState('');
   const [generalNoteStatus, setGeneralNoteStatus] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState(null);
   const timers = useRef({});
   const remarkValuesRef = useRef({});
   const reportRequestIdRef = useRef(0);
@@ -302,7 +338,7 @@ const ReportsPage = () => {
     if (periodError) return undefined;
     let active = true;
     api.get('/reports/fhsis/remarks', { params: { reportPeriod: periodKey } })
-      .then(async (response) => {
+      .then((response) => {
         if (!response.data?.success || !Array.isArray(response.data.data)) throw new Error('The report remarks service returned incomplete data.');
         if (!active) return;
         const serverRemarks = response.data.data.reduce((accumulator, item) => {
@@ -314,19 +350,9 @@ const ReportsPage = () => {
           };
           return accumulator;
         }, {});
-        const pending = await getPendingOperations();
-        if (!active) return;
-        const queuedRemarks = pending
-          .filter((item) => item.request?.url === '/reports/fhsis/remarks' && item.request?.data?.reportPeriod === periodKey)
-          .reduce((accumulator, item) => {
-            const key = item.request?.data?.indicatorKey;
-            if (key) accumulator[key] = { remark: item.request.data.remark || '', status: 'queued' };
-            return accumulator;
-          }, {});
-        const restoredRemarks = { ...serverRemarks, ...queuedRemarks };
-        setRemarks(restoredRemarks);
-        Object.entries(restoredRemarks).forEach(([key, value]) => { remarkValuesRef.current[key] = value.remark; });
-        setGeneralNote(restoredRemarks.general?.remark || '');
+        setRemarks(serverRemarks);
+        Object.entries(serverRemarks).forEach(([key, value]) => { remarkValuesRef.current[key] = value.remark; });
+        setGeneralNote(serverRemarks.general?.remark || '');
       })
       .catch((loadError) => {
         if (active) {
@@ -335,7 +361,7 @@ const ReportsPage = () => {
         }
       });
     return () => { active = false; };
-  }, [periodKey, periodError]);
+  }, [periodKey, periodError, remarksRetry]);
 
   const tables = useMemo(() => buildReportTables(report), [report]);
   const allRows = useMemo(() => Object.entries(tables).flatMap(([key, sectionRows]) => (
@@ -356,23 +382,22 @@ const ReportsPage = () => {
     if (key === 'general') setGeneralNoteStatus('saving');
     api.put('/reports/fhsis/remarks', { reportPeriod: periodKey, indicatorKey: key, remark: value })
         .then((response) => {
-          const queued = Boolean(response.data?.offline || response.data?.queued);
           const saved = response.data?.data;
           setRemarks((current) => {
             const updated = {
               ...current,
               [key]: {
                 ...(current[key] || {}),
-                status: queued ? 'queued' : 'saved',
-                updatedBy: queued ? current[key]?.updatedBy : saved?.updated_by_name || user?.full_name || '',
-                updatedAt: queued ? current[key]?.updatedAt : saved?.updated_at ? formatDateTimeInTimeZone(saved.updated_at) : formatDateTimeInTimeZone(new Date()),
+                status: 'saved',
+                updatedBy: saved?.updated_by_name || user?.full_name || '',
+                updatedAt: saved?.updated_at ? formatDateTimeInTimeZone(saved.updated_at) : formatDateTimeInTimeZone(new Date()),
               },
             };
             pendingRef.current = Object.keys(timers.current).length > 0
-              || Object.values(updated).some((item) => ['queued', 'failed', 'saving'].includes(item.status));
+              || Object.values(updated).some((item) => ['failed', 'saving'].includes(item.status));
             return updated;
           });
-          if (key === 'general') setGeneralNoteStatus(queued ? 'queued' : 'saved');
+          if (key === 'general') setGeneralNoteStatus('saved');
         })
         .catch((saveError) => {
           setRemarks((current) => ({ ...current, [key]: { ...(current[key] || {}), status: 'failed' } }));
@@ -411,8 +436,7 @@ const ReportsPage = () => {
 
   useEffect(() => {
     const warnBeforeLeave = (event) => {
-      const hasQueuedRemarks = Object.values(remarks).some((item) => item.status === 'queued' || item.status === 'failed' || item.status === 'saving');
-      if (!pendingRef.current && !hasQueuedRemarks) return;
+      if (!pendingRef.current) return;
       event.preventDefault();
       event.returnValue = '';
     };
@@ -420,44 +444,15 @@ const ReportsPage = () => {
     return () => window.removeEventListener('beforeunload', warnBeforeLeave);
   }, [remarks]);
 
-  useEffect(() => {
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      if (visible) setActiveSection(visible.target.id.replace('fhsis-', ''));
-    }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
-    REPORT_SECTIONS.forEach(({ id }) => {
-      const section = document.getElementById(`fhsis-${id}`);
-      if (section) observer.observe(section);
-    });
-    return () => observer.disconnect();
-  }, [loading, error, report]);
-
-  useEffect(() => {
-    const handleSync = async () => {
-      const pending = await getPendingOperations();
-      const queuedRemarks = pending.filter((item) => item.request?.url === '/reports/fhsis/remarks');
-      const queuedKeys = new Set(queuedRemarks
-        .filter((item) => item.request?.data?.reportPeriod === periodKey)
-        .map((item) => item.request?.data?.indicatorKey));
-      setRemarks((current) => {
-        const updated = Object.fromEntries(Object.entries(current).map(([key, value]) => [
-          key,
-          value.status === 'queued' && !queuedKeys.has(key) ? { ...value, status: 'saved' } : value,
-        ]));
-        pendingRef.current = queuedRemarks.length > 0 || Object.keys(timers.current).length > 0
-          || Object.values(updated).some((item) => ['queued', 'failed', 'saving'].includes(item.status));
-        return updated;
-      });
-    };
-    window.addEventListener('healthsync:sync-complete', handleSync);
-    return () => window.removeEventListener('healthsync:sync-complete', handleSync);
-  }, [periodKey]);
-
+  const filterRows = useCallback((rows = []) => rows.filter((row) => (
+    (!hideNotTracked || row.tracked)
+    && (!remarksOnly || Boolean(remarks[row.key]?.remark?.trim()))
+  )), [hideNotTracked, remarks, remarksOnly]);
   const sectionRows = useMemo(() => ({
-    'child-care': remarksOnly ? tables['child-care']?.filter((row) => remarks[row.key]?.remark?.trim()) : tables['child-care'],
-    'maternal-care': remarksOnly ? tables['maternal-care']?.filter((row) => remarks[row.key]?.remark?.trim()) : tables['maternal-care'],
-    'senior-registry': remarksOnly ? tables['senior-registry']?.filter((row) => remarks[row.key]?.remark?.trim()) : tables['senior-registry'],
-  }), [remarks, remarksOnly, tables]);
+    'child-care': filterRows(tables['child-care']),
+    'maternal-care': filterRows(tables['maternal-care']),
+    'senior-registry': filterRows(tables['senior-registry']),
+  }), [filterRows, tables]);
 
   const openDrilldown = useCallback(async (row, sex, event) => {
     returnFocusRef.current = event?.currentTarget || document.activeElement;
@@ -534,52 +529,64 @@ const ReportsPage = () => {
     }
   }, [allRows, drawer, error, loading, openDrilldown, searchParams]);
 
-  const exportRows = useCallback((scope = exportScope) => {
-    const selected = REPORT_SECTIONS.filter(({ id }) => scope === 'all' || expanded[id]);
-    const lines = [['Section', 'Indicator', 'Male', 'Female', 'Total', 'Remarks', 'Period', 'Generated at']];
-    const generated = metadata.generatedAt || new Date().toISOString();
-    const addRow = (section, row) => lines.push([
-      section,
-      row.label,
-      row.tracked ? row.male : 'Not tracked',
-      row.tracked ? row.female : 'Not tracked',
-      row.tracked ? row.total : 'Not tracked',
-      remarks[row.key]?.remark || '',
-      periodLabel,
-      generated,
-    ]);
+  const exportRows = useCallback(async (scope = exportScope) => {
+    if (exporting) return;
+    setExporting(true);
+    setExportNotice(null);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    try {
+      const selected = REPORT_SECTIONS.filter(({ id }) => scope === 'all' || expanded[id]);
+      const lines = [['Section', 'Indicator', 'Male', 'Female', 'Total', 'Remarks', 'Period', 'Generated at']];
+      const generated = metadata.generatedAt || new Date().toISOString();
+      const addRow = (section, row) => lines.push([
+        section,
+        row.label,
+        row.tracked ? row.male : 'Not tracked',
+        row.tracked ? row.female : 'Not tracked',
+        row.tracked ? row.total : 'Not tracked',
+        remarks[row.key]?.remark || '',
+        periodLabel,
+        generated,
+      ]);
 
-    selected.forEach(({ id, title }) => {
-      if (id === 'overview') {
-        [
-          ['Total residents', summary.totalResidents],
-          ['New residents in period', summary.newResidents],
-          ['Active residents', summary.activeResidents],
-          ['Clinical records (legacy health_records)', summary.clinicalRecords],
-          ['Senior citizens registered', summary.seniorCitizens?.total],
-        ].forEach(([label, total]) => addRow(title, { key: `overview-${label}`, label, tracked: true, male: '', female: '', total: numericValue(total) }));
-        return;
-      }
-      if (id === 'nutrition') {
-        tables.nutrition?.forEach((table) => table.rows.forEach((row) => addRow(table.title, row)));
-      } else {
-        (tables[id] || []).forEach((row) => addRow(title, row));
-      }
-    });
-    if (remarks.general?.remark) addRow('General note', { key: 'general', label: 'General note', tracked: true, male: '', female: '', total: '', });
-    const csv = `\uFEFF${lines.map((line) => line.map(escapeCsvCell).join(',')).join('\r\n')}`;
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const areaName = [metadata.barangay, metadata.municipality].filter(Boolean).join('_').replace(/[^a-z0-9_-]+/gi, '_') || 'HealthSync';
-    const dateSuffix = period === 'month' ? (searchParams.get('month') || todayManila().slice(0, 7)) : `${range.from}_to_${range.to}`;
-    link.href = url;
-    link.download = `FHSIS_${areaName}_${dateSuffix}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }, [exportScope, expanded, metadata, period, periodLabel, range.from, range.to, remarks, searchParams, summary, tables]);
+      selected.forEach(({ id, title }) => {
+        if (id === 'overview') {
+          [
+            ['Total residents', summary.totalResidents],
+            ['New residents in period', summary.newResidents],
+            ['Active residents', summary.activeResidents],
+            ['Clinical records (legacy health_records)', summary.clinicalRecords],
+            ['Senior citizens registered', summary.seniorCitizens?.total],
+          ].forEach(([label, total]) => addRow(title, { key: `overview-${label}`, label, tracked: true, male: '', female: '', total: numericValue(total) }));
+          return;
+        }
+        if (id === 'nutrition') {
+          tables.nutrition?.forEach((table) => table.rows.forEach((row) => addRow(table.title, row)));
+        } else {
+          (tables[id] || []).forEach((row) => addRow(title, row));
+        }
+      });
+      if (remarks.general?.remark) addRow('General note', { key: 'general', label: 'General note', tracked: true, male: '', female: '', total: '' });
+      const csv = `\uFEFF${lines.map((line) => line.map(escapeCsvCell).join(',')).join('\r\n')}`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const areaName = [metadata.barangay, metadata.municipality].filter(Boolean).join('_').replace(/[^a-z0-9_-]+/gi, '_') || 'HealthSync';
+      const dateSuffix = period === 'month' ? (searchParams.get('month') || todayManila().slice(0, 7)) : `${range.from}_to_${range.to}`;
+      link.href = url;
+      link.download = `FHSIS_${areaName}_${dateSuffix}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setExportNotice({ type: 'success', message: 'CSV export completed.' });
+    } catch (exportError) {
+      console.error('Unable to export the FHSIS report.', exportError);
+      setExportNotice({ type: 'error', message: exportError.message || 'Unable to export the FHSIS report.' });
+    } finally {
+      setExporting(false);
+    }
+  }, [exportScope, exporting, expanded, metadata, period, periodLabel, range.from, range.to, remarks, searchParams, summary, tables]);
 
   const setPeriod = (value) => {
     const today = todayManila();
@@ -627,124 +634,202 @@ const ReportsPage = () => {
   };
 
   const onDrilldown = (row, sex) => (event) => openDrilldown(row, sex, event);
+  const clearFilters = () => {
+    setHideNotTracked(false);
+    setRemarksOnly(false);
+  };
+  const sectionIcons = {
+    overview: LayoutDashboard,
+    nutrition: HeartPulse,
+    'child-care': Baby,
+    'maternal-care': Stethoscope,
+    'senior-registry': Users,
+  };
 
   return (
-    <div className={`page-shell fhsis-report-page${hideNotTracked ? ' hide-not-tracked' : ''}${remarksOnly ? ' remarks-only' : ''}`} ref={reportRef}>
-      <header className="fhsis-report-header">
-        <div>
-          <nav className="fhsis-breadcrumb" aria-label="Breadcrumb"><span>Reports</span><span aria-hidden="true">/</span><span aria-current="page">FHSIS</span></nav>
-          <h1 className="page-title">FHSIS report</h1>
-          <p className="page-subtitle">A clear view of HealthSync indicators for the selected reporting period.</p>
-        </div>
-        <div className="fhsis-report-actions">
-          <label className="fhsis-export-scope">CSV includes
-            <select value={exportScope} onChange={(event) => setExportScope(event.target.value)} aria-label="CSV export sections">
-              <option value="all">All sections</option>
-              <option value="visible">Expanded sections</option>
-            </select>
-          </label>
-          <button type="button" className="fhsis-button-secondary" onClick={() => exportRows()} disabled={loading || Boolean(error) || !report}>Export CSV</button>
-        </div>
-      </header>
+    <div className="page-shell fhsis-report-page" ref={reportRef}>
+      {loading && report && !error && <div className="fhsis-top-progress" role="progressbar" aria-label="Refreshing report"><span /></div>}
+      <PageBanner
+        className="fhsis-page-banner"
+        icon={FileBarChart}
+        eyebrow={<nav className="fhsis-breadcrumb" aria-label="Breadcrumb"><span>Reports</span><span aria-hidden="true">/</span><span aria-current="page">FHSIS</span></nav>}
+        title="FHSIS Report"
+        subtitle="A clear view of HealthSync indicators for the selected reporting period."
+        actions={(
+          <div className="fhsis-report-actions">
+            <label className="fhsis-export-scope">
+              <FileText aria-hidden="true" />
+              <span>CSV includes</span>
+              <select value={exportScope} onChange={(event) => setExportScope(event.target.value)} aria-label="CSV includes">
+                <option value="all">All sections</option>
+                <option value="visible">Expanded sections</option>
+              </select>
+            </label>
+            <button type="button" className="fhsis-button-primary fhsis-export-button" onClick={() => exportRows()} disabled={loading || Boolean(error) || !report || exporting}>
+              {exporting ? <Loader2 aria-hidden="true" className="fhsis-spin" /> : <Download aria-hidden="true" />}
+              {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
+          </div>
+        )}
+      />
 
-      <div className="fhsis-controls-bar">
+      <section className="fhsis-controls-bar" aria-label="Report controls">
         <div className="fhsis-period-fields">
           <label>Reporting period
-            <select value={period} onChange={(event) => setPeriod(event.target.value)}>
-              <option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option><option value="custom">Custom range</option>
-            </select>
+            <span className="fhsis-control-input">
+              <Calendar aria-hidden="true" />
+              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+                <option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option><option value="custom">Custom range</option>
+              </select>
+            </span>
           </label>
           {period === 'month' && <label className="fhsis-period-value">Month
-            <input type="month" value={searchParams.get('month') || todayManila().slice(0, 7)} max={todayManila().slice(0, 7)} onChange={(event) => updateParams({ month: event.target.value })} />
+            <span className="fhsis-control-input">
+              <CalendarDays aria-hidden="true" />
+              <input type="month" value={searchParams.get('month') || todayManila().slice(0, 7)} max={todayManila().slice(0, 7)} onChange={(event) => updateParams({ month: event.target.value })} />
+            </span>
           </label>}
           {period === 'quarter' && <label className="fhsis-period-value">Quarter
-            <select value={searchParams.get('quarter') || String(Math.floor((Number(todayManila().slice(5, 7)) - 1) / 3) + 1)} onChange={(event) => updateParams({ quarter: event.target.value })}>
-              <option value="1">Q1</option><option value="2">Q2</option><option value="3">Q3</option><option value="4">Q4</option>
-            </select>
+            <span className="fhsis-control-input">
+              <CalendarDays aria-hidden="true" />
+              <select value={searchParams.get('quarter') || String(Math.floor((Number(todayManila().slice(5, 7)) - 1) / 3) + 1)} onChange={(event) => updateParams({ quarter: event.target.value })}>
+                <option value="1">Q1</option><option value="2">Q2</option><option value="3">Q3</option><option value="4">Q4</option>
+              </select>
+            </span>
           </label>}
           {['quarter', 'year'].includes(period) && <label className="fhsis-period-value">Year
-            <input type="number" min="2000" max={todayManila().slice(0, 4)} value={searchParams.get('year') || todayManila().slice(0, 4)} onChange={(event) => updateParams({ year: event.target.value })} />
+            <span className="fhsis-control-input">
+              <CalendarDays aria-hidden="true" />
+              <input type="number" min="2000" max={todayManila().slice(0, 4)} value={searchParams.get('year') || todayManila().slice(0, 4)} onChange={(event) => updateParams({ year: event.target.value })} />
+            </span>
           </label>}
           {period === 'custom' && <>
             <label className="fhsis-period-value">From
-              <input type="date" value={searchParams.get('from') || range.from} max={todayManila()} onChange={(event) => updateParams({ from: event.target.value })} />
+              <span className="fhsis-control-input">
+                <CalendarDays aria-hidden="true" />
+                <input type="date" value={searchParams.get('from') || range.from} max={todayManila()} onChange={(event) => updateParams({ from: event.target.value })} />
+              </span>
             </label>
             <label className="fhsis-period-value">To
-              <input type="date" value={searchParams.get('to') || range.to} min={range.from || undefined} max={todayManila()} onChange={(event) => updateParams({ to: event.target.value })} />
+              <span className="fhsis-control-input">
+                <CalendarDays aria-hidden="true" />
+                <input type="date" value={searchParams.get('to') || range.to} min={range.from || undefined} max={todayManila()} onChange={(event) => updateParams({ to: event.target.value })} />
+              </span>
             </label>
           </>}
         </div>
         <div className="fhsis-period-meta">
-          <span className="fhsis-locality">{municipality}</span>
-          <span>Generated {generatedAt || '—'}</span>
+          <span className={`fhsis-locality${municipality === 'Jurisdiction not configured' ? ' is-unconfigured' : ''}`}>
+            {municipality === 'Jurisdiction not configured'
+              ? <><MapPinOff aria-hidden="true" />{municipality}<Link to="/admin-settings">Set jurisdiction</Link></>
+              : <><MapPin aria-hidden="true" />{municipality}</>}
+          </span>
+          <span className="fhsis-generated"><Clock3 aria-hidden="true" />Generated <time dateTime={metadata.generatedAt || undefined}>{generatedAt || '—'}</time></span>
           <button type="button" className="fhsis-refresh" aria-label="Refresh report" title="Refresh report" onClick={() => setRetry((value) => value + 1)} disabled={loading}>
-            <span aria-hidden="true">↻</span>
+            <RefreshCw aria-hidden="true" className={loading ? 'fhsis-spin' : ''} />
           </button>
-          <span className="fhsis-period-help" title="New residents and records use the selected period. Residents, active residents, and registered seniors are point-in-time snapshots as of today.">ⓘ Period activity · registry snapshot</span>
+          <span className="fhsis-period-help"><Info aria-hidden="true" /><span>Period activity · registry snapshot</span><button type="button" title="New residents and records use the selected period. Residents, active residents, and registered seniors are point-in-time snapshots as of today." aria-label="About period activity and registry snapshot"><Info aria-hidden="true" /></button></span>
         </div>
+      </section>
+
+      <div className="fhsis-alert-stack">
+        {periodError && <AlertBanner type="warning" title="Choose a valid reporting range" message="From must be on or before To, and To cannot be in the future." />}
+        {error && <AlertBanner type="error" title="Report data could not be loaded" message={error.response?.data?.message || error.message || 'Unable to load FHSIS report data.'} onRetry={() => setRetry((value) => value + 1)} />}
+        {remarksError && <AlertBanner type="warning" title="Remarks couldn't be loaded" message={remarksError} onRetry={() => { setRemarksError(''); setRemarksRetry((value) => value + 1); }} onDismiss={() => setRemarksError('')} />}
+        {offlineNotice && <AlertBanner type="info" message={offlineNotice} />}
+        {reportIsStale && <AlertBanner type="warning" message="This report was generated more than 24 hours ago. Refresh before relying on it." />}
+        {exportNotice && <AlertBanner type={exportNotice.type} message={exportNotice.message} onDismiss={() => setExportNotice(null)} />}
       </div>
 
-      {periodError && <div className="fhsis-inline-error" role="alert">Choose a valid range. From must be on or before To, and To cannot be in the future.</div>}
-      {error && <StatusBanner error={error} retry={() => setRetry((value) => value + 1)} />}
-      {remarksError && <div className="fhsis-inline-error" role="alert">{remarksError}</div>}
-      {offlineNotice && <div className="fhsis-offline-notice" role="status">{offlineNotice}</div>}
-      {reportIsStale && <div className="fhsis-offline-notice" role="status">This report was generated more than 24 hours ago. Refresh before relying on it.</div>}
-      {loading && <ReportLoading />}
+      {loading && !report && <ReportLoading />}
+      {!loading && !error && !report && !periodError && <div className="fhsis-empty-state"><h2>No report data</h2><p>No indicators are available for this reporting period.</p><button type="button" className="fhsis-button-secondary" onClick={() => setRetry((value) => value + 1)}><RefreshCw aria-hidden="true" /> Retry</button></div>}
 
-      {!loading && !error && report && (
+      {report && !error && !periodError && (
         <>
-          <DataQualitySummary tracked={trackedCount} total={allRows.length} hideNotTracked={hideNotTracked} onHideNotTracked={setHideNotTracked} remarksOnly={remarksOnly} onRemarksOnly={setRemarksOnly} />
+          <DataQualitySummary
+            tracked={trackedCount}
+            total={allRows.length}
+            hideNotTracked={hideNotTracked}
+            onHideNotTracked={setHideNotTracked}
+            remarksOnly={remarksOnly}
+            onRemarksOnly={setRemarksOnly}
+          />
           <div className="fhsis-layout">
-            <nav className="fhsis-section-nav" aria-label="Report sections">
-              {REPORT_SECTIONS.map((section) => <button key={section.id} type="button" className={activeSection === section.id ? 'is-active' : ''} onClick={() => document.getElementById(`fhsis-${section.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{section.title}</button>)}
-              <div className="fhsis-expand-controls"><button type="button" onClick={() => setExpanded(Object.fromEntries(REPORT_SECTIONS.map(({ id }) => [id, true])))}>Expand all</button><button type="button" onClick={() => setExpanded(Object.fromEntries(REPORT_SECTIONS.map(({ id }) => [id, false])))}>Collapse all</button></div>
-            </nav>
+            <div className="fhsis-section-actions" aria-label="Section controls">
+              <button type="button" onClick={() => setExpanded(Object.fromEntries(REPORT_SECTIONS.map(({ id }) => [id, true])))}>
+                <ChevronsUpDown aria-hidden="true" />Expand all
+              </button>
+              <button type="button" onClick={() => setExpanded(Object.fromEntries(REPORT_SECTIONS.map(({ id }) => [id, false])))}>
+                <ChevronsDownUp aria-hidden="true" />Collapse all
+              </button>
+            </div>
             <main className="fhsis-sections">
               {REPORT_SECTIONS.map((section) => {
                 const counts = sectionCount(section.id);
+                const SectionIcon = sectionIcons[section.id];
                 return (
                   <ReportSection
                     key={section.id}
                     section={section}
+                    Icon={SectionIcon}
                     trackedCount={counts.tracked}
                     totalCount={counts.total}
                     expanded={Boolean(expanded[section.id])}
                     onToggle={() => setExpanded((current) => ({ ...current, [section.id]: !current[section.id] }))}
                   >
                     {section.id === 'overview' ? (
-                      <div className="fhsis-summary-grid">
-                        {[
-                          { label: 'Total residents', value: summary.totalResidents, detail: 'Registered residents · all statuses', key: 'resident-total' },
-                          { label: 'New residents', value: summary.newResidents, detail: 'Created during this period', key: 'resident-new' },
-                          { label: 'Active residents', value: summary.activeResidents, detail: 'Active status · snapshot today', key: 'resident-active' },
-                          { label: 'Clinical records', value: summary.clinicalRecords, detail: 'Legacy health_records only · period-based', key: 'clinical-records' },
-                          { label: 'Registered senior residents', value: summary.seniorCitizens?.total, detail: 'Senior Registry entries · snapshot today', key: 'seniorRegistered' },
-                        ].map((card) => {
-                          const values = card.key === 'resident-total' ? summary.residentSex
-                            : card.key === 'resident-active' ? summary.activeSex
-                              : card.key === 'seniorRegistered' ? summary.seniorCitizens : {};
-                          const row = { key: card.key, label: card.label, male: values?.male || 0, female: values?.female || 0, total: numericValue(card.value), tracked: true };
-                          return <button type="button" className="fhsis-summary-card" key={card.key} onClick={onDrilldown(row, 'total')} disabled={!numericValue(card.value)}>
-                            <span>{card.label}</span>
-                            <strong>{numericValue(card.value).toLocaleString()}</strong>
-                            <small>{card.detail}</small>
-                            {['resident-total', 'resident-active', 'seniorRegistered'].includes(card.key) && <span className="fhsis-split-bar" role="img" aria-label={`${values?.male || 0} male and ${values?.female || 0} female`}>
-                              <i style={{ '--split': `${(numericValue(values?.male) / Math.max(1, numericValue(values?.male) + numericValue(values?.female))) * 100}%` }} />
-                              <span>Male {numericValue(values?.male)} · Female {numericValue(values?.female)}</span>
-                            </span>}
-                          </button>;
-                        })}
-                        <div className="fhsis-definition-note"><strong>Reporting basis</strong><span>Period-based: new residents, clinical records, nutrition, child, maternal and immunization records. Point-in-time: total residents, active residents and registered senior residents.</span></div>
-                      </div>
+                      <>
+                        <div className="fhsis-summary-grid">
+                          {[
+                            { label: 'Total residents', value: summary.totalResidents, detail: 'Registered residents · all statuses', key: 'resident-total', Icon: Users },
+                            { label: 'New residents', value: summary.newResidents, detail: 'Created during this period', key: 'resident-new', Icon: UserPlus },
+                            { label: 'Active residents', value: summary.activeResidents, detail: 'Active status · snapshot today', key: 'resident-active', Icon: UserCheck },
+                            { label: 'Clinical records', value: summary.clinicalRecords, detail: 'Legacy health_records only · period-based', key: 'clinical-records', Icon: ClipboardList },
+                            { label: 'Registered senior residents', value: summary.seniorCitizens?.total, detail: 'Senior Registry entries · snapshot today', key: 'seniorRegistered', Icon: HeartHandshake },
+                          ].map((card) => {
+                            const values = card.key === 'resident-total' ? summary.residentSex
+                              : card.key === 'resident-active' ? summary.activeSex
+                                : card.key === 'seniorRegistered' ? summary.seniorCitizens : {};
+                            const male = numericValue(values?.male);
+                            const female = numericValue(values?.female);
+                            const denominator = male + female;
+                            const row = { key: card.key, label: card.label, male, female, total: numericValue(card.value), tracked: true };
+                            const hasSplit = ['resident-total', 'resident-active', 'seniorRegistered'].includes(card.key);
+                            return (
+                              <button type="button" className="fhsis-summary-card" key={card.key} onClick={onDrilldown(row, 'total')} disabled={!numericValue(card.value)}>
+                                <span className="fhsis-summary-icon" aria-hidden="true"><card.Icon /></span>
+                                <span className="fhsis-summary-label">{card.label}</span>
+                                <strong>{numberFormat.format(numericValue(card.value))}</strong>
+                                <small>{card.detail}</small>
+                                {hasSplit ? <span className="fhsis-gender-split" role="img" aria-label={`Male ${numberFormat.format(male)}, Female ${numberFormat.format(female)}`}>
+                                  <span className="fhsis-gender-bar">
+                                    <i className="is-male" style={{ width: `${denominator ? (male / denominator) * 100 : 0}%` }} />
+                                    <i className="is-female" style={{ width: `${denominator ? (female / denominator) * 100 : 0}%` }} />
+                                  </span>
+                                  <span className="fhsis-gender-legend">Male {numberFormat.format(male)} · Female {numberFormat.format(female)}</span>
+                                </span> : <span className="fhsis-gender-split-spacer" aria-hidden="true" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="fhsis-definition-note"><Info aria-hidden="true" /><strong>Reporting basis</strong><span>Period-based: new residents, clinical records, nutrition, child, maternal and immunization records. Point-in-time: total residents, active residents and registered senior residents.</span></div>
+                      </>
                     ) : section.id === 'nutrition' ? (
                       <div className="fhsis-nutrition-grid">
-                        {(tables.nutrition || []).map((table) => {
-                          const rows = table.rows.filter((row) => !remarksOnly || remarks[row.key]?.remark?.trim());
-                          return <article className="fhsis-table-card" key={table.key}>
-                            <h3>{table.title}</h3>
-                            <IndicatorTable title={table.title} rows={rows} remarks={remarks} onRemarkChange={setRemarkValue} onRemarkSave={saveRemarkNow} canEdit={canEdit} hideNotTracked={hideNotTracked} onDrilldown={onDrilldown} />
-                          </article>;
-                        })}
+                        {(tables.nutrition || []).map((table) => (
+                          <NutritionPiePanel
+                            key={table.key}
+                            table={table}
+                            displayRows={filterRows(table.rows)}
+                            remarks={remarks}
+                            onRemarkChange={setRemarkValue}
+                            onRemarkSave={saveRemarkNow}
+                            canEdit={canEdit}
+                            onDrilldown={onDrilldown}
+                            filtersActive={hideNotTracked || remarksOnly}
+                            onClearFilters={clearFilters}
+                          />
+                        ))}
                       </div>
                     ) : (
                       <IndicatorTable
@@ -754,28 +839,30 @@ const ReportsPage = () => {
                         onRemarkChange={setRemarkValue}
                         onRemarkSave={saveRemarkNow}
                         canEdit={canEdit}
-                        hideNotTracked={hideNotTracked}
                         onDrilldown={onDrilldown}
+                        filtersActive={hideNotTracked || remarksOnly}
+                        onClearFilters={clearFilters}
                       />
                     )}
                   </ReportSection>
                 );
               })}
-                  <section className="fhsis-general-note">
-                <label htmlFor="fhsis-general-note">Add a general note for this report</label>
-                <textarea id="fhsis-general-note" value={generalNote} maxLength={REMARK_LIMIT} onChange={(event) => { setGeneralNote(event.target.value); setRemarkValue('general', event.target.value); }} onBlur={() => saveRemarkNow('general')} placeholder={canEdit ? 'Add note...' : 'No note'} readOnly={!canEdit} />
-                    <span aria-live="polite">{generalNoteStatus === 'saving' ? 'Saving…' : generalNoteStatus === 'failed' ? <button type="button" onClick={() => saveRemarkNow('general')}>Failed - retry</button> : generalNoteStatus === 'queued' ? 'Saved offline · queued' : generalNoteStatus === 'saved' ? 'Saved' : ''}</span>
-              </section>
-              <footer className="fhsis-report-signature">
-                <div><span>Prepared by</span><strong>{user?.full_name || '____________________________'}</strong><small>{user?.role || 'Health worker'}</small></div>
-                <div><span>Noted by / Approved by</span><strong>____________________________</strong><small>Municipal health officer</small></div>
-              </footer>
-              <p className="fhsis-report-footnote">“Not tracked” means the current HealthSync data model does not capture the indicator. A displayed zero is a count of matching recorded fields in the selected period, not an estimate of people without services.</p>
             </main>
+          </div>
+          <section className="fhsis-general-note" aria-labelledby="fhsis-general-note-title">
+            <div className="fhsis-general-note-heading"><span className="fhsis-note-icon" aria-hidden="true"><MessageSquareText /></span><div><h2 id="fhsis-general-note-title">General note</h2><p>Add context for this reporting period.</p></div></div>
+            <textarea id="fhsis-general-note" aria-label="General note" value={generalNote} maxLength={REMARK_LIMIT} onChange={(event) => { setGeneralNote(event.target.value); setRemarkValue('general', event.target.value); }} onBlur={() => saveRemarkNow('general')} placeholder={canEdit ? 'Add a note about this report' : 'No note'} readOnly={!canEdit} />
+            <div className="fhsis-general-note-footer"><span>{generalNote.length}/{REMARK_LIMIT}</span><SaveState status={generalNoteStatus} onRetry={() => saveRemarkNow('general')} /></div>
+          </section>
+          <div className="fhsis-report-end">
+            <footer className="fhsis-report-signature">
+              <div className="fhsis-signature-cell"><span>Prepared by</span><i className="fhsis-signature-line" aria-hidden="true" /><strong>{user?.full_name || ''}</strong><small>{user?.role || 'Health worker'}</small><small className="fhsis-signature-caption">Signature over printed name</small></div>
+              <div className="fhsis-signature-cell"><span>Noted by / Approved by</span><i className="fhsis-signature-line" aria-hidden="true" /><strong aria-label="Name not provided" /><small>Municipal health officer</small><small className="fhsis-signature-caption">Signature over printed name</small></div>
+            </footer>
+            <p className="fhsis-report-footnote"><Info aria-hidden="true" /><span>“Not tracked” means the current HealthSync data model does not capture the indicator. A displayed zero is a count of matching recorded fields in the selected period, not an estimate of people without services.</span></p>
           </div>
         </>
       )}
-      {!loading && !error && !report && !periodError && <div className="fhsis-empty-state"><h2>No report data</h2><p>No indicators are available for this reporting period.</p></div>}
       <div className="fhsis-print-header">
         <p>{municipality}</p><h1>Family Health Services Information System (FHSIS) Report</h1>
         <p>Reporting period: {periodLabel} · Generated: {generatedAt || '—'} · Prepared by: {user?.full_name || 'HealthSync user'}</p>

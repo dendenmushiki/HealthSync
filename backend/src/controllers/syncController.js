@@ -4,6 +4,8 @@ const {
   findIdempotency,
   markIdempotencyRejected,
   ensureIdempotencyTable,
+  getPrimaryKeyColumn,
+  validateTableName,
 } = require('../services/syncService');
 const pool = require('../config/database');
 const logger = require('../services/logger');
@@ -34,6 +36,7 @@ const handleSync = async (req, res) => {
     if (!operation || !table) return res.status(400).json({ success: false, message: 'Invalid sync payload' });
 
     const userId = req.user?.user_id;
+    const offlineSync = String(req.get('X-HealthSync-Offline-Sync') || '').toLowerCase() === 'true';
     const requestFingerprint = getRequestFingerprint({ operation, module, table, payload });
     idempotencyContext = { key: idempotencyKey, ownerId: userId, requestFingerprint };
     const cachedResponse = (record) => {
@@ -84,6 +87,7 @@ const handleSync = async (req, res) => {
       ip,
       userAgent,
       requestFingerprint,
+      offlineSync,
     });
     if (result.fromCache) {
       return cachedResponse(result.record);
@@ -118,10 +122,15 @@ const handleSync = async (req, res) => {
 
 const listSyncActivity = async (req, res) => {
   try {
+    const scope = String(req.query.scope || 'all').toLowerCase();
+    if (!['mine', 'all'].includes(scope)) {
+      return res.status(400).json({ success: false, message: 'Invalid synced history account filter.' });
+    }
     await ensureIdempotencyTable();
     const [items] = await pool.query(`
-      SELECT idempotency.table_name, idempotency.operation,
+      SELECT idempotency.id AS sync_activity_id, idempotency.table_name, idempotency.operation,
         idempotency.server_record_id, idempotency.created_at,
+        users.user_id AS actor_id,
         users.full_name AS actor_name
       FROM sync_idempotency AS idempotency
       JOIN users ON users.user_id = CAST(
@@ -129,11 +138,13 @@ const listSyncActivity = async (req, res) => {
       )
       WHERE idempotency.status = 'SUCCESS'
         AND JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.outcome')) = 'SUCCESS'
+        AND JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.offlineSync')) = 'true'
         AND idempotency.server_record_id IS NOT NULL
         AND LOWER(users.role) = 'bhw'
+        ${scope === 'mine' ? 'AND users.user_id = ?' : ''}
       ORDER BY idempotency.created_at DESC
       LIMIT 50
-    `);
+    `, scope === 'mine' ? [req.user.user_id] : []);
     return res.json({ success: true, data: { items } });
   } catch (error) {
     logger.error('Could not load shared sync activity', {
@@ -143,4 +154,65 @@ const listSyncActivity = async (req, res) => {
   }
 };
 
-module.exports = { handleSync, listSyncActivity };
+const getSyncActivityDetails = async (req, res) => {
+  try {
+    if (!/^\d+$/.test(String(req.params.id))) {
+      return res.status(400).json({ success: false, message: 'Invalid synced activity ID.' });
+    }
+
+    await ensureIdempotencyTable();
+    const [activityRows] = await pool.query(`
+      SELECT idempotency.id AS sync_activity_id, idempotency.table_name,
+        idempotency.operation, idempotency.server_record_id, idempotency.created_at,
+        users.user_id AS actor_id, users.full_name AS actor_name
+      FROM sync_idempotency AS idempotency
+      JOIN users ON users.user_id = CAST(
+        JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.ownerId')) AS UNSIGNED
+      )
+      WHERE idempotency.id = ?
+        AND idempotency.status = 'SUCCESS'
+        AND JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.outcome')) = 'SUCCESS'
+        AND JSON_UNQUOTE(JSON_EXTRACT(idempotency.response, '$.offlineSync')) = 'true'
+        AND idempotency.server_record_id IS NOT NULL
+        AND LOWER(users.role) = 'bhw'
+      LIMIT 1
+    `, [req.params.id]);
+
+    if (!activityRows.length) {
+      return res.status(404).json({ success: false, message: 'Synced activity was not found.' });
+    }
+
+    const activity = activityRows[0];
+    if (!validateTableName(activity.table_name)) {
+      return res.status(404).json({ success: false, message: 'Synced record details are unavailable.' });
+    }
+
+    const primaryKey = await getPrimaryKeyColumn(activity.table_name);
+    if (!primaryKey || !/^[a-zA-Z0-9_]+$/.test(primaryKey)) {
+      logger.error('Could not resolve the primary key for a synced record', {
+        table: activity.table_name,
+        errorCode: 'SYNC_ACTIVITY_PRIMARY_KEY_UNAVAILABLE',
+      });
+      return res.status(500).json({ success: false, message: 'Synced record details are unavailable.' });
+    }
+
+    const [recordRows] = await pool.query(
+      `SELECT * FROM \`${activity.table_name}\` WHERE \`${primaryKey}\` = ? LIMIT 1`,
+      [activity.server_record_id]
+    );
+    return res.json({
+      success: true,
+      data: {
+        ...activity,
+        record_details: recordRows[0] || null,
+      },
+    });
+  } catch (error) {
+    logger.error('Could not load synced record details', {
+      errorCode: error?.code || 'SYNC_ACTIVITY_DETAILS_LOAD_FAILED',
+    });
+    return res.status(500).json({ success: false, message: 'Synced record details are unavailable.' });
+  }
+};
+
+module.exports = { handleSync, listSyncActivity, getSyncActivityDetails };

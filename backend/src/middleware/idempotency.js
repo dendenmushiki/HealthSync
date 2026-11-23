@@ -104,6 +104,7 @@ function createIdempotencyMiddleware(moduleName, tableName, { atomic = false } =
         ownerId,
         requestFingerprint,
         outcome: 'PENDING',
+        offlineSync: String(req.get('X-HealthSync-Offline-Sync') || '').toLowerCase() === 'true',
       };
       if (atomic) {
         const connection = await pool.getConnection();
@@ -232,7 +233,12 @@ function createIdempotencyMiddleware(moduleName, tableName, { atomic = false } =
         responseRecorded = true;
         const statusCode = Number(res.statusCode) || 200;
         const outcome = statusCode >= 500 ? 'UNKNOWN' : statusCode >= 400 ? 'REJECTED' : 'SUCCESS';
-        const metadata = { ownerId, requestFingerprint, outcome };
+        const metadata = {
+          ownerId,
+          requestFingerprint,
+          outcome,
+          offlineSync: pendingMetadata.offlineSync,
+        };
         const serverRecordId = outcome === 'SUCCESS' ? getResponseRecordId(body, req) : null;
         const status = outcome === 'UNKNOWN' ? 'PENDING' : outcome;
         return pool.query(

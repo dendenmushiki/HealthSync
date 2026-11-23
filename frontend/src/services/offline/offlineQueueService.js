@@ -13,6 +13,20 @@ import { getOfflineSession } from './offlineSessionService';
 
 const STALE_SYNC_MS = 2 * 60 * 1000;
 
+export const SYNCABLE_QUEUE_TABLES = new Set([
+  'residents',
+  'health_records',
+  'child_health_records',
+  'operation_timbang',
+  'adolescent_bmi_records',
+  'adult_bmi_records',
+  'senior_citizen_records',
+  'patient_clinical_records',
+  'child_records',
+  'maternal_records',
+  'immunization_records',
+]);
+
 function getStoredUser() {
   try {
     return JSON.parse(localStorage.getItem('hs_user') || 'null');

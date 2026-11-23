@@ -142,7 +142,7 @@ function installAtomicMiddlewareWithDatabaseStub({ commitFailure = null } = {}) 
   return { bmiRecords };
 }
 
-function createRequestResponse({ key, userId = 7 } = {}) {
+function createRequestResponse({ key, userId = 7, offlineSync = false } = {}) {
   const req = {
     method: 'POST',
     baseUrl: '/api/residents',
@@ -150,7 +150,11 @@ function createRequestResponse({ key, userId = 7 } = {}) {
     body: { first_name: 'Test' },
     params: {},
     user: { user_id: userId },
-    get: (name) => (name.toLowerCase() === 'x-idempotency-key' ? key : undefined),
+    get: (name) => {
+      if (name.toLowerCase() === 'x-idempotency-key') return key;
+      if (name.toLowerCase() === 'x-healthsync-offline-sync') return offlineSync ? 'true' : undefined;
+      return undefined;
+    },
   };
   const res = {
     statusCode: 200,
@@ -187,8 +191,27 @@ test('caches successful responses by account and request fingerprint', async () 
   assert.equal(firstNextCalled, true);
   assert.equal(records.get(key).status, 'SUCCESS');
   assert.equal(records.get(key).server_record_id, 42);
+  assert.equal(records.get(key).response.offlineSync, false);
   assert.equal(replayNextCalled, false);
   assert.deepEqual(replay.res.body, { success: true, data: { serverRecordId: 42, cached: true } });
+});
+
+test('marks requests replayed from the offline queue in their idempotency metadata', async () => {
+  installMiddlewareWithDatabaseStub();
+  const key = '123e4567-e89b-42d3-a456-426614174000';
+  const response = createRequestResponse({ key, offlineSync: true });
+  let handlerResponse;
+  await createIdempotencyMiddleware('residents', 'residents')(
+    response.req,
+    response.res,
+    () => {
+      handlerResponse = response.res.status(201).json({ success: true, data: { resident_id: 42 } });
+    }
+  );
+  await handlerResponse;
+
+  assert.equal(records.get(key).status, 'SUCCESS');
+  assert.equal(records.get(key).response.offlineSync, true);
 });
 
 test('does not report success when the idempotency result cannot be persisted', async () => {
