@@ -3,10 +3,10 @@
   align-items: flex-start;
   gap: 0.65rem;
   padding: 0.7rem 0.85rem;
-  border: 1px solid #8a5a00;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
   border-radius: 0.65rem;
-  background: #fff3cd;
-  color: #382600;
+  background: var(--warning-soft);
+  color: var(--text);
   font-size: 0.8rem;
   line-height: 1.45;
 }
@@ -16,11 +16,7 @@
   height: 1.15rem;
   flex: 0 0 auto;
   margin-top: 0.08rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  color: var(--warning);
 }
 
 .hs-status-banner-copy {
@@ -38,7 +34,7 @@
 
 .hs-status-banner-details > button,
 .hs-status-banner-retry {
-  min-height: 1.8rem;
+  min-height: 44px;
   padding: 0.25rem 0.5rem;
   border: 1px solid currentColor;
   border-radius: 0.4rem;
@@ -50,8 +46,8 @@
 }
 
 .hs-status-banner-details > button {
-  min-height: auto;
-  padding: 0;
+  min-height: 44px;
+  padding: 0 0.25rem;
   border: 0;
   text-decoration: underline;
 }
@@ -89,12 +85,6 @@
   font-size: 0.75rem;
 }
 
-html[data-theme='dark'] .hs-status-banner {
-  border-color: #dfb64d;
-  background: #332b18;
-  color: #fff0bf;
-}
-
 @keyframes hs-status-spin {
   to { transform: rotate(360deg); }
 }
@@ -105,6 +95,6 @@ html[data-theme='dark'] .hs-status-banner {
   }
 
   .hs-status-banner-retry {
-    margin-left: 1.8rem;
+    margin-left: 0;
   }
 }

@@ -1,14 +1,10 @@
 import React, { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { getFriendlyError, getTechnicalErrorDetails } from '../../utils/apiErrorMessages';
 import './StatusBanner.css';
 
 function StatusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 3.5 2.8 20h18.4L12 3.5Z" />
-      <path d="M12 9v5m0 3h.01" />
-    </svg>
-  );
+  return <AlertTriangle size={18} aria-hidden="true" focusable="false" />;
 }
 
 export default function StatusBanner({

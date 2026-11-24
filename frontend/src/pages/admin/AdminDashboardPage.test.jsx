@@ -24,10 +24,10 @@ const makeSummary = (data = {}) => ({
   ...data,
 });
 
-function renderDashboard() {
+function renderDashboard(onInitialLoad) {
   return render(
     <MemoryRouter>
-      <AdminDashboardPage />
+      <AdminDashboardPage onInitialLoad={onInitialLoad} />
     </MemoryRouter>,
   );
 }
@@ -46,6 +46,13 @@ beforeEach(() => {
       created_at: '2026-11-24T00:00:00Z',
     }],
   });
+});
+
+test('reports administrator dashboard readiness after the summary is loaded', async () => {
+  const onInitialLoad = jest.fn();
+  renderDashboard(onInitialLoad);
+
+  await waitFor(() => expect(onInitialLoad).toHaveBeenCalledWith(null));
 });
 
 test('renders a dynamic role pie, role-filter links, and role labels consistently', async () => {

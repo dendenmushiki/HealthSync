@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
 import { AppContent } from './App.jsx';
@@ -266,6 +266,50 @@ test('explains missing local authorization without showing a PIN form offline', 
   expect(screen.queryByLabelText('PIN digit 1 of 6')).not.toBeInTheDocument();
   localStorage.clear();
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: previousOnLine });
+});
+
+test('keeps content inert while the navigation drawer is open and exposes account actions', () => {
+  localStorage.clear();
+  render(
+    <AuthContext.Provider value={{
+      user: { ...bhwUser, username: 'mina' },
+      loading: false,
+      offlineVaultReady: true,
+      offlineVaultNeedsUnlock: false,
+      offlineVaultMigrationRequired: false,
+      offlineVaultError: null,
+      sessionCleanupError: null,
+      updateUser: jest.fn(),
+      unlockOfflineAccess: jest.fn(),
+      logout: jest.fn(),
+      lockOfflineAccess: jest.fn(),
+      lockForAccountSwitch: jest.fn(),
+    }}>
+      <MemoryRouter initialEntries={['/not-authorized']}>
+        <AppContent />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  const navigationButton = screen.getByRole('button', { name: 'Open navigation menu' });
+  fireEvent.click(navigationButton);
+  expect(navigationButton).toHaveAttribute('aria-expanded', 'true');
+  expect(document.getElementById('healthsync-content')).toHaveAttribute('inert');
+
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(navigationButton).toHaveAttribute('aria-expanded', 'false');
+  expect(document.getElementById('healthsync-content')).not.toHaveAttribute('inert');
+  expect(document.activeElement).toBe(navigationButton);
+
+  const accountButton = screen.getByRole('button', { name: 'Account options for mina' });
+  fireEvent.click(accountButton);
+  const accountDialog = screen.getByRole('dialog', { name: 'Account options' });
+  expect(within(accountDialog).getByText('bhw')).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(accountButton).toHaveAttribute('aria-expanded', 'false');
+  expect(document.activeElement).toBe(accountButton);
+  localStorage.clear();
 });
 
 test('renders actual dashboard summary metrics and method-specific charts', async () => {

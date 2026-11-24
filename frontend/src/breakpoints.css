@@ -1,0 +1,7 @@
+@custom-media --phone-small (min-width: 320px) and (max-width: 359px);
+@custom-media --phone (min-width: 360px) and (max-width: 479px);
+@custom-media --large-phone (min-width: 480px) and (max-width: 639px);
+@custom-media --tablet-portrait (min-width: 640px) and (max-width: 1023px);
+@custom-media --desktop (min-width: 1024px) and (max-width: 1279px);
+@custom-media --wide (min-width: 1280px);
+@custom-media --touch-input-width (max-width: 767px);

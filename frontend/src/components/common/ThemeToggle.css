@@ -1,0 +1,44 @@
+.theme-toggle {
+  position: relative;
+  display: inline-grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease);
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+  color: var(--accent);
+}
+
+.theme-toggle:focus-within {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.theme-toggle select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.theme-toggle--standalone {
+  position: fixed;
+  z-index: var(--z-header);
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--card-shadow);
+}

@@ -23,6 +23,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "check:colors": "node scripts/check-colors.js",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

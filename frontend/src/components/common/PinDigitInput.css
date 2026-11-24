@@ -19,10 +19,10 @@
   width: 100%;
   min-width: 40px;
   height: 48px;
-  border: 1px solid var(--hs-border, #dfe8ed);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--auth-input, var(--hs-background, #f3f7fa));
-  color: var(--hs-text, #203747);
+  background: var(--auth-input, var(--input-bg));
+  color: var(--text);
   font: inherit;
   font-size: 1.3rem;
   font-weight: 700;
@@ -31,18 +31,18 @@
 }
 
 .hs-pin-digit.is-filled {
-  border-color: var(--auth-primary, var(--hs-primary, #1769aa));
-  background: var(--auth-primary-soft, var(--hs-surface, #fff));
+  border-color: var(--auth-primary, var(--accent));
+  background: var(--auth-primary-soft, var(--teal-50));
 }
 
 .hs-pin-digit:focus-visible,
 .hs-pin-visibility:focus-visible {
-  outline: 3px solid var(--hs-primary, #1769aa);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .hs-pin-entry.has-error .hs-pin-digit {
-  border-color: var(--hs-danger, #a83232);
+  border-color: var(--danger);
   animation: hs-pin-shake .28s ease-in-out;
 }
 
@@ -60,7 +60,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--auth-primary, var(--hs-primary, #1769aa));
+  color: var(--auth-primary, var(--accent));
   font: inherit;
   font-weight: 600;
   cursor: pointer;
@@ -73,7 +73,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: var(--auth-text, var(--hs-text, #203747));
+  color: var(--auth-text, var(--text));
   font-size: 13px;
   font-weight: 650;
 }
@@ -85,7 +85,7 @@
 
 .hs-pin-strength {
   margin: 0;
-  color: var(--hs-muted, #718592);
+  color: var(--text-muted);
   font-size: .75rem;
   line-height: 1.4;
   text-align: center;
@@ -102,13 +102,14 @@
     animation: none;
     transition: none;
   }
+}
 
-  @media (max-width: 420px) {
-    .hs-pin-digits { grid-template-columns: repeat(6, minmax(34px, 48px)); gap: 6px; }
-    .hs-pin-digit { min-width: 34px; }
-  }
-  @media (max-width: 340px) {
-    .hs-pin-digits { grid-template-columns: repeat(6, minmax(32px, 44px)); gap: 4px; }
-    .hs-pin-digit { min-width: 32px; }
-  }
+@media (max-width: 420px) {
+  .hs-pin-digits { grid-template-columns: repeat(6, minmax(34px, 48px)); gap: 6px; }
+  .hs-pin-digit { min-width: 34px; }
+}
+
+@media (max-width: 340px) {
+  .hs-pin-digits { grid-template-columns: repeat(6, minmax(32px, 44px)); gap: 4px; }
+  .hs-pin-digit { min-width: 32px; }
 }

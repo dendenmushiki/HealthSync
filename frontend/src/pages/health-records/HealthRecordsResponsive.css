@@ -1,0 +1,733 @@
+#root .health-records-page,
+#root .health-record-detail-page {
+  --record-surface: var(--surface);
+  --record-background: var(--page-bg);
+  --record-text: var(--text);
+  --record-muted: var(--text-muted);
+  --record-border: var(--border);
+  --record-primary: var(--accent);
+  --record-focus: var(--focus-ring);
+  min-width: 0;
+  color: var(--text);
+}
+
+#root .health-records-page {
+  --hr-page: var(--page-bg);
+  --hr-surface: var(--surface);
+  --hr-raised: var(--surface-raised);
+  --hr-border: var(--border);
+  --hr-text: var(--text);
+  --hr-muted: var(--text-muted);
+  --hr-teal: var(--accent);
+  --hr-teal-hover: var(--primary-hover);
+  --hr-teal-tint: var(--accent-tint);
+  --hr-focus: var(--focus-color);
+  --hr-danger: var(--danger);
+  padding-inline: var(--space-4);
+}
+
+#root .health-records-page .health-records-banner {
+  border-color: var(--border);
+  background: linear-gradient(110deg, var(--surface) 0%, var(--accent-tint) 100%);
+  box-shadow: var(--card-shadow);
+}
+
+#root .health-records-page .health-records-banner::after {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--surface) 96%, transparent), color-mix(in srgb, var(--surface) 80%, transparent) 55%, transparent);
+}
+
+#root .health-records-page .health-records-banner .page-banner-heading h1 {
+  color: var(--text);
+}
+
+#root .health-records-page .health-records-banner .page-banner-heading p,
+#root .health-records-page .health-records-banner .page-banner-eyebrow {
+  color: var(--text-muted);
+}
+
+#root .health-records-page .health-records-banner .page-banner-icon {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-records-page .health-record-primary-button,
+#root .health-records-page .resident-picker-register-primary,
+#root .health-record-detail-page .health-record-document-edit {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+#root .health-records-page .health-record-primary-button:hover:not(:disabled),
+#root .health-records-page .resident-picker-register-primary:hover,
+#root .health-record-detail-page .health-record-document-edit:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+  color: var(--primary-text);
+}
+
+#root .health-records-page .health-record-primary-button:focus-visible,
+#root .health-records-page .health-record-secondary-button:focus-visible,
+#root .health-records-page .health-record-type-tab:focus-visible,
+#root .health-records-page .health-record-action-button:focus-visible,
+#root .health-records-page .resident-picker-close:focus-visible,
+#root .health-records-page .resident-picker-clear:focus-visible,
+#root .health-records-page .resident-picker-option:focus-visible,
+#root .health-records-page .resident-picker-footer a:focus-visible,
+#root .health-records-page .resident-picker-footer button:focus-visible,
+#root .health-record-detail-page .health-record-document-toolbar-actions > a:focus-visible,
+#root .health-record-detail-page .health-record-document-toolbar-actions > button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+#root .health-records-page .health-record-new-menu,
+#root .health-records-page .health-record-menu {
+  max-width: calc(100vw - 32px);
+  border-color: var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+}
+
+#root .health-records-page .health-record-new-menu button,
+#root .health-records-page .health-record-menu button {
+  min-height: 44px;
+  color: var(--text);
+}
+
+#root .health-records-page .health-record-new-menu button:hover,
+#root .health-records-page .health-record-menu button:hover {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-records-page .health-record-menu button.is-danger {
+  color: var(--danger);
+}
+
+#root .health-records-page .health-record-menu button.is-danger:hover {
+  background: var(--danger-soft);
+}
+
+#root .health-records-page .health-record-kpi-grid .resident-stat-card,
+#root .health-records-page .health-record-kpi-skeleton,
+#root .health-records-page .health-record-filter-card,
+#root .health-records-page .health-record-table-card,
+#root .health-records-page .health-record-mobile-card {
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+
+#root .health-records-page .resident-stat-icon,
+#root .health-records-page .health-record-kpi-skeleton-icon,
+#root .health-records-page .health-record-empty-icon,
+#root .health-records-page .health-record-state-icon {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-records-page .health-record-state-icon.is-error,
+#root .health-records-page .health-record-picker-empty-icon.is-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+#root .health-records-page .health-record-search,
+#root .health-records-page .health-record-date-trigger,
+#root .health-records-page .health-record-custom-range input,
+#root .health-records-page .health-record-table-footer .app-pagination-size select {
+  border-color: var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+#root .health-records-page .health-record-search input,
+#root .health-records-page .health-record-custom-range input {
+  color: var(--text);
+}
+
+#root .health-records-page .health-record-search input::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
+#root .health-records-page .health-record-custom-range input {
+  color-scheme: inherit;
+}
+
+#root .health-records-page .health-record-date-backdrop {
+  display: none;
+}
+
+#root .health-records-page .health-record-date-sheet-header {
+  display: none;
+}
+
+#root .health-records-page .health-record-date-sheet-body {
+  display: contents;
+}
+
+#root .health-records-page .health-record-date-popover {
+  border-color: var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+}
+
+#root .health-records-page .health-record-date-presets button,
+#root .health-records-page .health-record-date-clear {
+  min-height: 44px;
+  color: var(--text-muted);
+}
+
+#root .health-records-page .health-record-date-presets button:hover,
+#root .health-records-page .health-record-date-presets button.active {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-records-page .health-record-filter-chip {
+  min-height: 40px;
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+#root .health-records-page .health-record-filter-chip button {
+  width: 36px;
+  height: 36px;
+  color: var(--text-muted);
+}
+
+#root .health-records-page .health-record-quick-filters {
+  border-color: var(--border);
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+#root .health-records-page .health-record-type-tab {
+  min-height: 44px;
+}
+
+#root .health-records-page .health-record-type-tab.health-record-type-clinical,
+#root .health-records-page .health-record-type-badge.health-record-type-clinical,
+#root .health-record-detail-page .health-record-type-clinical {
+  --record-type-bg: var(--record-clinical-bg);
+  --record-type-accent: var(--record-clinical-text);
+  background: var(--record-type-bg);
+  color: var(--record-type-accent);
+}
+
+#root .health-records-page .health-record-type-tab.health-record-type-child,
+#root .health-records-page .health-record-type-badge.health-record-type-child,
+#root .health-record-detail-page .health-record-type-child {
+  --record-type-bg: var(--record-child-bg);
+  --record-type-accent: var(--record-child-text);
+  background: var(--record-type-bg);
+  color: var(--record-type-accent);
+}
+
+#root .health-records-page .health-record-type-tab.health-record-type-maternal,
+#root .health-records-page .health-record-type-badge.health-record-type-maternal,
+#root .health-record-detail-page .health-record-type-maternal {
+  --record-type-bg: var(--record-maternal-bg);
+  --record-type-accent: var(--record-maternal-text);
+  background: var(--record-type-bg);
+  color: var(--record-type-accent);
+}
+
+#root .health-records-page .health-record-type-tab.health-record-type-immunization,
+#root .health-records-page .health-record-type-badge.health-record-type-immunization,
+#root .health-record-detail-page .health-record-type-immunization {
+  --record-type-bg: var(--record-immunization-bg);
+  --record-type-accent: var(--record-immunization-text);
+  background: var(--record-type-bg);
+  color: var(--record-type-accent);
+}
+
+#root .health-records-page .health-record-type-badge.health-record-type-unknown {
+  --record-type-bg: var(--record-unknown-bg);
+  --record-type-accent: var(--record-unknown-text);
+  background: var(--record-type-bg);
+  color: var(--record-type-accent);
+}
+
+#root .health-records-page .health-record-count-chip {
+  border-color: var(--teal-100);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-records-page .health-records-table th {
+  background: var(--table-header-bg);
+  color: var(--text-muted);
+}
+
+#root .health-records-page .health-record-row:hover td {
+  background: var(--hover-bg);
+}
+
+#root .health-records-page .health-record-action-button {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+  color: var(--text-muted);
+}
+
+#root .health-records-page .health-record-mobile-card .health-record-action-button {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+
+#root .health-records-page .health-record-table-footer .app-pagination-button {
+  min-width: 40px;
+  min-height: 40px;
+  color: var(--text);
+}
+
+#root .health-records-page .health-record-table-footer .app-pagination-button.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+#root .health-records-page .health-record-table-footer .app-pagination-button:disabled {
+  color: var(--text-muted);
+}
+
+#root .health-records-page .health-record-mobile-skeleton,
+#root .health-records-page .health-record-skeleton-row td > span,
+#root .health-records-page .health-record-kpi-skeleton-copy i,
+#root .health-records-page .health-record-kpi-skeleton-copy small {
+  background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-highlight) 50%, var(--skeleton-base) 75%);
+  background-size: 200% 100%;
+}
+
+#root .health-records-page .health-record-state-icon.is-error,
+#root .health-records-page .health-record-validation,
+#root .health-records-page .health-record-picker-error,
+#root .health-records-page .health-record-picker-more-error {
+  color: var(--danger);
+}
+
+#root .health-records-page .health-record-picker-error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+#root .health-records-page .health-record-picker-backdrop {
+  z-index: var(--z-dialog);
+  background: var(--overlay);
+}
+
+#root .health-records-page .health-record-picker.resident-picker-dialog {
+  max-height: min(90dvh, 760px);
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+}
+
+#root .health-records-page .resident-picker-header,
+#root .health-records-page .resident-picker-footer {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+#root .health-records-page .resident-picker-heading h2,
+#root .health-records-page .resident-picker-option,
+#root .health-records-page .resident-picker-option-details strong,
+#root .health-records-page .resident-picker-menu button {
+  color: var(--text);
+}
+
+#root .health-records-page .resident-picker-type-icon,
+#root .health-records-page .resident-picker-avatar,
+#root .health-records-page .resident-picker-id,
+#root .health-records-page .resident-picker-empty-icon {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-records-page .resident-picker-search {
+  border-color: var(--input-border);
+  background: var(--input-bg);
+}
+
+#root .health-records-page .resident-picker-search input {
+  min-height: 44px;
+  color: var(--text);
+  font-size: 16px;
+  color-scheme: inherit;
+}
+
+#root .health-records-page .resident-picker-search input::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
+#root .health-records-page .resident-picker-option:hover,
+#root .health-records-page .resident-picker-option.is-active,
+#root .health-records-page .resident-picker-option.is-selecting {
+  background: var(--accent-tint);
+}
+
+#root .health-records-page .resident-picker-footer a,
+#root .health-records-page .resident-picker-footer button,
+#root .health-records-page .resident-picker-close,
+#root .health-records-page .resident-picker-clear,
+#root .health-records-page .resident-picker-more-error button,
+#root .health-records-page .resident-picker-load-more button {
+  min-height: 44px;
+}
+
+#root .health-records-page .resident-picker-list-scroll {
+  scrollbar-color: var(--text-muted) transparent;
+}
+
+#root .health-records-page .health-record-toast {
+  z-index: var(--z-toast);
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+}
+
+#root .health-record-detail-page.health-record-document-page {
+  --document-teal: var(--accent);
+  --document-navy: var(--text);
+  --document-muted: var(--text-muted);
+  --document-border: var(--border);
+  --document-background: var(--page-bg);
+  color: var(--text);
+}
+
+#root .health-record-detail-page .health-record-document-sheet {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--card-shadow);
+}
+
+#root .health-record-detail-page .health-record-document-field {
+  border-color: var(--border);
+}
+
+#root .health-record-detail-page .health-record-document-table th {
+  background: var(--table-header-bg);
+  color: var(--text);
+}
+
+#root .health-record-detail-page .health-record-document-table th,
+#root .health-record-detail-page .health-record-document-table td {
+  border-color: var(--border);
+}
+
+#root .health-record-detail-page .health-record-document-toolbar-actions > a:not(.health-record-document-edit),
+#root .health-record-detail-page .health-record-document-toolbar-actions > button {
+  min-height: 44px;
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+#root .health-record-detail-page .health-record-document-toolbar-actions > a:not(.health-record-document-edit):hover,
+#root .health-record-detail-page .health-record-document-toolbar-actions > button:hover {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .health-record-detail-page .health-record-document-signature i {
+  border-color: var(--border);
+}
+
+#root .health-record-detail-page .health-record-document-vital-flag {
+  color: var(--warning);
+}
+
+#root .health-record-detail-page .health-record-detail-field {
+  background: color-mix(in srgb, var(--surface-raised) 70%, var(--surface));
+}
+
+#root .health-record-detail-page .health-record-state-card,
+#root .health-record-detail-page .health-record-detail-section,
+#root .health-record-detail-page .health-record-profile-card,
+#root .health-record-detail-page .health-record-related-card {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--card-shadow);
+}
+
+#root .health-record-detail-page .health-record-toast {
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+}
+
+@media (min-width: 768px) and (max-width: 1100px) {
+  #root .health-records-page .health-record-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  #root .health-records-page {
+    padding: var(--space-2) var(--space-3) var(--space-6);
+  }
+
+  #root .health-records-page .health-record-search,
+  #root .health-records-page .health-record-search input,
+  #root .health-records-page .health-record-date-trigger,
+  #root .health-records-page .health-record-custom-range input,
+  #root .health-records-page .health-record-table-footer .app-pagination-size select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  #root .health-records-page .health-record-filter-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root .health-records-page .health-record-active-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  #root .health-records-page .health-record-filter-chip {
+    min-height: 44px;
+    flex: 0 0 auto;
+  }
+
+  #root .health-records-page .health-record-filter-chip button {
+    width: 40px;
+    height: 40px;
+  }
+
+  #root .health-records-page .health-record-date-control.is-open .health-record-date-backdrop {
+    position: fixed;
+    z-index: var(--z-overlay);
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: var(--overlay);
+  }
+
+  #root .health-records-page .health-record-date-control.is-open .health-record-date-popover {
+    position: fixed;
+    z-index: var(--z-dialog);
+    inset: auto 0 0;
+    display: flex;
+    width: auto;
+    max-width: none;
+    max-height: min(90dvh, 720px);
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 0 env(safe-area-inset-bottom);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--surface-raised);
+  }
+
+  #root .health-records-page .health-record-date-sheet-header {
+    display: flex;
+    min-height: 60px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border);
+  }
+
+  #root .health-records-page .health-record-date-sheet-header h2 {
+    margin: 0;
+    color: var(--text);
+    font-size: 1rem;
+  }
+
+  #root .health-records-page .health-record-date-sheet-header button {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  #root .health-records-page .health-record-date-sheet-body {
+    display: grid;
+    min-height: 0;
+    gap: var(--space-3);
+    overflow-y: auto;
+    padding: var(--space-4);
+    overscroll-behavior: contain;
+  }
+
+  #root .health-records-page .health-record-date-presets {
+    gap: var(--space-2);
+  }
+
+  #root .health-records-page .health-record-date-presets button {
+    min-height: 44px;
+  }
+
+  #root .health-records-page .health-record-custom-range {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root .health-records-page .health-record-custom-range label,
+  #root .health-records-page .health-record-custom-actions {
+    grid-column: 1;
+  }
+
+  #root .health-records-page .health-record-date-popover .health-record-custom-actions > button {
+    min-height: 44px;
+  }
+
+  #root .health-records-page .health-record-table-wrap {
+    display: none;
+  }
+
+  #root .health-records-page .health-record-mobile-list {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+
+  #root .health-records-page .health-record-mobile-card {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  #root .health-records-page .health-record-mobile-meta {
+    flex-wrap: wrap;
+  }
+
+  #root .health-records-page .health-record-mobile-card .health-record-row-actions {
+    flex-wrap: wrap;
+  }
+
+  #root .health-records-page .health-record-table-footer .app-pagination-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  #root .health-records-page .health-record-table-footer .app-pagination-summary,
+  #root .health-records-page .health-record-table-footer .app-pagination-size {
+    justify-self: center;
+  }
+
+  #root .health-records-page .health-record-toast,
+  #root .health-record-detail-page .health-record-toast {
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  #root .health-records-page.is-mobile-layout .health-record-table-wrap {
+    display: none !important;
+  }
+
+  #root .health-records-page.is-mobile-layout .health-record-mobile-list {
+    display: grid !important;
+  }
+
+  #root .health-records-page.is-table-layout .health-record-table-wrap {
+    display: block !important;
+  }
+
+  #root .health-records-page.is-table-layout .health-record-mobile-list {
+    display: none !important;
+  }
+
+  #root .health-records-page .health-record-picker-backdrop {
+    align-items: flex-end;
+    padding: env(safe-area-inset-top) 0 0;
+  }
+
+  #root .health-records-page .health-record-picker.resident-picker-dialog {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  #root .health-records-page .resident-picker-option {
+    min-height: 64px;
+  }
+
+  #root .health-record-detail-page .health-record-document-toolbar {
+    align-items: stretch;
+  }
+
+  #root .health-record-detail-page .health-record-document-toolbar-actions {
+    width: 100%;
+  }
+
+  #root .health-record-detail-page .health-record-document-toolbar-actions > a,
+  #root .health-record-detail-page .health-record-document-toolbar-actions > button {
+    min-height: 44px;
+    flex: 1 1 auto;
+  }
+
+  #root .health-record-detail-page .health-record-document-sheet {
+    min-height: 0;
+    padding: var(--space-4);
+  }
+
+  #root .health-record-detail-page .health-record-document-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #root .health-record-detail-page .health-record-document-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root .health-record-detail-page .health-record-document-office {
+    justify-items: start;
+    text-align: left;
+  }
+
+  #root .health-record-detail-page .health-record-document-title,
+  #root .health-record-detail-page .health-record-document-reference {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  #root .health-record-detail-page .health-record-document-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  #root .health-record-detail-page .health-record-document-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-height: 420px) and (max-width: 767px) {
+  #root .health-records-page .health-record-date-control.is-open .health-record-date-popover {
+    max-height: 94dvh;
+  }
+}

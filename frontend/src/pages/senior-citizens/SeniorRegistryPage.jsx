@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import PageBanner from '../../components/common/PageBanner';
 import Pagination from '../../components/common/Pagination';
+import MobileFilterSheet from '../../components/common/MobileFilterSheet';
 import StatCard from '../../components/residents/StatCard';
 import { listSeniorCitizens, getSeniorCitizen, createSeniorCitizen, updateSeniorCitizen, searchEligibleResidents, getNextSeniorId } from '../../services/api/seniorCitizenService';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
@@ -37,6 +38,7 @@ const AGE_GROUPS = [
   ['80+', '80+'],
 ];
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+const MOBILE_LAYOUT_QUERY = '(max-width: 767px)';
 
 function formatPhone(value) {
   const original = String(value || '');
@@ -83,13 +85,13 @@ function AgeBadge({ age }) {
   return <span className="senior-age-line">{age ?? '—'}{age >= 80 && <span className="senior-age-badge">80+</span>}</span>;
 }
 
-function ConditionChips({ value }) {
+function ConditionChips({ value, showAll = false }) {
   const conditions = getConditionValues(value).filter((condition) => !['no known conditions', 'none recorded'].includes(condition.toLowerCase()));
   if (!conditions.length) return <span className="senior-condition-muted">None recorded</span>;
   return (
     <span className="senior-conditions">
-      {conditions.slice(0, 2).map((condition) => <span className="senior-condition" key={condition}>{condition}</span>)}
-      {conditions.length > 2 && <span className="senior-condition senior-condition-more" title={conditions.slice(2).join(', ')}>+{conditions.length - 2}</span>}
+      {(showAll ? conditions : conditions.slice(0, 2)).map((condition) => <span className="senior-condition" key={condition}>{condition}</span>)}
+      {!showAll && conditions.length > 2 && <span className="senior-condition senior-condition-more" title={conditions.slice(2).join(', ')}>+{conditions.length - 2}</span>}
     </span>
   );
 }
@@ -117,12 +119,14 @@ function SeniorMobileCard({ resident, age, onView, actions }) {
     >
       <div className="senior-mobile-card-header">
         <SeniorResidentIdentity resident={resident} onView={(event) => event.stopPropagation()} />
-        <span className="senior-id-chip">{resident.senior_citizen_id || 'Not provided'}</span>
+        <span className="senior-id-chip" title={resident.senior_citizen_id || 'Not provided'} aria-label={`Senior ID ${resident.senior_citizen_id || 'not provided'}`}>
+          {resident.senior_citizen_id || 'Not provided'}
+        </span>
       </div>
       <div className="senior-mobile-card-grid">
         <div><span className="senior-mobile-label">Age</span><AgeBadge age={age} /></div>
         <div><span className="senior-mobile-label">Contact</span><PhoneValue value={resident.contact_number || resident.contact_no} /></div>
-        <div className="senior-mobile-card-wide"><span className="senior-mobile-label">Conditions</span><ConditionChips value={resident.health_conditions} /></div>
+        <div className="senior-mobile-card-wide"><span className="senior-mobile-label">Conditions</span><ConditionChips value={resident.health_conditions} showAll /></div>
         <div className="senior-mobile-card-wide"><span className="senior-mobile-label">Emergency contact</span>
           {resident.emergency_contact_name
             ? <span className="senior-emergency-value" title={resident.emergency_contact_name}>{resident.emergency_contact_name}<PhoneValue value={resident.emergency_contact_number} label="Emergency contact number" /></span>
@@ -175,6 +179,12 @@ export default function SeniorRegistryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [mobileLayout, setMobileLayout] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(MOBILE_LAYOUT_QUERY).matches
+      : null
+  ));
   const [highlight, setHighlight] = useState(searchParams.get('highlight') || '');
   const [searchDraft, setSearchDraft] = useState(state.search);
   const searchRef = useRef(null);
@@ -238,6 +248,18 @@ export default function SeniorRegistryPage() {
     window.addEventListener('keydown', handleSlashShortcut);
     return () => window.removeEventListener('keydown', handleSlashShortcut);
   }, [isNew]);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const updateLayout = () => setMobileLayout(query.matches);
+    updateLayout();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', updateLayout);
+      return () => query.removeEventListener('change', updateLayout);
+    }
+    query.addListener(updateLayout);
+    return () => query.removeListener(updateLayout);
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
   const clearFilters = () => {
@@ -282,8 +304,8 @@ export default function SeniorRegistryPage() {
   );
   const renderSkeletons = () => (
     <>
-      <div className="senior-table-skeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <div className="senior-skeleton-row" key={index}><span /><span /><span /><span /><span /><span /></div>)}</div>
-      <div className="senior-card-skeleton" aria-hidden="true">{Array.from({ length: 4 }, (_, index) => <div className="senior-skeleton-card" key={index}><span /><span /><span /></div>)}</div>
+      {mobileLayout !== true && <div className="senior-table-skeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <div className="senior-skeleton-row" key={index}><span /><span /><span /><span /><span /><span /></div>)}</div>}
+      {mobileLayout !== false && <div className="senior-card-skeleton" aria-hidden="true">{Array.from({ length: 4 }, (_, index) => <div className="senior-skeleton-card" key={index}><span /><span /><span /></div>)}</div>}
     </>
   );
   const renderTable = () => (
@@ -340,7 +362,7 @@ export default function SeniorRegistryPage() {
   );
 
   return (
-    <main className="senior-registry-page">
+    <main className={`senior-registry-page${mobileLayout === null ? '' : mobileLayout ? ' is-mobile-layout' : ' is-table-layout'}`}>
       <nav className="senior-registry-breadcrumb" aria-label="Breadcrumb">
         <Link to="/residents">Residents</Link><span aria-hidden="true">/</span><span aria-current="page">Senior Registry</span>
       </nav>
@@ -369,31 +391,34 @@ export default function SeniorRegistryPage() {
             <input ref={searchRef} id="senior-registry-search" aria-label="Search senior registry" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search name, ID, contact, or condition" autoComplete="off" />
             {searchDraft ? <button type="button" className="senior-clear-search" aria-label="Clear search" onClick={() => { setSearchDraft(''); updateState({ search: '' }); }}><X size={16} aria-hidden="true" /></button> : <span className="senior-shortcut" aria-hidden="true">/</span>}
           </label>
-          <label className="senior-filter-select">
-            <Stethoscope size={16} aria-hidden="true" />
-            <select aria-label="Health condition" value={state.condition} onChange={(event) => updateState({ condition: event.target.value })}>
-              <option value="">All conditions</option>{conditionOptions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
-            </select>
-            <ChevronDown size={15} aria-hidden="true" />
-          </label>
-          <label className="senior-filter-select">
-            <CalendarRange size={16} aria-hidden="true" />
-            <select aria-label="Age group" value={state.ageGroup} onChange={(event) => updateState({ ageGroup: event.target.value })}>
-              {AGE_GROUPS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
-            </select>
-            <ChevronDown size={15} aria-hidden="true" />
-          </label>
-          <label className="senior-filter-select">
-            <ArrowUpDown size={16} aria-hidden="true" />
-            <select aria-label="Sort seniors" value={state.sort} onChange={(event) => updateState({ sort: event.target.value })}>
-              <option value="newest">Newest registered</option><option value="oldest">Oldest registered</option>
-              <option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option>
-              <option value="age_oldest">Age: oldest first</option><option value="age_youngest">Age: youngest first</option>
-              <option value="senior_id">Senior ID: low to high</option><option value="senior_id_desc">Senior ID: high to low</option>
-            </select>
-            <ChevronDown size={15} aria-hidden="true" />
-          </label>
-          {hasActiveFilters && <button type="button" className="senior-clear-filters" onClick={clearFilters}><RotateCcw size={15} aria-hidden="true" />Clear filters</button>}
+          <MobileFilterSheet id="senior-filter-sheet" title="Filters" activeCount={activeFilters.length}
+            open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen} onReset={clearFilters}>
+            <label className="senior-filter-select">
+              <Stethoscope size={16} aria-hidden="true" />
+              <select aria-label="Health condition" value={state.condition} onChange={(event) => updateState({ condition: event.target.value })}>
+                <option value="">All conditions</option>{conditionOptions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </label>
+            <label className="senior-filter-select">
+              <CalendarRange size={16} aria-hidden="true" />
+              <select aria-label="Age group" value={state.ageGroup} onChange={(event) => updateState({ ageGroup: event.target.value })}>
+                {AGE_GROUPS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </label>
+            <label className="senior-filter-select">
+              <ArrowUpDown size={16} aria-hidden="true" />
+              <select aria-label="Sort seniors" value={state.sort} onChange={(event) => updateState({ sort: event.target.value })}>
+                <option value="newest">Newest registered</option><option value="oldest">Oldest registered</option>
+                <option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option>
+                <option value="age_oldest">Age: oldest first</option><option value="age_youngest">Age: youngest first</option>
+                <option value="senior_id">Senior ID: low to high</option><option value="senior_id_desc">Senior ID: high to low</option>
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </label>
+            {hasActiveFilters && <button type="button" className="senior-clear-filters" onClick={clearFilters}><RotateCcw size={15} aria-hidden="true" />Clear filters</button>}
+          </MobileFilterSheet>
         </div>
         {activeFilters.length > 0 && <div className="senior-active-filters" aria-label="Active filters">
           {activeFilters.map(([key, label, value]) => <span className="senior-filter-chip" key={key}>
@@ -425,8 +450,8 @@ export default function SeniorRegistryPage() {
           </div>
         ) : (
           <>
-            <div className="senior-table-view">{renderTable()}</div>
-            <div className="senior-mobile-list">
+            {mobileLayout !== true && <div className="senior-table-view">{renderTable()}</div>}
+            {mobileLayout !== false && <div className="senior-mobile-list">
               {items.map((resident) => (
                 <SeniorMobileCard
                   key={resident.senior_id}
@@ -436,7 +461,7 @@ export default function SeniorRegistryPage() {
                   actions={renderActions(resident)}
                 />
               ))}
-            </div>
+            </div>}
           </>
         )}
         {total > 0 && !error && <footer className="senior-pagination">

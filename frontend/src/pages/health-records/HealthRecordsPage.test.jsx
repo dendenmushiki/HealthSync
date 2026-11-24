@@ -66,6 +66,7 @@ test('search, type and date filters are sent to the server and reflected in the 
 
   await userEvent.click(screen.getByRole('tab', { name: /Maternal/ }));
   await userEvent.click(screen.getByRole('button', { name: /Date range/ }));
+  expect(screen.getByRole('dialog', { name: 'Date range' })).toHaveAttribute('aria-modal', 'true');
   await userEvent.click(screen.getByRole('button', { name: 'Custom' }));
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-10-01' } });
   fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-10-31' } });
@@ -178,6 +179,32 @@ test('resident picker debounces server search and loads the next page', async ()
     expect.objectContaining({ page: 2, pageSize: 10 }),
     expect.objectContaining({ signal: expect.any(AbortSignal) }),
   );
+});
+
+test('renders only the mobile card list when the phone breakpoint matches', async () => {
+  const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+  const mediaQuery = {
+    matches: true,
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  };
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: jest.fn(() => mediaQuery),
+  });
+  listAllHealthRecords.mockResolvedValue(success([
+    { source_table: 'patient_clinical_records', record_id: 3, resident_id: 8, first_name: 'Mia', last_name: 'Reyes', record_type: 'clinical', record_date: '2026-10-08', summary: 'Check-up' },
+  ]));
+
+  try {
+    const { container } = render(<MemoryRouter><HealthRecordsPage /></MemoryRouter>);
+    expect(await screen.findByText('Check-up')).toBeInTheDocument();
+    expect(container.querySelector('.health-record-table-wrap')).not.toBeInTheDocument();
+    expect(container.querySelector('.health-record-mobile-list')).toBeInTheDocument();
+  } finally {
+    if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+    else delete window.matchMedia;
+  }
 });
 
 test('resident picker supports arrow selection, Escape, and trigger focus restoration', async () => {

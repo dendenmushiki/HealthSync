@@ -2,8 +2,11 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from 'rea
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import StatusBanner from '../../components/common/StatusBanner';
+import ThemeToggle from '../../components/common/ThemeToggle';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
 import TermsPrivacyModal from './TermsPrivacyModal';
+import { useLoginTransition } from '../../components/auth/LoginTransitionContext';
+import { preloadLoginImages } from '../../components/auth/LoginLoadingScreen';
 
 const LoginPage = () => {
   const [identifier, setIdentifier] = useState('');
@@ -17,6 +20,7 @@ const LoginPage = () => {
   const legalTriggerRef = useRef(null);
 
   const { login } = useContext(AuthContext);
+  const { beginLoginTransition } = useLoginTransition();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -25,6 +29,10 @@ const LoginPage = () => {
     setLegalModalSection(section);
   };
   const closeLegalModal = useCallback(() => setLegalModalSection(null), []);
+
+  useEffect(() => {
+    preloadLoginImages();
+  }, []);
 
   useEffect(() => {
     const updateNetworkState = () => setOnline(navigator.onLine);
@@ -49,9 +57,13 @@ const LoginPage = () => {
       const resp = await login(cleanIdentifier, password);
 
       if (resp.success) {
-        navigate(resp.mustChangePassword
+        const destination = resp.mustChangePassword
           ? '/change-password'
-          : resp.user?.role === 'admin' ? '/admin-dashboard' : '/dashboard', { replace: true });
+          : resp.user?.role === 'admin' ? '/admin-dashboard' : '/dashboard';
+        if (!resp.mustChangePassword && !resp.offlineVaultMigrationRequired) {
+          beginLoginTransition();
+        }
+        navigate(destination, { replace: true });
       } else {
         setError(getFriendlyError(resp.message || 'Invalid credentials'));
       }
@@ -70,6 +82,7 @@ const LoginPage = () => {
 
   return (
     <main className="login-page-shell">
+      <ThemeToggle className="theme-toggle--standalone" />
       <section className="login-context-panel" aria-label="About HealthSync">
         <div className="login-context-inner">
           <header className="login-brand-header">

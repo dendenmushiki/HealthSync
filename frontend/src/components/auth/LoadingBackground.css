@@ -1,0 +1,383 @@
+.login-loading-screen {
+  --ls-logo-center-y: calc(50% - clamp(20px, 5vmin, 45px));
+  background-image: linear-gradient(160deg, var(--ls-bg-from), var(--ls-bg-via), var(--ls-bg-to));
+}
+
+.login-loading-background {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  contain: paint;
+  pointer-events: none;
+}
+
+.login-loading-glow,
+.login-loading-grid,
+.login-loading-ecg,
+.login-loading-particles,
+.login-loading-halo,
+.login-loading-ripple,
+.login-loading-vignette {
+  position: absolute;
+  pointer-events: none;
+}
+
+.login-loading-glow {
+  width: 84vmax;
+  height: 84vmax;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 800ms ease;
+  will-change: transform, opacity;
+}
+
+.login-loading-glow--teal {
+  top: -38vmax;
+  left: -30vmax;
+  background: radial-gradient(ellipse at center, var(--ls-glow-teal) 0%, transparent 70%);
+}
+
+.login-loading-glow--sky {
+  right: -34vmax;
+  bottom: -42vmax;
+  width: 78vmax;
+  height: 78vmax;
+  background: radial-gradient(ellipse at center, var(--ls-glow-sky) 0%, transparent 70%);
+}
+
+.login-loading-glow--center {
+  top: var(--ls-logo-center-y);
+  left: 50%;
+  width: 74vmax;
+  height: 74vmax;
+  background: radial-gradient(ellipse at center, var(--ls-glow-center) 0%, transparent 70%);
+  transform: translate(-50%, -50%);
+}
+
+.login-loading-grid {
+  inset: 0;
+  opacity: 0;
+  background-image:
+    linear-gradient(to right, var(--ls-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ls-grid) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse at center, transparent 0%, var(--ls-copy) 72%);
+  mask-image: radial-gradient(ellipse at center, transparent 0%, var(--ls-copy) 72%);
+  transition: opacity 800ms ease;
+}
+
+.login-loading-ecg {
+  top: var(--ls-logo-center-y);
+  left: 0;
+  width: 100%;
+  height: 20vmin;
+  overflow: visible;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 400ms ease;
+}
+
+.login-loading-ecg-line,
+.login-loading-ecg-scanner {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.login-loading-ecg-line {
+  stroke: var(--ls-ecg);
+  stroke-width: 2;
+  opacity: .8;
+}
+
+.login-loading-ecg-scanner {
+  stroke: var(--ls-scanner);
+  stroke-width: 2.5;
+  stroke-dasharray: 90 2000;
+  stroke-dashoffset: 1100;
+  opacity: 0;
+}
+
+.login-loading-particles {
+  inset: 0;
+  opacity: 0;
+  transition: opacity 800ms ease;
+}
+
+.login-loading-particle {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background: var(--ls-particle);
+  opacity: 0;
+}
+
+.login-loading-particle.is-cross {
+  border-radius: 0;
+  background: transparent;
+}
+
+.login-loading-particle.is-cross::before,
+.login-loading-particle.is-cross::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: max(2px, 42%);
+  height: max(2px, 42%);
+  border-radius: 1px;
+  background: var(--ls-particle);
+  content: '';
+  transform: translate(-50%, -50%);
+}
+
+.login-loading-particle.is-cross::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.login-loading-halo {
+  position: absolute;
+  top: var(--ls-logo-center-y);
+  left: 50%;
+  width: min(60vmin, 680px);
+  min-width: min(220px, 70vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--ls-halo) 0%, transparent 70%);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 800ms ease;
+  will-change: opacity;
+}
+
+.login-loading-ripple {
+  position: absolute;
+  top: var(--ls-logo-center-y);
+  left: 50%;
+  width: min(44vmin, 440px);
+  aspect-ratio: 1;
+  border: 1.5px solid var(--ls-ring);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(.6);
+}
+
+.login-loading-ripple--complete {
+  width: min(42vmin, 420px);
+}
+
+.login-loading-ripple--pulse {
+  width: min(38vmin, 400px);
+}
+
+.login-loading-vignette {
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 35%, var(--ls-vignette) 100%);
+  transition: opacity 800ms ease;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-glow,
+.login-loading-screen[data-phase='complete'] .login-loading-glow,
+.login-loading-screen[data-phase='pulsing'] .login-loading-glow,
+.login-loading-screen[data-phase='wordmark'] .login-loading-glow,
+.login-loading-screen[data-phase='waiting'] .login-loading-glow {
+  opacity: .72;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-glow--teal,
+.login-loading-screen[data-phase='complete'] .login-loading-glow--teal,
+.login-loading-screen[data-phase='pulsing'] .login-loading-glow--teal,
+.login-loading-screen[data-phase='wordmark'] .login-loading-glow--teal,
+.login-loading-screen[data-phase='waiting'] .login-loading-glow--teal {
+  animation: ls-glow-drift-one 27s ease-in-out infinite alternate;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-glow--sky,
+.login-loading-screen[data-phase='complete'] .login-loading-glow--sky,
+.login-loading-screen[data-phase='pulsing'] .login-loading-glow--sky,
+.login-loading-screen[data-phase='wordmark'] .login-loading-glow--sky,
+.login-loading-screen[data-phase='waiting'] .login-loading-glow--sky {
+  animation: ls-glow-drift-two 33s ease-in-out infinite alternate;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-glow--center,
+.login-loading-screen[data-phase='complete'] .login-loading-glow--center,
+.login-loading-screen[data-phase='pulsing'] .login-loading-glow--center,
+.login-loading-screen[data-phase='wordmark'] .login-loading-glow--center,
+.login-loading-screen[data-phase='waiting'] .login-loading-glow--center {
+  animation: ls-glow-drift-three 23s ease-in-out infinite alternate;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-grid,
+.login-loading-screen[data-phase='complete'] .login-loading-grid,
+.login-loading-screen[data-phase='pulsing'] .login-loading-grid,
+.login-loading-screen[data-phase='wordmark'] .login-loading-grid,
+.login-loading-screen[data-phase='waiting'] .login-loading-grid {
+  opacity: 1;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-particles,
+.login-loading-screen[data-phase='complete'] .login-loading-particles,
+.login-loading-screen[data-phase='pulsing'] .login-loading-particles,
+.login-loading-screen[data-phase='wordmark'] .login-loading-particles,
+.login-loading-screen[data-phase='waiting'] .login-loading-particles {
+  opacity: 1;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-particle,
+.login-loading-screen[data-phase='complete'] .login-loading-particle,
+.login-loading-screen[data-phase='pulsing'] .login-loading-particle,
+.login-loading-screen[data-phase='wordmark'] .login-loading-particle,
+.login-loading-screen[data-phase='waiting'] .login-loading-particle {
+  animation: ls-particle-rise var(--ls-float-duration) linear var(--ls-float-delay) infinite;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-ecg,
+.login-loading-screen[data-phase='complete'] .login-loading-ecg,
+.login-loading-screen[data-phase='pulsing'] .login-loading-ecg,
+.login-loading-screen[data-phase='wordmark'] .login-loading-ecg,
+.login-loading-screen[data-phase='waiting'] .login-loading-ecg {
+  opacity: 1;
+}
+
+.login-loading-screen[data-phase='assembling'] .login-loading-halo {
+  opacity: .36;
+}
+
+.login-loading-screen[data-phase='complete'] .login-loading-halo,
+.login-loading-screen[data-phase='pulsing'] .login-loading-halo {
+  animation: ls-center-flash 600ms ease-out both;
+}
+
+.login-loading-screen[data-phase='wordmark'] .login-loading-halo {
+  opacity: .28;
+}
+
+.login-loading-screen[data-phase='waiting'] .login-loading-halo {
+  opacity: .24;
+}
+
+.login-loading-screen[data-complete='true'] .login-loading-ripple--complete {
+  animation: ls-ripple 600ms ease-out both;
+}
+
+.login-loading-screen[data-phase='pulsing'] .login-loading-ecg-scanner,
+.login-loading-screen[data-phase='waiting'] .login-loading-ecg-scanner {
+  opacity: .8;
+  animation: ls-scan var(--ls-pulse-cycle) linear infinite;
+}
+
+.login-loading-screen[data-phase='pulsing'] .login-loading-ripple--pulse,
+.login-loading-screen[data-phase='waiting'] .login-loading-ripple--pulse {
+  animation: ls-ripple var(--ls-pulse-cycle) ease-out infinite;
+}
+
+.login-loading-screen[data-phase='pulsing'] .login-loading-ripple--second,
+.login-loading-screen[data-phase='waiting'] .login-loading-ripple--second {
+  animation-delay: calc(var(--ls-pulse-cycle) / -2);
+}
+
+.login-loading-screen[data-phase='wordmark'] .login-loading-vignette,
+.login-loading-screen[data-phase='waiting'] .login-loading-vignette,
+.login-loading-screen[data-phase='pulsing'] .login-loading-vignette,
+.login-loading-screen[data-phase='complete'] .login-loading-vignette,
+.login-loading-screen[data-phase='assembling'] .login-loading-vignette {
+  opacity: 1;
+}
+
+.login-loading-screen[data-phase='error'] .login-loading-glow {
+  opacity: .72;
+}
+
+.login-loading-screen[data-phase='error'] .login-loading-grid,
+.login-loading-screen[data-phase='error'] .login-loading-halo,
+.login-loading-screen[data-phase='error'] .login-loading-vignette {
+  opacity: 1;
+}
+
+@keyframes ls-glow-drift-one {
+  from { transform: translate3d(-2vmax, 1vmax, 0) scale(1); }
+  to { transform: translate3d(5vmax, 3vmax, 0) scale(1.04); }
+}
+
+@keyframes ls-glow-drift-two {
+  from { transform: translate3d(3vmax, -2vmax, 0) scale(1.02); }
+  to { transform: translate3d(-4vmax, -5vmax, 0) scale(1); }
+}
+
+@keyframes ls-glow-drift-three {
+  from { transform: translate(-50%, -50%) translate3d(-3vmax, 2vmax, 0) scale(1); }
+  to { transform: translate(-50%, -50%) translate3d(4vmax, -3vmax, 0) scale(1.03); }
+}
+
+@keyframes ls-particle-rise {
+  0% { opacity: 0; transform: translate3d(0, 0, 0); }
+  12% { opacity: var(--ls-float-opacity); }
+  88% { opacity: var(--ls-float-opacity); }
+  100% { opacity: 0; transform: translate3d(var(--ls-float-sway), -105vh, 0); }
+}
+
+@keyframes ls-center-flash {
+  0% { opacity: .36; }
+  35% { opacity: .5; }
+  100% { opacity: .28; }
+}
+
+@keyframes ls-scan {
+  from { stroke-dashoffset: 1100; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes ls-ripple {
+  0% { opacity: .5; transform: translate(-50%, -50%) scale(.6); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+}
+
+.login-loading-screen[data-paused='true'] .login-loading-background *,
+.login-loading-screen[data-paused='true'] .login-loading-background *::before,
+.login-loading-screen[data-paused='true'] .login-loading-background *::after {
+  animation-play-state: paused !important;
+}
+
+.login-loading-screen.is-reduced-motion .login-loading-background *,
+.login-loading-screen.is-reduced-motion .login-loading-background *::before,
+.login-loading-screen.is-reduced-motion .login-loading-background *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.login-loading-screen.is-reduced-motion:not([data-phase='preloading']) .login-loading-glow {
+  opacity: .72;
+}
+
+.login-loading-screen.is-reduced-motion:not([data-phase='preloading']) .login-loading-grid,
+.login-loading-screen.is-reduced-motion:not([data-phase='preloading']) .login-loading-halo,
+.login-loading-screen.is-reduced-motion:not([data-phase='preloading']) .login-loading-vignette {
+  opacity: 1;
+}
+
+.login-loading-screen.is-reduced-motion .login-loading-particles,
+.login-loading-screen.is-reduced-motion .login-loading-ecg,
+.login-loading-screen.is-reduced-motion .login-loading-ripple {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .login-loading-particle:nth-child(n + 11) {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .login-loading-background {
+    display: none;
+  }
+
+  .login-loading-screen {
+    background: Canvas !important;
+    color: CanvasText !important;
+  }
+}

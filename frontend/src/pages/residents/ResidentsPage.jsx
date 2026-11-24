@@ -20,6 +20,7 @@ import StatCard from '../../components/residents/StatCard';
 import ResidentForm from './ResidentForm';
 import { getResidentStats, getResidents } from '../../services/api/residentService';
 import Pagination from '../../components/common/Pagination';
+import MobileFilterSheet from '../../components/common/MobileFilterSheet';
 import PageBanner from '../../components/common/PageBanner';
 import StatusBanner from '../../components/common/StatusBanner';
 
@@ -90,6 +91,7 @@ const ResidentsPage = () => {
   const [showingOfflineCache, setShowingOfflineCache] = useState(false);
   const [activeTab, setActiveTab] = useState('directory');
   const [openFilter, setOpenFilter] = useState('');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [selectedResident, setSelectedResident] = useState(null);
   const [stats, setStats] = useState(null);
@@ -227,6 +229,7 @@ const ResidentsPage = () => {
     ['sitio', 'Sitio', urlState.sitio], ['classification', 'Classification', urlState.classification],
     ['nutritionStatus', 'Nutritional status', urlState.nutritionStatus],
   ].filter(([, , value]) => value), [urlState]);
+  const activeFilterCount = activeFilters.length + Number(urlState.sort !== DEFAULTS.sort);
   const hasFilters = activeFilters.length > 0 || urlState.sort !== DEFAULTS.sort;
   const first = pagination.total ? ((urlState.page - 1) * urlState.pageSize) + 1 : 0;
   const last = Math.min(urlState.page * urlState.pageSize, pagination.total);
@@ -247,6 +250,10 @@ const ResidentsPage = () => {
     setSearchParams(new URLSearchParams());
   };
   const removeFilter = (key) => updateQueryParams({ [key]: '' }, { resetPage: true });
+  const setMobileFilterState = (open) => {
+    setMobileFiltersOpen(open);
+    if (!open) setOpenFilter('');
+  };
   const closeResidentProfile = useCallback(() => setSelectedResident(null), []);
 
   const emptyResults = !loading && items.length === 0;
@@ -296,15 +303,18 @@ const ResidentsPage = () => {
               </button>
             ))}
           </div>
-          <ResidentFilterDropdown id="resident-sitio" icon={MapPin} label="All Sitios" value={urlState.sitio}
-            options={sitoOptions} open={openFilter === 'sitio'} onToggle={() => setOpenFilter(openFilter === 'sitio' ? '' : 'sitio')}
-            onSelect={(value) => selectFilter('sitio', value)} />
-          <ResidentFilterDropdown id="resident-gender" icon={VenusAndMars} label="All Sexes" value={urlState.sex}
-            options={genderOptions} open={openFilter === 'sex'} onToggle={() => setOpenFilter(openFilter === 'sex' ? '' : 'sex')}
-            onSelect={(value) => selectFilter('sex', value)} />
-          <ResidentFilterDropdown id="resident-nutrition" icon={HeartPulse} label="All Nutritional Status" value={urlState.nutritionStatus}
-            options={nutritionOptions} open={openFilter === 'nutritionStatus'} onToggle={() => setOpenFilter(openFilter === 'nutritionStatus' ? '' : 'nutritionStatus')}
-            onSelect={(value) => selectFilter('nutritionStatus', value)} />
+          <MobileFilterSheet id="resident-filter-sheet" title="Filters" activeCount={activeFilterCount}
+            open={mobileFiltersOpen} onOpenChange={setMobileFilterState} onReset={clearFilters}>
+            <ResidentFilterDropdown id="resident-sitio" icon={MapPin} label="All Sitios" value={urlState.sitio}
+              options={sitoOptions} open={openFilter === 'sitio'} onToggle={() => setOpenFilter(openFilter === 'sitio' ? '' : 'sitio')}
+              onSelect={(value) => selectFilter('sitio', value)} />
+            <ResidentFilterDropdown id="resident-gender" icon={VenusAndMars} label="All Sexes" value={urlState.sex}
+              options={genderOptions} open={openFilter === 'sex'} onToggle={() => setOpenFilter(openFilter === 'sex' ? '' : 'sex')}
+              onSelect={(value) => selectFilter('sex', value)} />
+            <ResidentFilterDropdown id="resident-nutrition" icon={HeartPulse} label="All Nutritional Status" value={urlState.nutritionStatus}
+              options={nutritionOptions} open={openFilter === 'nutritionStatus'} onToggle={() => setOpenFilter(openFilter === 'nutritionStatus' ? '' : 'nutritionStatus')}
+              onSelect={(value) => selectFilter('nutritionStatus', value)} />
+          </MobileFilterSheet>
           <div className="residents-search-control resident-name-search">
             <label className="residents-visually-hidden" htmlFor="resident-search">Search by name, household no., contact no., or PhilHealth ID</label>
             <Search size={16} aria-hidden="true" />

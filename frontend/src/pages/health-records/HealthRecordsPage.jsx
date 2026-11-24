@@ -42,6 +42,7 @@ const TYPES = [
 ];
 const PAGE_SIZES = [10, 25, 50];
 const DEFAULTS = { search: '', type: '', from: '', to: '', sort: 'date', order: 'desc', page: 1, pageSize: 10 };
+const MOBILE_LAYOUT_QUERY = '(max-width: 767px)';
 const TYPE_BY_KEY = Object.fromEntries(TYPES.map((type) => [type.key, type]));
 const SOURCE_TYPES = {
   health_records: 'clinical',
@@ -152,57 +153,91 @@ function DateRangeControl({ from, to, onApply, onPreset }) {
           : 'All dates'
   );
   const invalidRange = Boolean(draftFrom && draftTo && draftFrom > draftTo);
+  const closeAndRestoreFocus = useCallback(() => {
+    setOpen(false);
+    const restoreFocus = () => buttonRef.current?.focus();
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(restoreFocus);
+    else window.setTimeout(restoreFocus, 0);
+  }, []);
 
   useEffect(() => {
     if (!open) return undefined;
     setDraftFrom(from);
     setDraftTo(to);
     setCustomOpen(Boolean(from || to) && !selectedPreset);
+    rootRef.current?.querySelector('.health-record-date-presets button')?.focus();
     const handleOutsideClick = (event) => {
       if (!rootRef.current?.contains(event.target)) setOpen(false);
     };
     const handleEscape = (event) => {
       if (event.key === 'Escape') {
-        setOpen(false);
-        buttonRef.current?.focus();
+        event.preventDefault();
+        closeAndRestoreFocus();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = rootRef.current?.querySelector('.health-record-date-popover');
+      const focusable = Array.from(dialog?.querySelectorAll('button:not(:disabled), input:not(:disabled)') || [])
+        .filter((element) => {
+          const style = window.getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden';
+        });
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
       }
     };
-    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('pointerdown', handleOutsideClick);
     document.addEventListener('keydown', handleEscape);
     return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('pointerdown', handleOutsideClick);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [from, open, selectedPreset, to]);
+  }, [closeAndRestoreFocus, from, open, selectedPreset, to]);
 
   const choosePreset = (preset) => {
     onPreset(preset);
-    setOpen(false);
+    closeAndRestoreFocus();
   };
 
-  return <div className="health-record-date-control" ref={rootRef}>
+  return <div className={`health-record-date-control${open ? ' is-open' : ''}`} ref={rootRef}>
     <button ref={buttonRef} type="button" className="health-record-date-trigger" aria-haspopup="dialog" aria-expanded={open}
       onClick={() => setOpen((value) => !value)}>
       <CalendarDays size={17} strokeWidth={1.8} aria-hidden="true" />
       <span><small>Date range</small><strong>{displayRange}</strong></span>
       <ChevronDown size={16} aria-hidden="true" />
     </button>
-    {open && <div className="health-record-date-popover" role="dialog" aria-label="Date range filter">
-      <div className="health-record-date-presets" aria-label="Date range presets">
-        {['Today', 'Last 7 days', 'Last 30 days', 'This month'].map((preset) => <button key={preset} type="button"
-          className={presetMatches(preset) ? 'active' : ''} aria-pressed={presetMatches(preset)} onClick={() => choosePreset(preset)}>{preset}</button>)}
-        <button type="button" className={customOpen ? 'active' : ''} aria-pressed={customOpen} onClick={() => setCustomOpen(true)}>Custom</button>
-      </div>
-      {customOpen && <div className="health-record-custom-range">
-        <label>From<input type="date" value={draftFrom} aria-invalid={invalidRange} onChange={(event) => setDraftFrom(event.target.value)} /></label>
-        <label>To<input type="date" value={draftTo} aria-invalid={invalidRange} onChange={(event) => setDraftTo(event.target.value)} /></label>
-        {invalidRange && <p className="health-record-validation" role="alert">From date must be on or before To date.</p>}
-        <div className="health-record-custom-actions">
-          <button type="button" className="health-record-date-clear" onClick={() => { onApply('', ''); setOpen(false); }}>Clear</button>
-          <button type="button" className="health-record-primary-button" disabled={invalidRange} onClick={() => { onApply(draftFrom, draftTo); setOpen(false); }}>Apply</button>
+    {open && <>
+      <button type="button" className="health-record-date-backdrop" aria-label="Close date range filter" onClick={closeAndRestoreFocus} />
+      <div className="health-record-date-popover" role="dialog" aria-modal="true" aria-labelledby="health-record-date-title">
+        <header className="health-record-date-sheet-header">
+          <h2 id="health-record-date-title">Date range</h2>
+          <button type="button" aria-label="Close date range filter" onClick={closeAndRestoreFocus}><X size={18} aria-hidden="true" /></button>
+        </header>
+        <div className="health-record-date-sheet-body">
+          <div className="health-record-date-presets" aria-label="Date range presets">
+            {['Today', 'Last 7 days', 'Last 30 days', 'This month'].map((preset) => <button key={preset} type="button"
+              className={presetMatches(preset) ? 'active' : ''} aria-pressed={presetMatches(preset)} onClick={() => choosePreset(preset)}>{preset}</button>)}
+            <button type="button" className={customOpen ? 'active' : ''} aria-pressed={customOpen} onClick={() => setCustomOpen(true)}>Custom</button>
+          </div>
+          {customOpen && <div className="health-record-custom-range">
+            <label>From<input type="date" value={draftFrom} aria-invalid={invalidRange} onChange={(event) => setDraftFrom(event.target.value)} /></label>
+            <label>To<input type="date" value={draftTo} aria-invalid={invalidRange} onChange={(event) => setDraftTo(event.target.value)} /></label>
+            {invalidRange && <p className="health-record-validation" role="alert">From date must be on or before To date.</p>}
+            <div className="health-record-custom-actions">
+              <button type="button" className="health-record-date-clear" onClick={() => { onApply('', ''); closeAndRestoreFocus(); }}>Clear</button>
+              <button type="button" className="health-record-primary-button" disabled={invalidRange} onClick={() => { onApply(draftFrom, draftTo); closeAndRestoreFocus(); }}>Apply</button>
+            </div>
+          </div>}
         </div>
-      </div>}
-    </div>}
+      </div>
+    </>}
   </div>;
 }
 
@@ -222,6 +257,11 @@ const HealthRecordsPage = () => {
   const [toast, setToast] = useState('');
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [newRecordType, setNewRecordType] = useState('');
+  const [mobileLayout, setMobileLayout] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(MOBILE_LAYOUT_QUERY).matches
+      : null
+  ));
   const searchRef = useRef(null);
   const tableTopRef = useRef(null);
   const tabRefs = useRef([]);
@@ -276,6 +316,37 @@ const HealthRecordsPage = () => {
   useEffect(() => {
     if (newMenuOpen) newRecordMenuRef.current?.querySelector('[role="menuitem"]')?.focus();
   }, [newMenuOpen]);
+  useEffect(() => {
+    if (!newMenuOpen) return undefined;
+    const handleOutsidePointer = (event) => {
+      if (newRecordMenuRef.current?.contains(event.target) || newRecordButtonRef.current?.contains(event.target)) return;
+      setNewMenuOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setNewMenuOpen(false);
+      newRecordButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', handleOutsidePointer);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointer);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [newMenuOpen]);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const handleChange = (event) => setMobileLayout(event.matches);
+    setMobileLayout(mediaQuery.matches);
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, []);
 
   useEffect(() => {
     if (urlState.from && urlState.to && urlState.from > urlState.to) {
@@ -393,7 +464,8 @@ const HealthRecordsPage = () => {
     options[next]?.focus();
   };
 
-  return <main className="health-records-page">
+  const layoutClass = mobileLayout === true ? 'is-mobile-layout' : mobileLayout === false ? 'is-table-layout' : '';
+  return <main className={`health-records-page ${layoutClass}`}>
     {toast && <div className="health-record-toast" role="status" aria-live="polite">{toast}</div>}
     <nav className="health-record-breadcrumb" aria-label="Breadcrumb">
       <Link to="/dashboard">Home</Link><span aria-hidden="true">/</span><span aria-current="page">Health Records</span>
@@ -483,7 +555,7 @@ const HealthRecordsPage = () => {
         <h3>Unable to load health records</h3><p>{getFriendlyError(error)}</p>
         <button type="button" className="health-record-secondary-button" onClick={() => setRetry((current) => current + 1)}>Retry</button>
       </div> : <>
-        <div className="health-record-table-wrap">
+        {mobileLayout !== true && <div className="health-record-table-wrap">
           <table className="health-records-table">
             <thead><tr>
               {['resident', 'date', 'type'].map((field) => {
@@ -535,8 +607,8 @@ const HealthRecordsPage = () => {
               </div></td></tr>}
             </tbody>
           </table>
-        </div>
-        <div className="health-record-mobile-list">
+        </div>}
+        {mobileLayout !== false && <div className="health-record-mobile-list">
           {loading && !items.length ? Array.from({ length: 5 }, (_, index) => <div className="health-record-mobile-skeleton" key={`mobile-skeleton-${index}`} aria-hidden="true"><span /><span /></div>)
             : items.map((item) => {
               const residentName = getResidentDisplayName(item);
@@ -565,7 +637,7 @@ const HealthRecordsPage = () => {
             <p>{isFiltered ? 'Try changing your search or date range.' : 'There are no health records to display yet.'}</p>
             {isFiltered ? <button type="button" className="health-record-secondary-button" onClick={clearFilters}>Clear filters</button> : <button type="button" className="health-record-primary-button" onClick={() => setNewMenuOpen(true)}><Plus size={16} aria-hidden="true" />New record</button>}
           </div>}
-        </div>
+        </div>}
       </>}
       {!error && total > 0 && <footer className="health-record-table-footer">
         <Pagination currentPage={urlState.page} totalPages={totalPages} first={first} last={last} total={total} itemLabel="records"

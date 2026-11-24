@@ -1,15 +1,23 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
+import { ThemeProvider } from '../../context/ThemeContext';
+import { LoginTransitionContext } from '../../components/auth/LoginTransitionContext';
 import LoginPage from './LoginPage';
 
+const beginLoginTransition = jest.fn();
+
 const renderLoginPage = (login) => render(
-  <AuthContext.Provider value={{ login }}>
+  <ThemeProvider>
     <MemoryRouter>
-      <LoginPage />
+      <LoginTransitionContext.Provider value={{ beginLoginTransition }}>
+        <AuthContext.Provider value={{ login }}>
+          <LoginPage />
+        </AuthContext.Provider>
+      </LoginTransitionContext.Provider>
     </MemoryRouter>
-  </AuthContext.Provider>
+  </ThemeProvider>
 );
 
 test('exposes accessible credential fields and password visibility control', () => {
@@ -32,6 +40,7 @@ test('exposes accessible credential fields and password visibility control', () 
 });
 
 test('disables repeated submissions and announces authentication errors', async () => {
+  beginLoginTransition.mockClear();
   let finishLogin;
   const login = jest.fn(() => new Promise((resolve) => {
     finishLogin = resolve;
@@ -50,9 +59,26 @@ test('disables repeated submissions and announces authentication errors', async 
 
   const errorMessage = await screen.findByText('Please check your username or email and password.');
   expect(errorMessage.closest('.hs-status-banner')).toBeInTheDocument();
+  expect(beginLoginTransition).not.toHaveBeenCalled();
   expect(screen.getByLabelText('Username or email address')).toHaveAttribute('aria-invalid', 'true');
   expect(screen.getByLabelText('Password')).toHaveAttribute('aria-describedby', 'login-error');
   expect(screen.getByRole('button', { name: /login/i })).toBeEnabled();
+});
+
+test('starts the intro after success and keeps the admin dashboard redirect', async () => {
+  beginLoginTransition.mockClear();
+  const login = jest.fn().mockResolvedValue({
+    success: true,
+    user: { role: 'admin' },
+    mustChangePassword: false,
+  });
+  renderLoginPage(login);
+
+  fireEvent.change(screen.getByLabelText('Username or email address'), { target: { value: 'admin' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct-password' } });
+  fireEvent.submit(screen.getByRole('form', { name: 'HEALTHSYNC PORTAL' }));
+
+  await waitFor(() => expect(beginLoginTransition).toHaveBeenCalledTimes(1));
 });
 
 test('shows the credential message when invalid credentials reject with HTTP 401', async () => {

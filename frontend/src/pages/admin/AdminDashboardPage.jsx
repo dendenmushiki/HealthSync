@@ -682,13 +682,14 @@ function DashboardSkeleton() {
   );
 }
 
-function AdminDashboardPage() {
+function AdminDashboardPage({ onInitialLoad }) {
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const requestInFlight = useRef(false);
+  const initialLoadReportedRef = useRef(false);
 
   const fetchSummary = useCallback(async () => {
     if (requestInFlight.current) return;
@@ -717,6 +718,12 @@ function AdminDashboardPage() {
     const timer = window.setInterval(fetchSummary, REFRESH_INTERVAL);
     return () => window.clearInterval(timer);
   }, [fetchSummary]);
+
+  useEffect(() => {
+    if (loading || initialLoadReportedRef.current || !onInitialLoad) return;
+    initialLoadReportedRef.current = true;
+    onInitialLoad(summary ? null : error || new Error('The administrator dashboard data is unavailable.'));
+  }, [error, loading, onInitialLoad, summary]);
 
   const usersByRole = useMemo(() => {
     const value = summary?.usersByRole;

@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
+import { persistPreferences, useTheme } from '../../context/ThemeContext';
 import api from '../../services/api/apiClient';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
 import { formatRelativeTime } from '../../utils/dateUtils';
@@ -80,16 +81,6 @@ const readCachedPreferences = () => {
   } catch (error) {
     return DEFAULT_PREFERENCES;
   }
-};
-
-const applyPreferences = (preferences) => {
-  const root = document.documentElement;
-  const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-  root.dataset.theme = preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : preferences.theme;
-  root.dataset.themePreference = preferences.theme;
-  root.dataset.textSize = preferences.textSize;
-  const scales = { small: '0.875', default: '1', large: '1.125', 'extra-large': '1.25' };
-  root.style.setProperty('--hs-font-scale', scales[preferences.textSize] || scales.default);
 };
 
 const isSame = (left, right) => JSON.stringify(left) === JSON.stringify(right);
@@ -258,6 +249,7 @@ const userAgentLabel = (userAgent = '') => {
 
 const AdminSettingsPage = () => {
   const { user, updateUser, logout, unlockOfflineAccess } = useContext(AuthContext);
+  const { applyPreferences } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -400,7 +392,7 @@ const AdminSettingsPage = () => {
         };
         setProfile({ ...nextProfile, current_password: '' });
         setSavedProfile(nextProfile);
-        localStorage.setItem('hs_preferences', JSON.stringify(nextPreferences));
+        persistPreferences(nextPreferences);
         setLoginHistory(response.data.data.loginHistory || []);
       } catch (loadError) {
         console.error('Unable to load account settings.', loadError);
@@ -415,13 +407,17 @@ const AdminSettingsPage = () => {
 
   useEffect(() => {
     applyPreferences(preferences);
-    const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)');
-    const updateSystemTheme = () => {
-      if (preferences.theme === 'system') applyPreferences(preferences);
+  }, [applyPreferences, preferences]);
+
+  useEffect(() => {
+    const handleThemePreference = (event) => {
+      const theme = event.detail?.theme;
+      if (!['light', 'dark', 'system'].includes(theme)) return;
+      setPreferences((current) => current.theme === theme ? current : { ...current, theme });
     };
-    systemTheme?.addEventListener?.('change', updateSystemTheme);
-    return () => systemTheme?.removeEventListener?.('change', updateSystemTheme);
-  }, [preferences]);
+    window.addEventListener('healthsync:preferences-updated', handleThemePreference);
+    return () => window.removeEventListener('healthsync:preferences-updated', handleThemePreference);
+  }, []);
 
   useEffect(() => {
     if (!photoPreview) return undefined;
@@ -702,7 +698,7 @@ const AdminSettingsPage = () => {
         const nextPreferences = response.data.data;
         setPreferences(nextPreferences);
         setSavedPreferences(nextPreferences);
-        localStorage.setItem('hs_preferences', JSON.stringify(nextPreferences));
+        persistPreferences(nextPreferences);
         window.dispatchEvent(new CustomEvent('healthsync:preferences-updated', { detail: nextPreferences }));
       }
       showToast('Settings saved.');

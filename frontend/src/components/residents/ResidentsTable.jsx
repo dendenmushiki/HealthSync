@@ -65,8 +65,8 @@ const ResidentsTable = ({ items, sort = 'id-asc', onSort = () => {}, onSelect = 
   return (
     <div className="residents-results-list">
       <div className="residents-table-wrap">
-        <table className="residents-table">
-          <thead><tr>
+        <table className="residents-table" role="table">
+          <thead className="residents-mobile-table-head"><tr role="row">
             {sortHeader('id', 'ID')}
             {sortHeader('name', 'Full Name')}
             {sortHeader('age', 'Age')}
@@ -83,22 +83,22 @@ const ResidentsTable = ({ items, sort = 'id-asc', onSort = () => {}, onSelect = 
             const updated = resident.last_updated || resident.created_at;
             const gender = resident.sex ? `${resident.sex.charAt(0).toUpperCase()}${resident.sex.slice(1)}` : '—';
             return (
-              <tr key={resident.resident_id} className={selected ? 'selected' : ''} tabIndex={0}
+              <tr key={resident.resident_id} className={selected ? 'selected' : ''} tabIndex={0} role="row"
                 aria-label={`Preview details for ${name}`} aria-selected={selected}
                 onClick={(event) => { if (!event.target.closest('a, button')) openResident(resident); }}
                 onKeyDown={(event) => onRowKeyDown(event, resident)}>
-                <td className="residents-id-cell">{resident.resident_id}</td>
-                <td><div className="residents-name-cell">
+                <td className="residents-id-cell" data-label="ID" role="cell"><span className="residents-mobile-label">ID</span>{resident.resident_id}</td>
+                <td data-label="Full name" role="cell"><span className="residents-mobile-label">Full name</span><div className="residents-name-cell">
                   <ResidentAvatar resident={resident} name={name} />
                   <button type="button" className="residents-name-link residents-name-button"
                     onClick={(event) => { event.stopPropagation(); openResident(resident); }}>{name}</button>
                 </div></td>
-                <td className="residents-age-cell">{age ?? '—'}</td>
-                <td><span className={`residents-gender residents-gender-${String(resident.sex || '').toLowerCase()}`}>{gender}</span></td>
-                <td>{resident.sitio || '—'}</td>
-                <td><StatusBadge status={resident.nutrition_status} /></td>
-                <td>{formatDate(updated)}</td>
-                <td><ResidentActions resident={resident} name={name} onSelect={onSelect} /></td>
+                <td className="residents-age-cell" data-label="Age" role="cell"><span className="residents-mobile-label">Age</span>{age ?? '—'}</td>
+                <td data-label="Gender" role="cell"><span className="residents-mobile-label">Gender</span><span className={`residents-gender residents-gender-${String(resident.sex || '').toLowerCase()}`}>{gender}</span></td>
+                <td data-label="Sitio" role="cell"><span className="residents-mobile-label">Sitio</span>{resident.sitio || '—'}</td>
+                <td data-label="Nutritional status" role="cell"><span className="residents-mobile-label">Nutritional status</span><StatusBadge status={resident.nutrition_status} /></td>
+                <td data-label="Last updated" role="cell"><span className="residents-mobile-label">Last updated</span>{formatDate(updated)}</td>
+                <td data-label="Actions" role="cell"><span className="residents-mobile-label">Actions</span><ResidentActions resident={resident} name={name} onSelect={onSelect} /></td>
               </tr>
             );
           })}</tbody>

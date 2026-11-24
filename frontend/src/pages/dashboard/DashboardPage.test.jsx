@@ -51,12 +51,12 @@ const summaryRequestCount = () => api.get.mock.calls
   .filter(([url]) => url === '/dashboard/summary')
   .length;
 
-function renderDashboard() {
+function renderDashboard(onInitialLoad) {
   useSyncStatus.mockReturnValue(syncState);
   return render(
     <MemoryRouter>
       <AuthContext.Provider value={{ user: { user_id: 7, role: 'bhw', first_name: 'Test' } }}>
-        <DashboardPage />
+        <DashboardPage onInitialLoad={onInitialLoad} />
       </AuthContext.Provider>
     </MemoryRouter>
   );
@@ -77,6 +77,19 @@ beforeEach(() => {
     value: summary,
   });
   idb.putToStore.mockResolvedValue(undefined);
+});
+
+test('reports dashboard readiness only after its initial summary request resolves', async () => {
+  let resolveSummary;
+  const onInitialLoad = jest.fn();
+  mockDashboardApi(() => new Promise((resolve) => { resolveSummary = resolve; }));
+  renderDashboard(onInitialLoad);
+
+  await waitFor(() => expect(resolveSummary).toBeDefined());
+  expect(onInitialLoad).not.toHaveBeenCalled();
+
+  resolveSummary({ data: { success: true, data: summary } });
+  await waitFor(() => expect(onInitialLoad).toHaveBeenCalledWith(null));
 });
 
 test('shows one friendly saved-data banner and keeps timeout details collapsed', async () => {

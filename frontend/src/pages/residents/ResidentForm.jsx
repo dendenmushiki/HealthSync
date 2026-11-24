@@ -181,6 +181,30 @@ const FormSection = ({ id, icon: Icon, title, description, children }) => (
   </section>
 );
 
+const FormSectionNavigation = () => {
+  const sections = [
+    ['resident-section-personal', 'Personal Information'],
+    ['resident-section-address', 'Address & Contact'],
+  ];
+
+  const navigateToSection = (id) => {
+    const section = document.getElementById(id);
+    if (!section) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    section.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  };
+
+  return (
+    <nav className="resident-form-section-navigation" aria-label="Form sections">
+      {sections.map(([id, label], index) => (
+        <button key={id} type="button" aria-controls={id} onClick={() => navigateToSection(id)}>
+          <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>{label}
+        </button>
+      ))}
+    </nav>
+  );
+};
+
 const GroupHeading = ({ children }) => <h3 className="resident-form-group-heading">{children}</h3>;
 
 const PhotoUploader = ({ photoUrl, initials, photoInputRef, photoError, saving, onRemove, onChange }) => (
@@ -638,6 +662,7 @@ const ResidentForm = ({ onBack }) => {
     <main className="resident-form-page">
       <PageHeader isEditing={Boolean(id)} displayName={displayName} age={age} photoUrl={photoUrl} initials={initials} />
       {(error || locationError || sitioError) && <div className="resident-form-error-banner" role="alert"><AlertCircle size={18} strokeWidth={1.8} aria-hidden="true" /><span>{error || locationError || sitioError}</span></div>}
+      <FormSectionNavigation />
 
       <div className="resident-form-layout">
         <form id="resident-form" onSubmit={handleSubmit} className="resident-form-content" noValidate>

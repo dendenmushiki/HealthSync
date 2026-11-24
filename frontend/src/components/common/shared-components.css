@@ -1,0 +1,367 @@
+html[data-theme] :where(
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  .form-control,
+  .form-select
+) {
+  border-color: var(--border);
+  background-color: var(--input-bg);
+  color: var(--text);
+}
+
+html[data-theme] :where(
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  .form-control,
+  .form-select
+)::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
+html[data-theme] :where(
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  .form-control,
+  .form-select
+):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+#root .healthsync-content-panel .app-pagination-row {
+  color: var(--text-muted);
+}
+
+#root .healthsync-content-panel .app-pagination-button {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+#root .healthsync-content-panel .app-pagination-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+#root .healthsync-content-panel .app-pagination-button.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+#root .healthsync-content-panel .app-pagination-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+#root .healthsync-content-panel .app-pagination-ellipsis {
+  color: var(--text-muted);
+}
+
+#root .healthsync-content-panel .app-pagination-size select {
+  border-color: var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+#root .healthsync-content-panel .resident-stat-card {
+  min-width: 0;
+  height: 100%;
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+
+#root .healthsync-content-panel .resident-stat-icon {
+  background: var(--teal-50);
+  color: var(--accent);
+}
+
+#root .healthsync-content-panel .resident-stat-content,
+#root .healthsync-content-panel .resident-stat-content > * {
+  min-width: 0;
+}
+
+#root .healthsync-content-panel .resident-stat-content strong {
+  overflow: visible;
+  color: var(--text);
+  font-size: clamp(1rem, 2.4vw, 1.6rem);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+#root .healthsync-content-panel .resident-stat-content small {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+#root .healthsync-content-panel .resident-stat-trend {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+#root .healthsync-content-panel .resident-stat-trend.is-positive {
+  color: var(--success);
+}
+
+#root .healthsync-content-panel .resident-stat-trend.is-negative {
+  color: var(--danger);
+}
+
+#root .healthsync-content-panel .resident-stat-watermark {
+  color: var(--accent);
+}
+
+#root .healthsync-content-panel .residents-nutrition {
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+#root .healthsync-content-panel .residents-nutrition-normal {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+#root .healthsync-content-panel .residents-nutrition-overweight {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+#root .healthsync-content-panel .residents-nutrition-underweight {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+#root .healthsync-content-panel .residents-nutrition-severely-underweight,
+#root .healthsync-content-panel .residents-nutrition-obese {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+#root .healthsync-content-panel .residents-gender-female {
+  background: var(--teal-50);
+  color: var(--accent);
+}
+
+#root .healthsync-content-panel .residents-gender-male {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+#root .healthsync-content-panel .residents-mobile-label {
+  display: none;
+}
+
+#root .healthsync-content-panel :is(.table-responsive, .residents-table-wrap, .clinical-table-wrap) {
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 767px), (pointer: coarse) {
+  button,
+  [role='button'],
+  a.btn,
+  a[class*='icon-button'],
+  a[class*='icon-btn'] {
+    min-height: 44px;
+  }
+
+  #root .healthsync-content-panel :is(
+    .residents-icon-button,
+    .app-pagination-button,
+    .healthsync-notification-button,
+    .healthsync-mobile-menu,
+    .healthsync-account-menu-button,
+    .theme-toggle
+  ) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  #root .healthsync-content-panel .app-pagination-size select {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 639px) {
+  #root [role='tablist'],
+  #root .nav-tabs {
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  #root [role='tablist'] > *,
+  #root .nav-tabs > * {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  #root .healthsync-content-panel .app-pagination-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  #root .healthsync-content-panel .app-pagination-info {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    justify-items: center;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  #root .healthsync-content-panel .app-pagination-summary {
+    white-space: normal;
+    text-align: center;
+  }
+
+  #root .healthsync-content-panel .app-pagination-size {
+    flex-wrap: wrap;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  #root .healthsync-content-panel .app-pagination {
+    width: 100%;
+    overflow: visible;
+  }
+
+  #root .healthsync-content-panel .app-pagination-list {
+    justify-content: center;
+    gap: 0.25rem;
+  }
+
+  #root .healthsync-content-panel .app-pagination-list li {
+    display: none;
+  }
+
+  #root .healthsync-content-panel .app-pagination-list li:first-child,
+  #root .healthsync-content-panel .app-pagination-list li:last-child,
+  #root .healthsync-content-panel .app-pagination-list li:nth-child(2),
+  #root .healthsync-content-panel .app-pagination-list li:nth-last-child(2),
+  #root .healthsync-content-panel .app-pagination-list li:has(> .app-pagination-button[aria-current='page']) {
+    display: list-item;
+  }
+
+  #root .healthsync-content-panel .app-pagination-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 767px) {
+  #root .healthsync-content-panel .residents-table-wrap {
+    overflow: visible;
+  }
+
+  #root .healthsync-content-panel .residents-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  #root .healthsync-content-panel .residents-mobile-table-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  #root .healthsync-content-panel .residents-table tbody {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  #root .healthsync-content-panel .residents-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--card-shadow);
+  }
+
+  #root .healthsync-content-panel .residents-table tbody tr:hover,
+  #root .healthsync-content-panel .residents-table tbody tr:focus {
+    background: var(--surface-raised);
+  }
+
+  #root .healthsync-content-panel .residents-table tbody td {
+    display: grid;
+    min-width: 0;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-1);
+    padding: 0;
+    border: 0;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
+  #root .healthsync-content-panel .residents-table tbody td[data-label='Full name'] {
+    grid-column: 1 / -1;
+    align-items: center;
+  }
+
+  #root .healthsync-content-panel .residents-table tbody td[data-label='Actions'] {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+  }
+
+  #root .healthsync-content-panel .residents-mobile-label {
+    display: inline;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  #root .healthsync-content-panel .residents-name-cell {
+    min-width: 0;
+  }
+
+  #root .healthsync-content-panel .residents-name-button {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  #root .healthsync-content-panel .residents-row-actions {
+    gap: var(--space-2);
+  }
+
+  #root .healthsync-content-panel .residents-icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

@@ -85,7 +85,7 @@ beforeEach(() => {
 
 test('directory search, filter dropdowns, sorting, and pagination work', async () => {
   render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
-  expect(await screen.findByRole('heading', { name: 'Resident Records' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Residents' })).toBeInTheDocument();
   expect(screen.getByText('Total Residents')).toBeInTheDocument();
   expect(screen.getByText('Children (0-12 yrs)')).toBeInTheDocument();
   expect(screen.getByText('Adults (13-59 yrs)')).toBeInTheDocument();
@@ -122,6 +122,20 @@ test('directory search, filter dropdowns, sorting, and pagination work', async (
 
   fireEvent.click(screen.getByRole('button', { name: '2' }));
   await waitFor(() => expect(new URLSearchParams(window.location.search).get('page')).toBe('2'));
+});
+
+test('mobile filters open in a dialog and reset the active filters', async () => {
+  window.history.replaceState({}, '', '/residents?sitio=Melgar');
+  render(<BrowserRouter><ResidentsPage /></BrowserRouter>);
+
+  const trigger = await screen.findByRole('button', { name: 'Filters, 1 active' });
+  fireEvent.click(trigger);
+  expect(screen.getByRole('dialog', { name: 'Filters' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Filters' })).not.toBeInTheDocument());
+  expect(new URLSearchParams(window.location.search).has('sitio')).toBe(false);
+  expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument();
 });
 
 test('opens the selected resident profile in a modal and supports keyboard tab navigation', async () => {

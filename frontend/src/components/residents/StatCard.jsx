@@ -59,7 +59,6 @@ const StatCard = ({ icon: Icon, label, value, trend, suffix = '', animateOnMount
         {trend && (
           <span
             className={`resident-stat-trend ${positive ? 'is-positive' : ''} ${negative ? 'is-negative' : ''}`}
-            title="Change in resident registrations compared with last month"
           >
             <TrendIcon size={12} aria-hidden="true" />
             {Math.abs(trend.changePercent).toLocaleString([], { maximumFractionDigits: 1 })}% vs. last month

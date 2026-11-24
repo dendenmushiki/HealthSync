@@ -1,7 +1,8 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render as testingLibraryRender, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
+import { ThemeProvider } from '../../context/ThemeContext';
 import api from '../../services/api/apiClient';
 import AdminSettingsPage from './AdminSettingsPage';
 
@@ -36,6 +37,11 @@ const user = {
   device_id: 'device-1',
   offline_pin_enrolled: false,
 };
+
+const render = (ui, options) => testingLibraryRender(
+  <ThemeProvider>{ui}</ThemeProvider>,
+  options
+);
 
 function SettingsUrlProbe() {
   const [params] = useSearchParams();

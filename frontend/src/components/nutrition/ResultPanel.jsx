@@ -1,4 +1,5 @@
 import React from 'react';
+import { Info, TrendingUp } from 'lucide-react';
 import ClassificationBadge from './ClassificationBadge';
 import ZScoreGauge from './ZScoreGauge';
 
@@ -17,7 +18,7 @@ const severityRank = (status) => {
 
 const ResultPanel = ({ result, calculating, emptyTitle = 'Enter weight and length to see results', mode = 'nutrition', heightCm, resident, ageYears }) => {
   if (calculating) return <div className="nutrition-assessment-card nutrition-assessment-skeleton" aria-live="polite"><div /><div /><div /><span>Calculating assessment...</span></div>;
-  if (!result) return <div className="nutrition-assessment-card nutrition-assessment-empty"><div className="nutrition-empty-icon" aria-hidden="true">↗</div><h3>{mode === 'bmi' ? 'BMI result' : 'Assessment'}</h3><p>{emptyTitle}</p></div>;
+  if (!result) return <div className="nutrition-assessment-card nutrition-assessment-empty"><div className="nutrition-empty-icon" aria-hidden="true"><TrendingUp size={22} /></div><h3>{mode === 'bmi' ? 'BMI result' : 'Assessment'}</h3><p>{emptyTitle}</p></div>;
   if (mode === 'bmi') {
     const category = result.bmi_for_age_category || 'Unavailable';
     const zscore = Number(result.bmi_for_age_zscore);
@@ -57,7 +58,7 @@ const ResultPanel = ({ result, calculating, emptyTitle = 'Enter weight and lengt
       </div>
       {minKg && maxKg && <div className="nutrition-healthy-weight"><strong>Healthy weight range for {height.toFixed(1)} cm</strong><span>{minKg.toFixed(1)}–{maxKg.toFixed(1)} kg</span><small>{weightMessage}</small></div>}
       <p className="nutrition-bmi-interpretation">{interpretation}</p>
-      {notes.map((note) => <p className="nutrition-context-note" key={note}><span aria-hidden="true">ⓘ</span>{note}</p>)}
+      {notes.map((note) => <p className="nutrition-context-note" key={note}><Info size={16} aria-hidden="true" />{note}</p>)}
       <small className="nutrition-reference-caption">WHO adult BMI standard</small>
       <p className="nutrition-screening-note">Screening aid, not a diagnosis.</p>
     </aside>;

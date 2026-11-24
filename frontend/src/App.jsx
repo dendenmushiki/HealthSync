@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import LoginPage from './pages/auth/LoginPage';
@@ -28,12 +28,19 @@ import SyncStatus from './pages/SyncStatus';
 import ReportsPage from './pages/reports/ReportsPage';
 import { getProfilePhotoUrl } from './utils/profilePhoto';
 import { getRoleLabel } from './utils/roleLabels';
-import { LayoutDashboard, LogOut, ScrollText, Settings, Users } from 'lucide-react';
+import { Cloud, LayoutDashboard, LogOut, Menu, RefreshCw, ScrollText, Settings, Users, WifiOff, X } from 'lucide-react';
 import useSyncStatus, { SyncStatusProvider } from './services/offline/useSyncStatus';
 import { getOfflineSession } from './services/offline/offlineSessionService';
+import { ThemeProvider } from './context/ThemeContext';
+import ThemeToggle from './components/common/ThemeToggle';
+import { LoginTransitionProvider, useLoginTransition } from './components/auth/LoginTransitionContext';
 import './App.css';
 import './nutrition.css';
 import './pages/dashboard/Dashboard.css';
+import './components/common/shared-components.css';
+import './pages/residents/ResidentsPageResponsive.css';
+import './pages/senior-citizens/SeniorRegistryResponsive.css';
+import './pages/health-records/HealthRecordsResponsive.css';
 
 const NotAuthorized = () => (
   <div className="container mt-4"><h3>Not authorized</h3><p>You do not have permission to view this page.</p></div>
@@ -84,56 +91,23 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <ThemePreferenceManager />
         <AppContent />
       </Router>
     </AuthProvider>
   );
 }
 
-function ThemePreferenceManager() {
-  useLayoutEffect(() => {
-    const applyTheme = (preferences = {}) => {
-      const theme = preferences.theme || 'system';
-      const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-      const scales = { small: '0.875', default: '1', large: '1.125', 'extra-large': '1.25' };
-      document.documentElement.dataset.theme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
-      document.documentElement.dataset.themePreference = theme;
-      document.documentElement.dataset.textSize = preferences.textSize || 'default';
-      document.documentElement.style.setProperty('--hs-font-scale', scales[preferences.textSize] || scales.default);
-    };
-    const readPreferences = () => {
-      try {
-        applyTheme(JSON.parse(localStorage.getItem('hs_preferences') || '{}'));
-      } catch (error) {
-        applyTheme();
-      }
-    };
-    const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
-    const handleSystemTheme = () => {
-      if (document.documentElement.dataset.themePreference === 'system') readPreferences();
-    };
-    const handlePreferenceUpdate = (event) => {
-      if (event.detail) applyTheme(event.detail);
-    };
-    const handleStorage = (event) => {
-      if (event.key === 'hs_preferences') readPreferences();
-    };
-    readPreferences();
-    mediaQuery?.addEventListener?.('change', handleSystemTheme);
-    window.addEventListener('healthsync:preferences-updated', handlePreferenceUpdate);
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      mediaQuery?.removeEventListener?.('change', handleSystemTheme);
-      window.removeEventListener('healthsync:preferences-updated', handlePreferenceUpdate);
-      window.removeEventListener('storage', handleStorage);
-    };
-  }, []);
-
-  return null;
+export function AppContent() {
+  return (
+    <ThemeProvider>
+      <LoginTransitionProvider>
+        <AppContentBody />
+      </LoginTransitionProvider>
+    </ThemeProvider>
+  );
 }
 
-export function AppContent() {
+function AppContentBody() {
   const location = useLocation();
   const {
     user, loading, updateUser, offlineVaultReady, offlineVaultNeedsUnlock,
@@ -333,10 +307,12 @@ function AppShell() {
 
 function AppShellContent() {
   const { user, logout } = useContext(AuthContext);
+  const { reportDashboardReady } = useLoginTransition();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [profilePhotoLoadError, setProfilePhotoLoadError] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState(() => {
@@ -348,6 +324,9 @@ function AppShellContent() {
   });
   const menuButtonRef = useRef(null);
   const sidebarRef = useRef(null);
+  const accountMenuRef = useRef(null);
+  const accountMenuButtonRef = useRef(null);
+  const pageShellRef = useRef(null);
   const isAdmin = user?.role === 'admin';
   const isOfficial = user?.role === 'official' || user?.role === 'barangay_official';
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
@@ -360,6 +339,7 @@ function AppShellContent() {
       : syncHeaderState.waiting
         ? `${syncHeaderState.waiting} waiting`
         : 'Synced';
+  const SyncStatusIcon = syncUnavailable ? WifiOff : syncHeaderState.syncing ? RefreshCw : Cloud;
 
   useEffect(() => {
     setProfilePhotoLoadError(false);
@@ -423,6 +403,11 @@ function AppShellContent() {
 
   useEffect(() => {
     setNavigationOpen(false);
+    setAccountMenuOpen(false);
+    if (pageShellRef.current) {
+      pageShellRef.current.scrollTop = 0;
+      pageShellRef.current.scrollLeft = 0;
+    }
   }, [pathname]);
 
   useEffect(() => {
@@ -464,6 +449,25 @@ function AppShellContent() {
     };
   }, [closeNavigation, navigationOpen]);
 
+  useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+    const handlePointerDown = (event) => {
+      if (!accountMenuRef.current?.contains(event.target)) setAccountMenuOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setAccountMenuOpen(false);
+        accountMenuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [accountMenuOpen]);
+
   const navGroups = isAdmin
     ? [
         { title: null, items: [{ to: '/admin-dashboard', label: 'Dashboard', icon: 'dashboard' }] },
@@ -498,8 +502,14 @@ function AppShellContent() {
           ] }
         ];
 
+  const userDisplayName = user?.username || user?.name || 'User';
+  const userAvatar = user?.profile_photo && !profilePhotoLoadError
+    ? <img className="healthsync-user-avatar" src={getProfilePhotoUrl(user.profile_photo)} alt="" onError={() => setProfilePhotoLoadError(true)} />
+    : <span className="healthsync-user-avatar healthsync-user-avatar-placeholder" aria-hidden="true">{(user?.full_name || user?.username || 'U').charAt(0).toUpperCase()}</span>;
+
   return (
     <div className={`healthsync-shell ${isAdmin && pathname === '/audit-logs' ? 'audit-admin-shell' : ''}`}>
+      <a className="healthsync-skip-link" href="#healthsync-content">Skip to content</a>
       {navigationOpen && <button type="button" className="healthsync-drawer-backdrop" aria-label="Close navigation menu" onClick={closeNavigation} />}
       <aside ref={sidebarRef} className={`healthsync-sidebar ${navigationOpen ? 'is-open' : ''}`} id="healthsync-navigation">
         <div className="healthsync-brand">
@@ -520,12 +530,13 @@ function AppShellContent() {
         <header className="healthsync-topbar">
           <div className="healthsync-topbar-heading">
             <button ref={menuButtonRef} type="button" className="healthsync-mobile-menu" aria-label={navigationOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={navigationOpen} aria-controls="healthsync-navigation" onClick={() => setNavigationOpen((open) => !open)}>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={navigationOpen ? 'M6 6l12 12M18 6L6 18' : 'M4 6h16M4 12h16M4 18h16'} /></svg>
+              {navigationOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
             </button>
             <div className="healthsync-topbar-title"><span>Barangay Health Monitoring</span></div>
           </div>
           <div className="healthsync-topbar-user" aria-label={user ? `Signed in as ${user.username || user.name || 'User'}, ${user.role || 'User'}` : 'Account'}>
-            {!isAdmin && !isOfficial && <NavLink className={`healthsync-sync-chip ${syncUnavailable ? 'offline' : 'online'}`} to="/sync-status" title="Open sync status"><span aria-hidden="true" />{syncHeaderLabel}</NavLink>}
+            <ThemeToggle />
+            {!isAdmin && !isOfficial && <NavLink className={`healthsync-sync-chip ${syncUnavailable ? 'offline' : 'online'}`} to="/sync-status" title={`Sync status: ${syncHeaderLabel}`} aria-label={`Sync status: ${syncHeaderLabel}`}><SyncStatusIcon aria-hidden="true" />{syncHeaderLabel}</NavLink>}
             {user && <div className="healthsync-notification-wrap">
               <button type="button" className="healthsync-notification-button" aria-label={`Notifications${notifications.some((item) => !item.read) ? `, ${notifications.filter((item) => !item.read).length} unread` : ''}`} aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen((open) => !open); if (!notificationsOpen) setNotifications((items) => items.map((item) => ({ ...item, read: true }))); }}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
@@ -536,16 +547,32 @@ function AppShellContent() {
                 {notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><strong>{item.title}</strong><span>{item.description}</span><small>{new Date(item.createdAt).toLocaleString()}</small></li>)}</ul> : <p className="healthsync-notification-empty">You’re all caught up.</p>}
               </div>}
             </div>}
-            {user ? <>{user.profile_photo && !profilePhotoLoadError ? <img className="healthsync-user-avatar" src={getProfilePhotoUrl(user.profile_photo)} alt="" onError={() => setProfilePhotoLoadError(true)} /> : <span className="healthsync-user-avatar healthsync-user-avatar-placeholder" aria-hidden="true">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>}<span className="healthsync-user-name">{user.username || user.name || 'User'}</span><span className="badge bg-primary-subtle text-primary">{pathname === '/audit-logs' ? getRoleLabel(user.role) : user.role || 'User'}</span></> : <NavLink className="btn btn-sm btn-primary" to="/login">Login</NavLink>}
+            {user ? <>
+              <div className="healthsync-user-desktop">
+                {userAvatar}
+                <span className="healthsync-user-name">{userDisplayName}</span>
+                <span className="badge bg-primary-subtle text-primary">{pathname === '/audit-logs' ? getRoleLabel(user.role) : user.role || 'User'}</span>
+              </div>
+              <div className="healthsync-account-menu" ref={accountMenuRef}>
+                <button ref={accountMenuButtonRef} type="button" className="healthsync-account-menu-button" aria-label={`Account options for ${userDisplayName}`} aria-haspopup="dialog" aria-expanded={accountMenuOpen} aria-controls="healthsync-account-menu" onClick={() => setAccountMenuOpen((open) => !open)}>
+                  {userAvatar}
+                </button>
+                <div className="healthsync-account-menu-panel" id="healthsync-account-menu" role="dialog" aria-label="Account options" hidden={!accountMenuOpen}>
+                  <strong>{user.full_name || userDisplayName}</strong>
+                  <span>{pathname === '/audit-logs' ? getRoleLabel(user.role) : user.role || 'User'}</span>
+                  <button type="button" onClick={() => { setAccountMenuOpen(false); logout(); }}>Logout</button>
+                </div>
+              </div>
+            </> : <NavLink className="btn btn-sm btn-primary" to="/login">Login</NavLink>}
           </div>
         </header>
-        <div className={`healthsync-page-shell ${pathname.startsWith('/health-records') ? 'health-records-scroll-shell' : ''}`}>
-          <main className={`healthsync-content-panel ${pathname.startsWith('/health-records') ? 'health-records-scroll-content' : ''}`}>
+        <div ref={pageShellRef} className={`healthsync-page-shell ${pathname.startsWith('/health-records') ? 'health-records-scroll-shell' : ''}`}>
+          <main id="healthsync-content" tabIndex="-1" inert={navigationOpen} aria-hidden={navigationOpen} className={`healthsync-content-panel ${pathname.startsWith('/health-records') ? 'health-records-scroll-content' : ''}`}>
             <OfflineSyncCoordinator />
             <Routes>
-              <Route path="/admin-dashboard" element={<ProtectedRoute><RoleGuard allowed={['admin']}><AdminDashboardPage /></RoleGuard></ProtectedRoute>} />
+              <Route path="/admin-dashboard" element={<ProtectedRoute><RoleGuard allowed={['admin']}><AdminDashboardPage onInitialLoad={reportDashboardReady} /></RoleGuard></ProtectedRoute>} />
               <Route path="/admin-settings" element={<ProtectedRoute><RoleGuard allowed={['admin', 'bhw', 'official']}><AdminSettingsPage /></RoleGuard></ProtectedRoute>} />
-              <Route path="/dashboard" element={<ProtectedRoute><RoleGuard allowed={['bhw', 'official']}><DashboardPage /></RoleGuard></ProtectedRoute>} />
+              <Route path="/dashboard" element={<ProtectedRoute><RoleGuard allowed={['bhw', 'official']}><DashboardPage onInitialLoad={reportDashboardReady} /></RoleGuard></ProtectedRoute>} />
               <Route path="/residents" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><ResidentsPage /></RoleGuard></ProtectedRoute>} />
               <Route path="/residents/new" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><ResidentForm /></RoleGuard></ProtectedRoute>} />
               <Route path="/residents/:id" element={<ProtectedRoute><RoleGuard allowed={['bhw']}><ResidentDetails /></RoleGuard></ProtectedRoute>} />

@@ -603,7 +603,7 @@ function DashboardLoadingSkeleton() {
   );
 }
 
-const DashboardPage = () => {
+const DashboardPage = ({ onInitialLoad }) => {
   const { user } = useContext(AuthContext);
   const [searchParams, setSearchParams] = useSearchParams();
   const range = searchParams.get('range') || 'this_month';
@@ -620,6 +620,7 @@ const DashboardPage = () => {
   const [requestDurationMs, setRequestDurationMs] = useState(null);
   const [showUpdatedToast, setShowUpdatedToast] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const initialLoadReportedRef = useRef(false);
   const sharedSync = useSyncStatus();
   const refreshSync = sharedSync.refresh;
   const setDashboardRequestFailed = sharedSync.setDashboardRequestFailed;
@@ -641,6 +642,12 @@ const DashboardPage = () => {
   const offline = !sharedSync.online || !navigator.onLine || requestUnavailable;
   const connectionUnavailable = offline || sharedSync.dashboardRequestFailed || Boolean(requestError);
   const currentStats = statsKey === queryKey ? stats : null;
+
+  useEffect(() => {
+    if (loading || initialLoadReportedRef.current || !onInitialLoad) return;
+    initialLoadReportedRef.current = true;
+    onInitialLoad(currentStats ? null : requestError || new Error('The dashboard data is unavailable.'));
+  }, [currentStats, loading, onInitialLoad, requestError]);
 
   const loadSync = useCallback(async () => {
     try {

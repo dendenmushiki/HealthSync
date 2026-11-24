@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ResidentForm from './ResidentForm';
 import { AuthContext } from '../../context/AuthContext';
@@ -48,7 +48,7 @@ beforeEach(() => {
   isOffline.mockReturnValue(true);
 });
 
-test('resident form has an improved page header and no section stepper or classification section', async () => {
+test('resident form has an improved header, section navigation, and no classification section', async () => {
   render(
     <AuthContext.Provider value={{ user: null }}>
       <MemoryRouter initialEntries={['/residents/new']}>
@@ -61,13 +61,34 @@ test('resident form has an improved page header and no section stepper or classi
 
   expect(await screen.findByRole('heading', { name: 'Add Resident' })).toBeInTheDocument();
   expect(screen.getByText('NEW RESIDENT PROFILE')).toBeInTheDocument();
-  expect(screen.queryByRole('navigation', { name: 'Form sections' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /Personal/ })).not.toBeInTheDocument();
+  const sectionNavigation = screen.getByRole('navigation', { name: 'Form sections' });
+  expect(sectionNavigation).toBeInTheDocument();
+  expect(within(sectionNavigation).getByRole('button', { name: /Personal Information/ })).toHaveAttribute('aria-controls', 'resident-section-personal');
+  expect(within(sectionNavigation).getByRole('button', { name: /Address & Contact/ })).toHaveAttribute('aria-controls', 'resident-section-address');
   expect(screen.queryByText('Resident Classification')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Classification/ })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Save resident' })).toBeInTheDocument();
   expect(document.querySelectorAll('#resident-form button[type="submit"]')).toHaveLength(1);
   expect(document.querySelector('#resident-form').lastElementChild).toHaveClass('resident-form-actions');
+});
+
+test('resident section navigation scrolls without changing the route hash', async () => {
+  render(
+    <AuthContext.Provider value={{ user: null }}>
+      <MemoryRouter initialEntries={['/residents/new']}>
+        <Routes>
+          <Route path="/residents/new" element={<ResidentForm />} />
+        </Routes>
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  const section = document.getElementById('resident-section-address');
+  section.scrollIntoView = jest.fn();
+  fireEvent.click(await screen.findByRole('button', { name: /Address & Contact/ }));
+
+  expect(section.scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
+  expect(window.location.hash).toBe('');
 });
 
 test('gender and civil status choices match the new form options', async () => {
