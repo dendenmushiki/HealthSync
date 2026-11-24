@@ -217,6 +217,12 @@ html[data-theme='dark'] .dashboard-page {
   color: #0e9f98;
 }
 
+html[data-theme='dark'] .dashboard-page .dashboard-banner-range {
+  border-color: var(--dash-border);
+  background: var(--dash-surface);
+  box-shadow: 0 2px 6px rgba(2, 6, 15, .24);
+}
+
 .dashboard-page .dashboard-banner-range .dashboard-range-control select,
 .dashboard-page .dashboard-banner-range .dashboard-custom-range input {
   min-height: 1.9rem;
@@ -224,9 +230,14 @@ html[data-theme='dark'] .dashboard-page {
   padding: 0.2rem 0.45rem;
   border: 1px solid var(--dash-border);
   border-radius: 0.45rem;
-  background-color: #fff;
+  background-color: var(--input-bg, var(--dash-surface));
   color: var(--dash-text);
   font: inherit;
+}
+
+html[data-theme='dark'] .dashboard-page .dashboard-banner-range select,
+html[data-theme='dark'] .dashboard-page .dashboard-banner-range input {
+  color-scheme: dark;
 }
 
 .dashboard-banner-range .dashboard-custom-range {
