@@ -19,7 +19,7 @@ function renderScreen({
   unlockOfflineAccess = jest.fn().mockResolvedValue(true),
   logout = jest.fn().mockResolvedValue(undefined),
 } = {}) {
-  getPinAttemptStatus.mockResolvedValue({ attemptsRemaining: 3, lockedUntil: 0 });
+  getPinAttemptStatus.mockResolvedValue({ maxAttempts: 5, lockoutDurationMinutes: 15, attemptsRemaining: 3, lockedUntil: 0 });
   const onUnlockTransition = jest.fn();
   render(
     <MemoryRouter
@@ -76,8 +76,8 @@ test('unlocks with the entered PIN and returns from the login route to the dashb
 
 test('clears a rejected PIN, shows the remaining attempts, and offers a retry', async () => {
   getPinAttemptStatus
-    .mockResolvedValueOnce({ attemptsRemaining: 5, lockedUntil: 0 })
-    .mockResolvedValueOnce({ attemptsRemaining: 4, lockedUntil: 0 });
+    .mockResolvedValueOnce({ maxAttempts: 5, lockoutDurationMinutes: 15, attemptsRemaining: 5, lockedUntil: 0 })
+    .mockResolvedValueOnce({ maxAttempts: 5, lockoutDurationMinutes: 15, attemptsRemaining: 4, lockedUntil: 0 });
   const { unlockOfflineAccess } = renderScreen({
     unlockOfflineAccess: jest.fn().mockRejectedValue(new Error('PIN is incorrect.')),
   });

@@ -1,20 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  AlertCircle, Eye, EyeOff, Info, KeyRound, Loader2, LockKeyhole, LockOpen,
+  LogIn, LogOut, RotateCcw, ShieldCheck, Timer, X,
+} from 'lucide-react';
 import appPackage from '../../../package.json';
 import PinDigitInput from '../../components/common/PinDigitInput';
 import { getPinAttemptStatus } from '../../services/offline/offlineVaultService';
+import AuthScreen from '../../components/auth/AuthScreen';
+import { getRoleLabel } from '../../utils/roleLabels';
 import './OfflineUnlockScreen.css';
 
 const appVersion = appPackage.version;
 const EMPTY_PIN = { clear: () => {}, focusFirst: () => {}, getValue: () => '' };
 const NOOP = () => {};
-
-const roleLabels = {
-  admin: 'Administrator',
-  bhw: 'Barangay Health Worker',
-  official: 'Barangay Official',
-  barangay_official: 'Barangay Official',
-};
 
 function getIdentity(user) {
   const fullName = String(user?.full_name || user?.first_name || '').trim();
@@ -22,7 +21,7 @@ function getIdentity(user) {
   return {
     firstName: names[0] || '',
     initials: names.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join(''),
-    role: roleLabels[user?.role] || '',
+    role: getRoleLabel(user?.role),
   };
 }
 
@@ -30,16 +29,6 @@ function formatCountdown(milliseconds) {
   const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
   const minutes = Math.floor(seconds / 60);
   return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-}
-
-function LockIcon({ success = false }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      {success
-        ? <path d="m5 12 4 4L19 6" />
-        : <><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 1 1 8 0v3" /><path d="M12 14v3" /></>}
-    </svg>
-  );
 }
 
 function getInitialIdentityPreference() {
@@ -239,6 +228,8 @@ export default function OfflineUnlockScreen({
 
   const handleTryAgain = () => {
     setError(null);
+    pinInputRef.current.clear(true);
+    setPinLength(0);
     pinInputRef.current.focusFirst();
   };
 
@@ -270,104 +261,111 @@ export default function OfflineUnlockScreen({
   };
 
   const toggleIdentity = () => setIdentityPreference();
-  const attemptWarning = attemptStatus?.attemptsRemaining > 0 && attemptStatus.attemptsRemaining <= 2;
-  const attemptMessage = attemptStatus?.attemptsRemaining > 0
-    ? `${attemptStatus.attemptsRemaining} attempt${attemptStatus.attemptsRemaining === 1 ? '' : 's'} left before a 15-minute temporary lockout.`
+  const attemptWarning = Number(attemptStatus?.attemptsRemaining) > 0 && Number(attemptStatus.attemptsRemaining) <= 2;
+  const attemptDanger = Number(attemptStatus?.attemptsRemaining) === 1;
+  const attemptMessage = Number(attemptStatus?.attemptsRemaining) >= 0
+    ? `${attemptStatus.attemptsRemaining} attempt${attemptStatus.attemptsRemaining === 1 ? '' : 's'} left`
     : '';
 
   return (
-    <main className="hs-lock-screen">
+    <AuthScreen size="pin" className="hs-lock-screen">
       <section
         className="hs-lock-card"
         ref={cardRef}
+        role={modal ? 'presentation' : 'dialog'}
+        aria-modal="true"
+        aria-hidden={modal ? 'true' : undefined}
         aria-labelledby="hs-lock-title"
         aria-busy={busy}
       >
         <header className="hs-lock-brand">
-          <img src="/images/healthsynclogo.png" alt="" />
-          <span><strong>HealthSync</strong><small>Community Care</small></span>
+          <img src="/images/healthsynclogo.png" alt="HealthSync logo" />
+          <strong>HealthSync</strong>
         </header>
 
-        <div className={`hs-lock-icon ${success ? 'is-success' : ''}`} aria-hidden="true">
-          <LockIcon success={success} />
+        <div className="hs-lock-avatar-wrap">
+          <span className="hs-lock-avatar" aria-hidden="true">{identityHidden ? '••' : (identity.initials || 'HS')}</span>
+          <span className="hs-lock-avatar-badge"><LockKeyhole size={12} aria-hidden="true" /></span>
         </div>
 
-        <h1 id="hs-lock-title">
-          {identity.firstName && !identityHidden ? `Welcome back, ${identity.firstName}` : 'HealthSync is locked'}
+        <h1 id="hs-lock-title" title={identity.firstName && !identityHidden ? `Welcome back, ${identity.firstName}` : undefined}>
+          {identity.firstName ? `Welcome back, ${identityHidden ? '••••••' : identity.firstName}` : 'HealthSync is locked'}
         </h1>
-        {identity.firstName && !identityHidden && identity.role && (
-          <div className="hs-lock-identity">
-            <span className="hs-lock-avatar" aria-hidden="true">{identity.initials}</span>
-            <span className="hs-lock-role">{identity.role}</span>
-            <button type="button" className="hs-lock-hide-identity" onClick={toggleIdentity}>Hide name</button>
-          </div>
-        )}
-        {identityHidden && identity.firstName && (
-          <button type="button" className="hs-lock-show-identity" onClick={toggleIdentity}>Show my name</button>
-        )}
-        <p className="hs-lock-copy">
+        {identity.role && <div className="hs-lock-identity">
+          <span className="hs-lock-role">{identity.role}</span>
+          <button type="button" className="hs-lock-hide-identity" onClick={toggleIdentity}>
+            {identityHidden ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
+            {identityHidden ? 'Show name' : 'Hide name'}
+          </button>
+        </div>}
+        <p className="hs-lock-copy"><ShieldCheck size={14} aria-hidden="true" />
           {success
             ? 'Unlocked. Returning you to HealthSync…'
             : migrationRequired
               ? 'Enter your current 6-digit PIN once to migrate this older offline queue. Afterward, signing in online will unlock it automatically.'
-              : 'Enter your 6-digit PIN to unlock HealthSync on this device.'}
+              : 'Enter your 6-digit PIN to continue. Your health data is encrypted on this device.'}
         </p>
 
         {!success && (
           <>
-            {offlineVaultError && <p className="hs-lock-error" role="alert">{offlineVaultError}</p>}
+            {offlineVaultError && <p className="hs-lock-error" role="alert"><AlertCircle size={15} aria-hidden="true" /><span>{offlineVaultError}</span></p>}
             {error && <div id={pinError ? 'hs-lock-pin-error' : undefined} className={`hs-lock-feedback is-${error.kind}`} role="alert" aria-live="polite">
-              <span className="hs-lock-feedback-icon" aria-hidden="true">{error.kind === 'pin' ? '!' : 'i'}</span>
+              <AlertCircle size={16} aria-hidden="true" />
               <span>{error.message}</span>
+              {pinError && <button type="button" onClick={handleTryAgain}><RotateCcw size={13} aria-hidden="true" />Try again</button>}
             </div>}
             {attemptStatusError && <div className="hs-lock-feedback is-general" role="status">{attemptStatusError}</div>}
             {authorized && isLockedOut ? (
-              <p className="hs-lock-attempts is-warning">
-                <span role="status">A temporary PIN lockout is active.</span>{' '}
-                Try again in <strong aria-live="off">{formatCountdown(lockoutRemaining)}</strong>.
-              </p>
+              <>
+                <div className="hs-lock-lockout" role="status" aria-live="assertive">
+                  <Timer size={16} aria-hidden="true" />
+                  <span>Temporary lockout</span>
+                  <strong aria-live="off">{formatCountdown(lockoutRemaining)}</strong>
+                </div>
+                {online && <button type="button" className="hs-lock-secondary hs-lock-password-recovery" onClick={(event) => openModal('signout', event.currentTarget, true)}>
+                  <LogIn size={15} aria-hidden="true" />Sign in with password instead
+                </button>}
+              </>
             ) : authorized && attemptMessage ? (
-              <p className={`hs-lock-attempts ${attemptWarning ? 'is-warning' : ''}`}>
-                {attemptWarning && <span aria-hidden="true">⚠ </span>}{attemptMessage}
-                <span className="hs-lock-data-note">Your offline data will not be deleted by a PIN lockout.</span>
-              </p>
+              <div className={`hs-lock-attempts ${attemptDanger ? 'is-danger' : attemptWarning ? 'is-warning' : ''}`} role="status" aria-live="polite">
+                <ShieldCheck size={14} aria-hidden="true" />
+                <span>{attemptStatus?.lockoutDurationMinutes
+                  ? `${attemptMessage} before a ${attemptStatus.lockoutDurationMinutes}-minute temporary lockout.`
+                  : `${attemptMessage}.`}</span>
+                <span className="hs-lock-tooltip" title={attemptStatus?.lockoutDurationMinutes
+                  ? `A ${attemptStatus.lockoutDurationMinutes}-minute temporary lockout follows too many attempts. Your offline data will not be deleted by a PIN lockout.`
+                  : 'A temporary lockout follows too many attempts. Your offline data will not be deleted by a PIN lockout.'}><Info size={14} aria-hidden="true" /></span>
+              </div>
             ) : null}
             {authorized ? <form className="hs-lock-form" onSubmit={handleFormSubmit}>
-              <fieldset className="hs-lock-pin-group" disabled={busy || isLockedOut || success}>
-                <legend>6-digit PIN</legend>
+              <div className="hs-lock-pin-group">
                 <PinDigitInput
                   ref={pinInputRef}
                   disabled={busy || isLockedOut || success}
                   invalid={pinError}
                   describedBy={pinError ? 'hs-lock-pin-error' : undefined}
+                  label="6-digit PIN"
+                  labelId="hs-lock-pin-label"
                   onChange={(value) => {
                     setPinLength(value.length);
                     if (value) setError(null);
                   }}
                   onComplete={handleUnlock}
                 />
-              </fieldset>
+              </div>
               <button
                 className="hs-lock-primary"
                 type="submit"
                 disabled={busy || isLockedOut || pinLength !== 6}
               >
-                {busy ? <><span className="hs-lock-spinner" aria-hidden="true" /> Unlocking…</>
-                  : success ? 'Ready' : 'Unlock HealthSync'}
+                {busy ? <><Loader2 className="hs-lock-spinner" size={17} aria-hidden="true" /> Unlocking...</>
+                  : success ? 'Ready' : <><LockOpen size={17} aria-hidden="true" />Unlock HealthSync</>}
               </button>
-              <p className="hs-lock-supporting-copy">
-                Your PIN protects access to HealthSync when this device is offline.
-              </p>
             </form> : <div className="hs-lock-feedback is-general" role="status">
               {online
                 ? 'Offline access is not prepared for this device. Sign in online and set up your six-digit PIN in Settings → Security.'
                 : 'Offline authorization is unavailable for this account or device. Reconnect, sign in, and set up a PIN before using offline data.'}
             </div>}
-            {error && authorized && !isLockedOut && (
-              <button type="button" className="hs-lock-secondary hs-lock-retry" onClick={handleTryAgain}>
-                Try again
-              </button>
-            )}
 
             <nav className="hs-lock-actions" aria-label="Account recovery">
               <button
@@ -375,30 +373,20 @@ export default function OfflineUnlockScreen({
                 type="button"
                 onClick={(event) => openModal('forgot', event.currentTarget)}
               >
-                Forgot PIN?
+                <KeyRound size={14} aria-hidden="true" />Forgot PIN?
               </button>
-              {online && <button
-                type="button"
-                onClick={(event) => openModal('signout', event.currentTarget, true)}
-              >
-                Sign in with password instead
+              {online && <button type="button" onClick={(event) => openModal('signout', event.currentTarget, true)}>
+                <LogIn size={14} aria-hidden="true" />Sign in with password instead
               </button>}
-              <button
-                type="button"
-                onClick={(event) => openModal('signout', event.currentTarget)}
-              >
-                Sign out / switch user
-              </button>
             </nav>
+            <button type="button" className="hs-lock-switch-user" onClick={(event) => openModal('signout', event.currentTarget)}>
+              <LogOut size={14} aria-hidden="true" />Sign out / switch user
+            </button>
           </>
         )}
 
         {success && <div className="hs-lock-success" role="status">PIN verified</div>}
         <footer className="hs-lock-footer">
-          <span className={`hs-lock-connection ${online ? 'is-online' : 'is-offline'}`}>
-            <span className="hs-lock-connection-icon" aria-hidden="true">{online ? '●' : '○'}</span>
-            {online ? 'Online' : 'Offline — your data is safe on this device'}
-          </span>
           <span className="hs-lock-version">HealthSync {appVersion}</span>
         </footer>
       </section>
@@ -411,7 +399,7 @@ export default function OfflineUnlockScreen({
           aria-labelledby="hs-lock-modal-title"
           ref={dialogRef}
         >
-          <button type="button" className="hs-lock-modal-close" onClick={closeModal} aria-label="Close dialog">×</button>
+          <button type="button" className="hs-lock-modal-close" onClick={closeModal} aria-label="Close dialog"><X size={18} aria-hidden="true" /></button>
           {modal === 'forgot' ? <>
             <h2 id="hs-lock-modal-title">Forgot your PIN?</h2>
             <p>Your account password cannot unlock or reset the encrypted data on this device. HealthSync does not currently have a self-service PIN recovery flow. Contact your administrator for account help; the server cannot restore offline changes that have not synced.</p>
@@ -433,6 +421,6 @@ export default function OfflineUnlockScreen({
           </>}
         </section>
       </div>}
-    </main>
+    </AuthScreen>
   );
 }

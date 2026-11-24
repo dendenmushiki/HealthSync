@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import './PinDigitInput.css';
 
 const EMPTY_DIGITS = () => ['', '', '', '', '', ''];
@@ -15,6 +16,9 @@ const PinDigitInput = forwardRef(function PinDigitInput({
   invalid = false,
   describedBy,
   showStrengthHint = false,
+  showVisibilityToggle = true,
+  label,
+  labelId,
   autoFocus = true,
   onComplete,
   onChange,
@@ -126,12 +130,35 @@ const PinDigitInput = forwardRef(function PinDigitInput({
         updateDigits(next);
         inputs.current[index - 1]?.focus();
       }
+    } else if (event.key === 'ArrowLeft' && index > 0) {
+      event.preventDefault();
+      inputs.current[index - 1]?.focus();
+    } else if (event.key === 'ArrowRight' && index < 5) {
+      event.preventDefault();
+      inputs.current[index + 1]?.focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      inputs.current[0]?.focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      inputs.current[5]?.focus();
     }
   };
 
   return (
-    <div className={`hs-pin-entry ${invalid ? 'has-error' : ''}`}>
-      <div className="hs-pin-digits">
+    <div className={`hs-pin-entry ${invalid ? 'has-error' : ''}`} role="group" aria-labelledby={labelId}>
+      {label && <div className="hs-pin-label-row">
+        <span id={labelId || undefined}>{label}</span>
+        {showVisibilityToggle && <button
+          className="hs-pin-visibility"
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          disabled={disabled}
+          aria-label={visible ? 'Hide PIN' : 'Show PIN'}
+          aria-pressed={visible}
+        >{visible ? <><EyeOff size={15} aria-hidden="true" />Hide PIN</> : <><Eye size={15} aria-hidden="true" />Show PIN</>}</button>}
+      </div>}
+      <div className="hs-pin-digits" aria-invalid={invalid ? 'true' : undefined}>
         {digits.map((digit, index) => (
           <input
             key={index}
@@ -153,16 +180,6 @@ const PinDigitInput = forwardRef(function PinDigitInput({
           />
         ))}
       </div>
-      <button
-        className="hs-pin-visibility"
-        type="button"
-        onClick={() => setVisible((current) => !current)}
-        disabled={disabled}
-        aria-label={visible ? 'Hide PIN digits' : 'Show PIN digits'}
-        aria-pressed={visible}
-      >
-        {visible ? 'Hide' : 'Show'}
-      </button>
       {showStrengthHint && (
         <p className="hs-pin-strength" aria-live="polite">
           PIN strength: {!pin ? 'Enter six digits for a basic pattern check.'

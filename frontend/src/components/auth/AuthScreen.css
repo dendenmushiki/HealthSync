@@ -1,0 +1,117 @@
+.auth-screen {
+  --auth-page: #f3f7f9;
+  --auth-card: #ffffff;
+  --auth-raised: #16233a;
+  --auth-text: #1f2937;
+  --auth-muted: #6b7280;
+  --auth-border: #e5eaef;
+  --auth-input: #ffffff;
+  --auth-primary: #0e9f98;
+  --auth-button: #0e9f98;
+  --auth-primary-hover: #0b8a84;
+  --auth-primary-soft: #e6f6f4;
+  --auth-primary-tint: #cfeeea;
+  --auth-success: #16a34a;
+  --auth-success-soft: #e3f6ea;
+  --auth-warning: #d97706;
+  --auth-warning-soft: #fff1dc;
+  --auth-danger: #dc2626;
+  --auth-danger-soft: #fde2e2;
+  --auth-focus: rgba(14, 159, 152, .35);
+  box-sizing: border-box;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: flex-start;
+  flex-direction: column;
+  overflow-y: auto;
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 50% 38%, rgba(14, 159, 152, .10), transparent 23rem),
+    var(--auth-page);
+  color: var(--auth-text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color-scheme: light;
+}
+
+html[data-theme='dark'] .auth-screen {
+  --auth-page: #0b1220;
+  --auth-card: #111c2e;
+  --auth-raised: #16233a;
+  --auth-text: #e5e7eb;
+  --auth-muted: #94a3b8;
+  --auth-border: #22304a;
+  --auth-input: #0f1a2b;
+  --auth-primary: #2dd4bf;
+  --auth-button: #0e9f98;
+  --auth-primary-hover: #12b5ad;
+  --auth-primary-soft: rgba(45, 212, 191, .10);
+  --auth-primary-tint: rgba(45, 212, 191, .16);
+  --auth-success: #4ade80;
+  --auth-success-soft: rgba(74, 222, 128, .13);
+  --auth-warning: #fbbf24;
+  --auth-warning-soft: rgba(251, 191, 36, .14);
+  --auth-danger: #f87171;
+  --auth-danger-soft: rgba(248, 113, 113, .13);
+  --auth-focus: rgba(45, 212, 191, .40);
+  background:
+    radial-gradient(circle at 50% 38%, rgba(45, 212, 191, .08), transparent 23rem),
+    linear-gradient(145deg, #0b1220, #0f1a2b);
+  color-scheme: dark;
+}
+
+.auth-theme-toggle {
+  position: fixed;
+  z-index: 20;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--auth-border);
+  border-radius: 50%;
+  background: var(--auth-card);
+  color: var(--auth-muted);
+  box-shadow: 0 4px 14px rgba(15, 34, 63, .08);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.auth-theme-toggle:hover {
+  border-color: var(--auth-primary);
+  color: var(--auth-primary);
+  transform: translateY(-1px);
+}
+
+.auth-theme-toggle:focus-visible,
+.auth-screen button:focus-visible,
+.auth-screen input:focus-visible,
+.auth-screen a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--auth-focus);
+}
+
+.auth-screen *,
+.auth-screen *::before,
+.auth-screen *::after { box-sizing: border-box; }
+
+@media (max-width: 420px) {
+  .auth-screen { justify-content: flex-start; padding: 16px; }
+  .auth-theme-toggle { top: 10px; right: 10px; width: 40px; height: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-screen *,
+  .auth-screen *::before,
+  .auth-screen *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

@@ -27,6 +27,8 @@ import RoleGuard from './components/layout/RoleGuard';
 import SyncStatus from './pages/SyncStatus';
 import ReportsPage from './pages/reports/ReportsPage';
 import { getProfilePhotoUrl } from './utils/profilePhoto';
+import { getRoleLabel } from './utils/roleLabels';
+import { LayoutDashboard, LogOut, ScrollText, Settings, Users } from 'lucide-react';
 import useSyncStatus, { SyncStatusProvider } from './services/offline/useSyncStatus';
 import { getOfflineSession } from './services/offline/offlineSessionService';
 import './App.css';
@@ -57,7 +59,11 @@ const LegacyHealthRecordDetailRedirect = () => {
   return <Navigate to={`/health-records/${type}/${encodeURIComponent(`${sourceTable}-${recordId}`)}`} replace state={location.state} />;
 };
 
-const SidebarIcon = ({ name }) => {
+const SidebarIcon = ({ name, useLucide = false }) => {
+  const lucideIcons = { dashboard: LayoutDashboard, users: Users, audit: ScrollText, settings: Settings, logout: LogOut };
+  const LucideIcon = useLucide ? lucideIcons[name] : null;
+  if (LucideIcon) return <LucideIcon className="healthsync-nav-icon" size={19} strokeWidth={1.8} aria-hidden="true" />;
+  if (name === 'audit') return <ScrollText className="healthsync-nav-icon" size={19} strokeWidth={1.8} aria-hidden="true" />;
   const paths = {
     dashboard: 'M3 3h8v8H3z M13 3h8v5h-8z M13 10h8v11h-8z M3 13h8v8H3z',
     residents: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M23 11h-6',
@@ -493,7 +499,7 @@ function AppShellContent() {
         ];
 
   return (
-    <div className="healthsync-shell">
+    <div className={`healthsync-shell ${isAdmin && pathname === '/audit-logs' ? 'audit-admin-shell' : ''}`}>
       {navigationOpen && <button type="button" className="healthsync-drawer-backdrop" aria-label="Close navigation menu" onClick={closeNavigation} />}
       <aside ref={sidebarRef} className={`healthsync-sidebar ${navigationOpen ? 'is-open' : ''}`} id="healthsync-navigation">
         <div className="healthsync-brand">
@@ -505,8 +511,8 @@ function AppShellContent() {
         <nav className="healthsync-nav" aria-label="Main navigation">
           {navGroups.map((group, groupIndex) => <div className={`healthsync-nav-group ${group.title === 'System' ? 'healthsync-nav-group-system' : ''}`} key={group.title || `main-${groupIndex}`}>
             {group.title && <h2 className="healthsync-nav-group-title">{group.title}</h2>}
-            {group.items.map((item) => <NavLink key={item.to} to={item.to} onClick={closeNavigation} className={({ isActive }) => `healthsync-nav-link ${isActive ? 'active' : ''}`}><SidebarIcon name={item.icon} /><span>{item.label}</span>{item.to === '/sync-status' && syncHeaderState.waiting > 0 && <span className="healthsync-sync-badge">{syncHeaderState.waiting}</span>}</NavLink>)}
-            {group.title === 'System' && <button type="button" className="healthsync-nav-link healthsync-nav-logout" onClick={() => { closeNavigation(); logout(); }}><SidebarIcon name="logout" /><span>Logout</span></button>}
+            {group.items.map((item) => <NavLink key={item.to} to={item.to} onClick={closeNavigation} className={({ isActive }) => `healthsync-nav-link ${isActive ? 'active' : ''}`}><SidebarIcon name={item.icon} useLucide={isAdmin && pathname === '/audit-logs'} /><span>{item.label}</span>{item.to === '/sync-status' && syncHeaderState.waiting > 0 && <span className="healthsync-sync-badge">{syncHeaderState.waiting}</span>}</NavLink>)}
+            {group.title === 'System' && <button type="button" className="healthsync-nav-link healthsync-nav-logout" onClick={() => { closeNavigation(); logout(); }}><SidebarIcon name="logout" useLucide={isAdmin && pathname === '/audit-logs'} /><span>Logout</span></button>}
           </div>)}
         </nav>
       </aside>
@@ -530,7 +536,7 @@ function AppShellContent() {
                 {notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><strong>{item.title}</strong><span>{item.description}</span><small>{new Date(item.createdAt).toLocaleString()}</small></li>)}</ul> : <p className="healthsync-notification-empty">You’re all caught up.</p>}
               </div>}
             </div>}
-            {user ? <>{user.profile_photo && !profilePhotoLoadError ? <img className="healthsync-user-avatar" src={getProfilePhotoUrl(user.profile_photo)} alt="" onError={() => setProfilePhotoLoadError(true)} /> : <span className="healthsync-user-avatar healthsync-user-avatar-placeholder" aria-hidden="true">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>}<span className="healthsync-user-name">{user.username || user.name || 'User'}</span><span className="badge bg-primary-subtle text-primary">{user.role || 'User'}</span></> : <NavLink className="btn btn-sm btn-primary" to="/login">Login</NavLink>}
+            {user ? <>{user.profile_photo && !profilePhotoLoadError ? <img className="healthsync-user-avatar" src={getProfilePhotoUrl(user.profile_photo)} alt="" onError={() => setProfilePhotoLoadError(true)} /> : <span className="healthsync-user-avatar healthsync-user-avatar-placeholder" aria-hidden="true">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>}<span className="healthsync-user-name">{user.username || user.name || 'User'}</span><span className="badge bg-primary-subtle text-primary">{pathname === '/audit-logs' ? getRoleLabel(user.role) : user.role || 'User'}</span></> : <NavLink className="btn btn-sm btn-primary" to="/login">Login</NavLink>}
           </div>
         </header>
         <div className={`healthsync-page-shell ${pathname.startsWith('/health-records') ? 'health-records-scroll-shell' : ''}`}>

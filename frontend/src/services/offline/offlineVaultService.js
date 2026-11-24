@@ -310,6 +310,8 @@ export async function getPinAttemptStatus(userId) {
   const activeLockout = lockedUntil > Date.now();
   const failures = Math.min(5, Math.max(0, Number(attempts?.failures) || 0));
   return {
+    maxAttempts: 5,
+    lockoutDurationMinutes: 15,
     attemptsRemaining: activeLockout ? 0 : 5 - failures,
     lockedUntil: activeLockout ? lockedUntil : 0,
   };

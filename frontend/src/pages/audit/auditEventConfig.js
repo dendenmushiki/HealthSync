@@ -35,35 +35,35 @@ export const AUDIT_MODULES = {
 const event = (label, category, icon, severity = 'info') => ({ label, category, icon, severity });
 
 export const AUDIT_EVENTS = {
-  LOGIN: event('Signed in', 'authentication', '↗'),
-  LOGOUT: event('Signed out', 'authentication', '↙'),
-  LOGIN_FAILED: event('Failed sign-in', 'authentication', '! ', 'warning'),
-  ACCOUNT_LOCKED: event('Account locked', 'authentication', '⌑', 'critical'),
-  PASSWORD_CHANGED: event('Password changed', 'authentication', '◈'),
-  CREATE: event('Created record', 'system', '+'),
-  UPDATE: event('Updated record', 'system', '↻'),
-  DELETE: event('Deleted record', 'system', '−', 'warning'),
-  VIEW: event('Viewed record', 'system', '◉'),
-  USER_CREATED: event('User created', 'user_management', '+'),
-  user_created: event('User created', 'user_management', '+'),
-  user_updated: event('User updated', 'user_management', '✎'),
-  role_changed: event('Role changed', 'user_management', '⇄', 'warning'),
-  user_deactivated: event('User deactivated', 'user_management', '⊘', 'warning'),
-  user_reactivated: event('User reactivated', 'user_management', '✓'),
-  password_reset: event('Password reset', 'user_management', '↻', 'warning'),
-  user_unlocked: event('User unlocked', 'user_management', '⌑'),
-  sessions_revoked: event('Sessions revoked', 'user_management', '↪', 'warning'),
-  audit_exported: event('Audit exported', 'system', '⇩'),
-  ACCOUNT_SETTINGS_UPDATED: event('Settings updated', 'settings', '⚙'),
-  ACCOUNT_PASSWORD_UPDATED: event('Password changed', 'settings', '◈'),
-  ACCOUNT_SESSIONS_REVOKED: event('Sessions revoked', 'settings', '↪', 'warning'),
-  ACCOUNT_PHOTO_UPDATED: event('Profile photo updated', 'settings', '▧'),
-  ACCOUNT_PHOTO_REMOVED: event('Profile photo removed', 'settings', '▧'),
+  LOGIN: event('Signed in', 'authentication', 'login'),
+  LOGOUT: event('Signed out', 'authentication', 'logout'),
+  LOGIN_FAILED: event('Failed sign-in', 'authentication', 'failure', 'warning'),
+  ACCOUNT_LOCKED: event('Account locked', 'authentication', 'locked', 'critical'),
+  PASSWORD_CHANGED: event('Password changed', 'authentication', 'password'),
+  CREATE: event('Created record', 'system', 'created'),
+  UPDATE: event('Updated record', 'system', 'updated'),
+  DELETE: event('Deleted record', 'system', 'deleted', 'warning'),
+  VIEW: event('Viewed record', 'system', 'activity'),
+  USER_CREATED: event('User created', 'user_management', 'created'),
+  user_created: event('User created', 'user_management', 'created'),
+  user_updated: event('User updated', 'user_management', 'updated'),
+  role_changed: event('Role changed', 'user_management', 'updated', 'warning'),
+  user_deactivated: event('User deactivated', 'user_management', 'deleted', 'warning'),
+  user_reactivated: event('User reactivated', 'user_management', 'created'),
+  password_reset: event('Password reset', 'user_management', 'password', 'warning'),
+  user_unlocked: event('User unlocked', 'user_management', 'locked'),
+  sessions_revoked: event('Sessions revoked', 'user_management', 'logout', 'warning'),
+  audit_exported: event('Audit exported', 'system', 'download'),
+  ACCOUNT_SETTINGS_UPDATED: event('Settings updated', 'settings', 'updated'),
+  ACCOUNT_PASSWORD_UPDATED: event('Password changed', 'settings', 'password'),
+  ACCOUNT_SESSIONS_REVOKED: event('Sessions revoked', 'settings', 'logout', 'warning'),
+  ACCOUNT_PHOTO_UPDATED: event('Profile photo updated', 'settings', 'updated'),
+  ACCOUNT_PHOTO_REMOVED: event('Profile photo removed', 'settings', 'deleted'),
 };
 
 export const getEventConfig = (action) => {
   const raw = String(action || 'unknown');
-  return AUDIT_EVENTS[raw] || { label: raw.replace(/[_-]+/g, ' '), category: 'system', icon: '•', severity: 'info', unknown: true };
+  return AUDIT_EVENTS[raw] || { label: raw.replace(/[_-]+/g, ' '), category: 'system', icon: 'activity', severity: 'info', unknown: true };
 };
 
 export const getModuleLabel = (module) => AUDIT_MODULES[module]?.label || String(module || 'System').replace(/[_-]+/g, ' ');
