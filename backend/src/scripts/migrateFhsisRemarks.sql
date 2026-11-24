@@ -11,4 +11,4 @@ CREATE TABLE IF NOT EXISTS report_remarks (
   CONSTRAINT fk_report_remarks_updated_by
     FOREIGN KEY (updated_by) REFERENCES users (user_id)
     ON DELETE SET NULL
-);
+) ENGINE=InnoDB;

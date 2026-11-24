@@ -57,7 +57,7 @@ The FHSIS report stores period-specific indicator remarks in a dedicated table.
 Apply the additive migration before opening the report:
 
 ```sh
-mysql -u <database-user> -p <database-name> < src/scripts/migrateFhsisRemarks.sql
+npm run migrate:fhsis-remarks
 ```
 
 Set `BARANGAY_NAME` and `MUNICIPALITY_NAME` in the backend environment to print

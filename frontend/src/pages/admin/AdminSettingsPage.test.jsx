@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import api from '../../services/api/apiClient';
 import AdminSettingsPage from './AdminSettingsPage';
@@ -36,6 +36,11 @@ const user = {
   device_id: 'device-1',
   offline_pin_enrolled: false,
 };
+
+function SettingsUrlProbe() {
+  const [params] = useSearchParams();
+  return <output data-testid="settings-url">{params.toString()}</output>;
+}
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -112,6 +117,59 @@ test('loads and saves contact number and email from Profile settings', async () 
     contact_number: '+63 917-555-0101',
     email: 'updated@example.com',
   }));
+});
+
+test('renders URL-backed keyboard-accessible tabs without the old mini sidebar', async () => {
+  render(
+    <MemoryRouter
+      initialEntries={['/admin-settings?tab=profile']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <AuthContext.Provider value={{ user, updateUser: jest.fn(), logout: jest.fn(), unlockOfflineAccess: jest.fn() }}>
+        <AdminSettingsPage />
+        <SettingsUrlProbe />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+
+  const tabs = await screen.findByRole('tablist', { name: 'Settings sections' });
+  const profileTab = within(tabs).getByRole('tab', { name: 'Profile' });
+  expect(profileTab).toHaveAttribute('aria-selected', 'true');
+  expect(document.querySelector('.settings-sidebar')).not.toBeInTheDocument();
+
+  fireEvent.keyDown(profileTab, { key: 'ArrowRight' });
+  expect(within(tabs).getByRole('tab', { name: 'Appearance' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByTestId('settings-url')).toHaveTextContent('tab=appearance');
+});
+
+test('confirms before discarding profile edits when switching tabs', async () => {
+  render(
+    <MemoryRouter
+      initialEntries={['/admin-settings?tab=profile']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <AuthContext.Provider value={{ user, updateUser: jest.fn(), logout: jest.fn(), unlockOfflineAccess: jest.fn() }}>
+        <AdminSettingsPage />
+        <SettingsUrlProbe />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+
+  const fullName = await screen.findByLabelText(/Full name/);
+  fireEvent.change(fullName, { target: { value: 'Changed User' } });
+  fireEvent.click(screen.getByRole('tab', { name: 'Appearance' }));
+  expect(await screen.findByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+  expect(screen.getByRole('tab', { name: 'Profile' })).toHaveAttribute('aria-selected', 'true');
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Appearance' }));
+  const discardDialog = await screen.findByRole('dialog', { name: 'Discard changes?' });
+  fireEvent.click(within(discardDialog).getByRole('button', { name: 'Discard' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Appearance' })).toHaveAttribute('aria-selected', 'true'));
+  expect(screen.getByTestId('settings-url')).toHaveTextContent('tab=appearance');
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Profile' }));
+  expect(await screen.findByLabelText(/Full name/)).toHaveValue(user.full_name);
 });
 
 test('asks for the account password only after PIN confirmation and account PIN setup', async () => {

@@ -652,8 +652,8 @@ const ReportsPage = () => {
       <PageBanner
         className="fhsis-page-banner"
         icon={FileBarChart}
-        eyebrow={<nav className="fhsis-breadcrumb" aria-label="Breadcrumb"><span>Reports</span><span aria-hidden="true">/</span><span aria-current="page">FHSIS</span></nav>}
-        title="FHSIS Report"
+        eyebrow={<nav className="fhsis-breadcrumb" aria-label="Breadcrumb"><span>Reports</span></nav>}
+        title="Reports"
         subtitle="A clear view of HealthSync indicators for the selected reporting period."
         actions={(
           <div className="fhsis-report-actions">
