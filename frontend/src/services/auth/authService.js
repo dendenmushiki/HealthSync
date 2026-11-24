@@ -1,12 +1,12 @@
 import api from '../api/apiClient';
 import { getDeviceIdentity, signDeviceMessage } from '../offline/deviceIdentityService';
 
-export async function login(username, password) {
+export async function login(identifier, password) {
   const identity = await getDeviceIdentity();
   const challenge = Array.from(window.crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('');
   const deviceProof = await signDeviceMessage(identity, challenge);
   const resp = await api.post('/auth/login', {
-    username,
+    username: identifier,
     password,
     device_id: identity.deviceId,
     device_public_key: identity.publicKey,

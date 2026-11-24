@@ -138,7 +138,7 @@ export const AuthProvider = ({ children }) => {
     return () => { active = false; };
   }, []);
 
-  const login = async (username, password) => {
+  const login = async (identifier, password) => {
     let migrationRequired = false;
     lockOfflineVault();
     setOfflineVaultReady(false);
@@ -149,7 +149,7 @@ export const AuthProvider = ({ children }) => {
     if (sessionCleanupError || localStorage.getItem('hs_logout_pending')) {
       throw new Error('Sign-out cleanup is incomplete. Reload the page to retry before signing in.');
     }
-    const data = await apiLogin(username, password);
+    const data = await apiLogin(identifier, password);
     if (data && data.success) {
       const signedInUser = data.data.user;
       const currentGrant = getOfflineSession();

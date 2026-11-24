@@ -1,5 +1,6 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Activity, Building2, Check, HeartPulse, KeyRound, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, UserRound, Users, X } from 'lucide-react';
 import api from '../../services/api/apiClient';
 import Pagination from '../../components/common/Pagination';
 import { AuthContext } from '../../context/AuthContext';
@@ -52,6 +53,34 @@ const userStatus = (user) => {
 
 const roleLabel = (role) => ROLES.find((item) => item.value === role)?.label || role || 'Unknown';
 
+const normalizeRoleKey = (role) => {
+  const key = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return key === 'barangay_official' ? 'official' : key;
+};
+
+const getRoleCount = (roleCounts, requestedRole) => {
+  if (!roleCounts || typeof roleCounts !== 'object' || Array.isArray(roleCounts)) return null;
+  return Object.entries(roleCounts).reduce((total, [role, count]) => (
+    normalizeRoleKey(role) === requestedRole ? total + (Number.isFinite(Number(count)) ? Number(count) : 0) : total
+  ), 0);
+};
+
+const formatCount = (value) => new Intl.NumberFormat().format(Math.max(0, Number(value) || 0));
+
+const describeAuditAction = (action) => {
+  const knownActions = {
+    user_created: 'Account created',
+    user_updated: 'Profile updated',
+    user_deactivated: 'Account deactivated',
+    user_reactivated: 'Account reactivated',
+    password_reset: 'Password reset',
+    account_unlocked: 'Account unlocked',
+    role_changed: 'Role changed',
+  };
+  const key = String(action || '').toLowerCase();
+  return knownActions[key] || key.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'Account activity';
+};
+
 const Avatar = ({ user, size = 'normal' }) => {
   const [failed, setFailed] = useState(false);
   const initials = String(user?.full_name || user?.username || 'U')
@@ -65,7 +94,9 @@ const Avatar = ({ user, size = 'normal' }) => {
 
 const RoleBadge = ({ role }) => (
   <span className={`users-role-badge users-role-${role}`}>
-    <span aria-hidden="true">{role === 'admin' ? '⌘' : role === 'official' ? '▤' : '＋'}</span>
+    {role === 'admin' ? <ShieldCheck size={13} aria-hidden="true" />
+      : role === 'official' ? <Building2 size={13} aria-hidden="true" />
+        : <HeartPulse size={13} aria-hidden="true" />}
     {roleLabel(role)}
   </span>
 );
@@ -85,18 +116,28 @@ const RelativeDate = ({ value, empty = 'Never' }) => {
   return <time dateTime={date.toISOString()} title={exact || ''}>{relative || exact}</time>;
 };
 
-const AccessibleModal = ({ title, onClose, children, className = '' }) => {
+const ExactDate = ({ value, empty = 'Not recorded' }) => {
+  if (!value) return <span className="users-muted">{empty}</span>;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return <span className="users-muted">{empty}</span>;
+  return <time dateTime={date.toISOString()} title={formatRelativeTime(value) || ''}>{formatDateTime(value)}</time>;
+};
+
+const AccessibleModal = ({ title, onClose, children, className = '', headerContent, returnFocusRef }) => {
   const dialogRef = useRef(null);
   const closeRef = useRef(onClose);
   const previousFocusRef = useRef(null);
+  const titleId = useId();
   closeRef.current = onClose;
 
   useEffect(() => {
-    previousFocusRef.current = document.activeElement;
+    previousFocusRef.current = returnFocusRef?.current || document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const focusables = () => Array.from(dialogRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])') || []);
     const keydown = (event) => {
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'));
+      if (dialogs[dialogs.length - 1] !== dialogRef.current) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         closeRef.current();
@@ -119,61 +160,19 @@ const AccessibleModal = ({ title, onClose, children, className = '' }) => {
       document.removeEventListener('keydown', keydown);
       requestAnimationFrame(() => previousFocusRef.current?.focus?.());
     };
-  }, []);
-
-  return (
-    <div className={`users-modal-backdrop ${className}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section ref={dialogRef} className="users-modal" role="dialog" aria-modal="true" aria-labelledby="users-modal-title" tabIndex="-1">
-        <div className="users-modal-heading">
-          <h2 id="users-modal-title">{title}</h2>
-          <button type="button" className="users-icon-button" aria-label="Close dialog" onClick={onClose}>×</button>
-        </div>
-        {children}
-      </section>
-    </div>
-  );
-};
-
-const UserDrawer = ({ title, onClose, returnFocusRef, children, className = '' }) => {
-  const panelRef = useRef(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-
-  useEffect(() => {
-    const returnTarget = returnFocusRef.current;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const focusables = () => Array.from(panelRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])') || []);
-    const keydown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeRef.current();
-      }
-      if (event.key !== 'Tab') return;
-      const items = focusables();
-      if (!items.length) return;
-      if (event.shiftKey && document.activeElement === items[0]) {
-        event.preventDefault();
-        items[items.length - 1].focus();
-      } else if (!event.shiftKey && document.activeElement === items[items.length - 1]) {
-        event.preventDefault();
-        items[0].focus();
-      }
-    };
-    document.addEventListener('keydown', keydown);
-    requestAnimationFrame(() => (focusables()[0] || panelRef.current)?.focus());
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', keydown);
-      requestAnimationFrame(() => returnTarget?.focus?.());
-    };
   }, [returnFocusRef]);
 
   return (
-    <div className="users-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <aside ref={panelRef} className={`users-drawer ${className}`} role="dialog" aria-modal="true" aria-label={title} tabIndex="-1">
+    <div className={`users-modal-backdrop ${className}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef} className="users-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex="-1">
+        {headerContent
+          ? headerContent({ titleId, onClose })
+          : <div className="users-modal-heading">
+            <h2 id={titleId}>{title}</h2>
+            <button type="button" className="users-icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} aria-hidden="true" /></button>
+          </div>}
         {children}
-      </aside>
+      </section>
     </div>
   );
 };
@@ -297,7 +296,7 @@ const RowActionsMenu = ({ user, currentUserId, activeAdmins, onAction, onTrigger
   return (
     <div className="users-row-menu" ref={rootRef} onClick={(event) => event.stopPropagation()}>
       <button type="button" className="users-icon-button users-menu-trigger" aria-label={`More actions for ${user.full_name}`}
-        ref={triggerRef} aria-haspopup="menu" aria-expanded={open} onClick={(event) => { onTrigger?.(event); setOpen((state) => !state); }}>⋯</button>
+        ref={triggerRef} aria-haspopup="menu" aria-expanded={open} onClick={(event) => { onTrigger?.(event); setOpen((state) => !state); }}><MoreHorizontal size={19} aria-hidden="true" /></button>
       {open && <div ref={menuRef} className="users-menu" role="menu">{items.map((item) => (
         <button key={item.action} type="button" role="menuitem" disabled={item.disabled} title={item.disabled ? item.reason : undefined}
           onClick={() => { setOpen(false); onAction(item.action, user); }}>{item.label}{item.disabled && <span className="users-menu-reason">{item.reason}</span>}</button>
@@ -323,6 +322,8 @@ const UserManagementPage = () => {
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState({ total: 0, active: 0, inactive: 0, locked: 0, temporary: 0, active_admins: 0 });
+  const [roleCounts, setRoleCounts] = useState(null);
+  const [roleSummaryError, setRoleSummaryError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [toast, setToast] = useState('');
@@ -336,6 +337,7 @@ const UserManagementPage = () => {
   const [offlineDevices, setOfflineDevices] = useState([]);
   const [offlineDevicesError, setOfflineDevicesError] = useState('');
   const [offlineDevicesLoading, setOfflineDevicesLoading] = useState(false);
+  const offlineDevicesCacheRef = useRef(new Map());
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', username: '', role: 'bhw' });
   const [savedEditForm, setSavedEditForm] = useState({ full_name: '', username: '', role: 'bhw' });
@@ -347,11 +349,14 @@ const UserManagementPage = () => {
   const [saving, setSaving] = useState(false);
   const [credentials, setCredentials] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [deviceConfirm, setDeviceConfirm] = useState(null);
   const [resetPasswordMode, setResetPasswordMode] = useState('generated');
   const [resetPassword, setResetPassword] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [pendingDetailTab, setPendingDetailTab] = useState(null);
   const triggerRef = useRef(null);
+  const detailTabRefs = useRef({});
   const drawerLocationRef = useRef({ drawer: drawerMode, user: selectedUserId });
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
@@ -375,6 +380,7 @@ const UserManagementPage = () => {
         else next.delete('user');
         return next;
       }, { replace: true });
+      setPendingDetailTab(null);
       setShowLeaveConfirm(true);
       return;
     }
@@ -435,10 +441,27 @@ const UserManagementPage = () => {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+  const fetchRoleCounts = useCallback(async () => {
+    setRoleSummaryError(null);
+    try {
+      const response = await api.get('/dashboard/admin-summary');
+      const summary = response.data?.data;
+      if (response.data?.success !== true || !summary?.usersByRole || typeof summary.usersByRole !== 'object') {
+        throw new Error(response.data?.message || 'Role totals are unavailable.');
+      }
+      setRoleCounts(summary.usersByRole);
+    } catch (error) {
+      console.error('Unable to load role totals.', error);
+      setRoleCounts(null);
+      setRoleSummaryError(error);
+    }
+  }, []);
+
+  useEffect(() => { fetchRoleCounts(); }, [fetchRoleCounts]);
+
   useEffect(() => {
     if (drawerMode !== 'user' || !selectedUserId) {
       setDetail(null);
-      setDetailReload((current) => current + 1);
       setDetailError('');
       setDetailLoading(false);
       return undefined;
@@ -468,13 +491,23 @@ const UserManagementPage = () => {
 
   useEffect(() => {
     if (drawerMode !== 'user' || detailTab !== 'security' || !detail?.user_id) return undefined;
+    const userId = String(detail.user_id);
+    if (offlineDevicesCacheRef.current.has(userId)) {
+      setOfflineDevices(offlineDevicesCacheRef.current.get(userId));
+      setOfflineDevicesError('');
+      return undefined;
+    }
     let active = true;
     setOfflineDevicesLoading(true);
     setOfflineDevicesError('');
     api.get(`/users/${encodeURIComponent(detail.user_id)}/offline-devices`)
       .then((response) => {
         if (!response.data?.success) throw new Error(response.data?.message || 'Unable to load authorized devices.');
-        if (active) setOfflineDevices(response.data.data || []);
+        if (active) {
+          const devices = response.data.data || [];
+          setOfflineDevices(devices);
+          offlineDevicesCacheRef.current.set(userId, devices);
+        }
       })
       .catch((error) => {
         console.error('Unable to load authorized devices.', error);
@@ -576,6 +609,7 @@ const UserManagementPage = () => {
 
   const closeDrawer = () => {
     setShowLeaveConfirm(false);
+    setPendingDetailTab(null);
     setCredentials(null);
     setEditMode(false);
     setNewForm(EMPTY_NEW_USER);
@@ -583,8 +617,61 @@ const UserManagementPage = () => {
   };
 
   const requestCloseDrawer = () => {
-    if (isDirty) setShowLeaveConfirm(true);
+    if (isDirty) {
+      setPendingDetailTab(null);
+      setShowLeaveConfirm(true);
+    }
     else closeDrawer();
+  };
+
+  const selectDetailTab = (nextTab) => {
+    if (nextTab === detailTab) return;
+    if (isEditDirty) {
+      setPendingDetailTab(nextTab);
+      setShowLeaveConfirm(true);
+      return;
+    }
+    setEditMode(false);
+    setDetailTab(nextTab);
+  };
+
+  const handleDetailTabKeyDown = (event, currentTab) => {
+    const tabs = ['profile', 'security', 'activity'];
+    const currentIndex = tabs.indexOf(currentTab);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = tabs.length - 1;
+    else return;
+
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    if (isEditDirty) {
+      setPendingDetailTab(nextTab);
+      setShowLeaveConfirm(true);
+      return;
+    }
+    selectDetailTab(nextTab);
+    requestAnimationFrame(() => detailTabRefs.current[nextTab]?.focus());
+  };
+
+  const discardChangesAndContinue = () => {
+    if (pendingDetailTab) {
+      setEditForm(savedEditForm);
+      setEditMode(false);
+      setEditErrors({});
+      setDetailTab(pendingDetailTab);
+      setPendingDetailTab(null);
+      setShowLeaveConfirm(false);
+      return;
+    }
+    closeDrawer();
+  };
+
+  const keepEditing = () => {
+    setPendingDetailTab(null);
+    setShowLeaveConfirm(false);
   };
 
   const chooseFilter = (key, value) => updateQuery({ [key]: value, page: 1 });
@@ -636,11 +723,15 @@ const UserManagementPage = () => {
       if (!response.data?.success) throw new Error(response.data?.message || 'Unable to update device authorization.');
       const refreshed = await api.get(`/users/${encodeURIComponent(detail.user_id)}/offline-devices`);
       if (!refreshed.data?.success) throw new Error(refreshed.data?.message || 'Device updated but the list could not be refreshed.');
-      setOfflineDevices(refreshed.data.data || []);
+      const devices = refreshed.data.data || [];
+      setOfflineDevices(devices);
+      offlineDevicesCacheRef.current.set(String(detail.user_id), devices);
       setToast(response.data.message || (action === 'approve' ? 'Device approved.' : 'Device revoked.'));
+      return true;
     } catch (error) {
       console.error('Unable to update device authorization.', error);
       setOfflineDevicesError(error);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -790,12 +881,14 @@ const UserManagementPage = () => {
         && newForm.contact_number.trim().length > 0 && newForm.email.trim().length > 0
         && newUsernameCheck.available === true && passwordValid;
       return (
-        <UserDrawer title="Add user" onClose={requestCloseDrawer} returnFocusRef={triggerRef} className="users-add-drawer">
-          <div className="users-drawer-header">
-            <div><span className="users-eyebrow">SYSTEM ACCESS</span><h2>Add user</h2><p>Create a HealthSync account for a staff member.</p></div>
-            <button type="button" className="users-icon-button" aria-label="Close add user drawer" onClick={requestCloseDrawer}>×</button>
-          </div>
-          <form className="users-drawer-content users-add-form" onSubmit={handleCreate} noValidate>
+        <AccessibleModal title="Add user" onClose={requestCloseDrawer} className="users-add-modal" returnFocusRef={triggerRef}
+          headerContent={({ titleId, onClose }) => (
+            <div className="users-modal-heading users-modal-heading-copy">
+              <div><span className="users-eyebrow">SYSTEM ACCESS</span><h2 id={titleId}>Add user</h2><p>Create a HealthSync account for a staff member.</p></div>
+              <button type="button" className="users-icon-button" aria-label="Close add user dialog" onClick={onClose}><X size={19} aria-hidden="true" /></button>
+            </div>
+          )}>
+          <form className="users-modal-content users-add-form" onSubmit={handleCreate} noValidate>
             {actionError && <StatusBanner error={actionError} compact />}
             <div className="users-form-field">
               <label htmlFor="new-full-name">Full name</label>
@@ -836,14 +929,14 @@ const UserManagementPage = () => {
                 : <><PasswordInput id="new-temporary-password" value={newForm.password} onChange={(value) => updateNewForm('password', value)} />
                   {newErrors.password && <small className="users-field-error">{newErrors.password}</small>}</>}
             </section>
-            <div className="users-drawer-footer">
+            <div className="users-modal-footer">
               <button type="button" className="users-button users-button-outline" onClick={requestCloseDrawer}>Cancel</button>
               <button type="submit" className="users-button users-button-primary" disabled={!formValid || saving}>
                 {saving ? <><span className="users-spinner" aria-hidden="true" /> Creating…</> : 'Create user'}
               </button>
             </div>
           </form>
-        </UserDrawer>
+        </AccessibleModal>
       );
     }
 
@@ -858,12 +951,15 @@ const UserManagementPage = () => {
         }
       };
       return (
-        <UserDrawer title="One-time credentials" onClose={requestCloseDrawer} returnFocusRef={triggerRef} className="users-credentials-drawer">
-          <div className="users-drawer-header">
-            <div><span className="users-eyebrow">ACCOUNT READY</span><h2>{available ? 'Share these credentials' : 'Credentials unavailable'}</h2></div>
-            <button type="button" className="users-icon-button" aria-label="Close credentials" onClick={requestCloseDrawer}>×</button>
-          </div>
-          <div className="users-drawer-content">
+        <AccessibleModal title={available ? 'Share these credentials' : 'Credentials unavailable'}
+          onClose={requestCloseDrawer} className="users-credentials-modal" returnFocusRef={triggerRef}
+          headerContent={({ titleId, onClose }) => (
+            <div className="users-modal-heading users-modal-heading-copy">
+              <div><span className="users-eyebrow">ACCOUNT READY</span><h2 id={titleId}>{available ? 'Share these credentials' : 'Credentials unavailable'}</h2></div>
+              <button type="button" className="users-icon-button" aria-label="Close credentials dialog" onClick={onClose}><X size={19} aria-hidden="true" /></button>
+            </div>
+          )}>
+          <div className="users-modal-content users-credentials-content">
             {available ? <>
               <div className="users-credentials-warning" role="alert"><strong>This password is shown only once.</strong><span>Copy or print it now. Closing this screen permanently discards it.</span></div>
               <div className="users-credential-line"><span>Username</span><strong>{credentials.username}</strong></div>
@@ -884,31 +980,46 @@ const UserManagementPage = () => {
               </div>
             </> : <div className="users-empty-state"><strong>For your security, the password is not recoverable.</strong><p>Generate a new temporary password by resetting this user’s password.</p></div>}
             {actionError && <StatusBanner error={actionError} compact />}
-            <div className="users-drawer-footer"><button type="button" className="users-button users-button-primary" onClick={requestCloseDrawer}>Done</button></div>
+            <div className="users-modal-footer"><button type="button" className="users-button users-button-primary" onClick={requestCloseDrawer}>Done</button></div>
           </div>
-        </UserDrawer>
+        </AccessibleModal>
       );
     }
 
     if (drawerMode !== 'user' || !selectedUserId) return null;
     return (
-      <UserDrawer title={detail?.full_name || 'User details'} onClose={requestCloseDrawer} returnFocusRef={triggerRef} className="users-detail-drawer">
-        <div className="users-drawer-header users-detail-heading">
-          <button type="button" className="users-icon-button" aria-label="Close user details" onClick={requestCloseDrawer}>×</button>
-          {detail && <div className="users-profile-heading"><Avatar user={detail} size="large" /><div><h2>{detail.full_name}</h2><p>@{detail.username}</p><div className="users-heading-badges"><RoleBadge role={detail.role} /><StatusBadge user={detail} /></div></div></div>}
-          {!detail && <h2>User details</h2>}
-        </div>
+      <AccessibleModal title={detail?.full_name || 'User details'} onClose={requestCloseDrawer} className="users-detail-modal" returnFocusRef={triggerRef}
+        headerContent={({ titleId, onClose }) => (
+          <div className="users-modal-heading users-user-modal-heading">
+            <div className="users-modal-identity">
+              {detail ? <Avatar user={detail} size="large" /> : <span className="users-avatar users-avatar-large users-avatar-placeholder" aria-hidden="true" />}
+              <div className="users-modal-identity-copy">
+                <span className="users-eyebrow">USER ACCOUNT</span>
+                <h2 id={titleId}>{detail?.full_name || 'User details'}</h2>
+                <p>{detail ? `@${detail.username}` : detailLoading ? 'Loading user details…' : 'Profile details unavailable'}</p>
+                {detail && <div className="users-heading-badges"><RoleBadge role={detail.role} /><StatusBadge user={detail} /></div>}
+              </div>
+            </div>
+            <button type="button" className="users-icon-button" aria-label="Close user details" onClick={onClose}><X size={19} aria-hidden="true" /></button>
+          </div>
+        )}>
         <div className="users-detail-tabs" role="tablist" aria-label="User detail sections">
-          {['profile', 'security', 'activity'].map((tab) => <button key={tab} type="button" role="tab" aria-selected={detailTab === tab}
-            className={detailTab === tab ? 'active' : ''} onClick={() => { setDetailTab(tab); setEditMode(false); }}>
+          {['profile', 'security', 'activity'].map((tab) => <button key={tab} id={`user-detail-tab-${tab}`} type="button" role="tab"
+            aria-selected={detailTab === tab} aria-controls="users-detail-panel" tabIndex={detailTab === tab ? 0 : -1}
+            ref={(element) => { detailTabRefs.current[tab] = element; }}
+            className={detailTab === tab ? 'active' : ''} onClick={() => selectDetailTab(tab)}
+            onKeyDown={(event) => handleDetailTabKeyDown(event, tab)}>
+            {tab === 'profile' ? <UserRound size={16} aria-hidden="true" />
+              : tab === 'security' ? <KeyRound size={16} aria-hidden="true" />
+                : <Activity size={16} aria-hidden="true" />}
             {tab === 'profile' ? 'Profile' : tab === 'security' ? 'Security' : 'Recent activity'}
           </button>)}
         </div>
-        <div className="users-drawer-content users-detail-content">
+        <div id="users-detail-panel" role="tabpanel" aria-labelledby={`user-detail-tab-${detailTab}`} tabIndex="0" className="users-modal-content users-detail-content">
           {detailLoading && <div className="users-detail-skeleton" aria-label="Loading user details"><span /><span /><span /><span /></div>}
           {!detailLoading && detailError && <StatusBanner error={detailError} retry={() => setDetailReload((current) => current + 1)} compact />}
           {!detailLoading && detail && detailTab === 'profile' && <>
-            {detail.protected && <div className="users-protected-chip" title="The primary HealthSync admin account is managed through its own Settings page.">🔒 Protected — managed through Settings</div>}
+            {detail.protected && <div className="users-protected-chip" title="The primary HealthSync admin account is managed through its own Settings page."><ShieldCheck size={13} aria-hidden="true" /> Protected — managed through Settings</div>}
             {editMode ? (
               <form className="users-edit-form" onSubmit={handleEditSave} noValidate>
                 <div className="users-form-field"><label htmlFor="edit-full-name">Full name</label>
@@ -933,14 +1044,26 @@ const UserManagementPage = () => {
                 </div>
               </form>
             ) : <>
-              <dl className="users-detail-list">
-                <div><dt>Full name</dt><dd>{detail.full_name}</dd></div><div><dt>Username</dt><dd>@{detail.username}</dd></div>
-                <div><dt>Contact number</dt><dd>{detail.contact_number || 'Not provided'}</dd></div>
-                <div><dt>Email address</dt><dd>{detail.email || 'Not provided'}</dd></div>
-                <div><dt>Role</dt><dd><RoleBadge role={detail.role} /></dd></div>
-                <div><dt>Created</dt><dd><RelativeDate value={detail.created_at} empty="Not recorded" /></dd></div>
-                <div><dt>Created by</dt><dd>{detail.created_by_name || 'System setup'}</dd></div>
-              </dl>
+              <div className="users-detail-groups">
+                <section className="users-detail-group" aria-labelledby="users-personal-heading">
+                  <h3 id="users-personal-heading"><UserRound size={16} aria-hidden="true" /> Personal information</h3>
+                  <dl className="users-detail-list">
+                    <div><dt>Full name</dt><dd>{detail.full_name}</dd></div>
+                    <div><dt>Username</dt><dd>@{detail.username}</dd></div>
+                    <div><dt>Contact number</dt><dd>{detail.contact_number || 'Not provided'}</dd></div>
+                    <div><dt>Email address</dt><dd>{detail.email || 'Not provided'}</dd></div>
+                  </dl>
+                </section>
+                <section className="users-detail-group" aria-labelledby="users-account-heading">
+                  <h3 id="users-account-heading"><ShieldCheck size={16} aria-hidden="true" /> Account information</h3>
+                  <dl className="users-detail-list">
+                    <div><dt>Account role</dt><dd><RoleBadge role={detail.role} /></dd></div>
+                    <div><dt>Account status</dt><dd><StatusBadge user={detail} /></dd></div>
+                    <div><dt>Account created</dt><dd><ExactDate value={detail.created_at} /></dd></div>
+                    <div><dt>Created by</dt><dd>{detail.created_by_name || 'System setup'}</dd></div>
+                  </dl>
+                </section>
+              </div>
               <div className="users-detail-actions">
                 <button type="button" className="users-button users-button-primary" disabled={detail.protected} title={detail.protected ? 'The primary admin is managed through Settings.' : undefined} onClick={() => setEditMode(true)}>Edit profile</button>
                 <button type="button" className="users-button users-button-outline" onClick={() => handleRowAction('activity', detail)}>View activity</button>
@@ -977,8 +1100,8 @@ const UserManagementPage = () => {
                         {device.device_id === currentUser?.device_id && ' · Current device'}
                       </span>
                       <span>
-                        {device.status === 'PENDING' && <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => handleOfflineDeviceAction(device, 'approve')}>Approve</button>}
-                        {device.status === 'ACTIVE' && device.device_id !== currentUser?.device_id && <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => handleOfflineDeviceAction(device, 'revoke')}>Revoke</button>}
+                        {device.status === 'PENDING' && <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => setDeviceConfirm({ device, action: 'approve' })}>Approve</button>}
+                        {device.status === 'ACTIVE' && device.device_id !== currentUser?.device_id && <button type="button" className="users-button users-button-danger-outline" disabled={saving} onClick={() => setDeviceConfirm({ device, action: 'revoke' })}>Revoke</button>}
                       </span>
                     </li>
                   ))}
@@ -988,12 +1111,12 @@ const UserManagementPage = () => {
           </>}
           {!detailLoading && detail && detailTab === 'activity' && <>
             {detail.activity?.length ? <ul className="users-activity-list">{detail.activity.map((item) => (
-              <li key={item.audit_id}><span className="users-activity-dot" aria-hidden="true" /><div><strong>{String(item.action).replace(/_/g, ' ')}</strong><p>{item.description || 'Account activity recorded.'}{item.actor_name ? ` · by ${item.actor_name}` : ''}</p><RelativeDate value={item.created_at} empty="Unknown time" /></div></li>
+              <li key={item.audit_id}><span className="users-activity-dot" aria-hidden="true" /><div><strong>{describeAuditAction(item.action)}</strong><p>{item.description || 'Account activity recorded.'}{item.actor_name ? ` · by ${item.actor_name}` : ''}</p><div className="users-activity-meta"><RelativeDate value={item.created_at} empty="Unknown time" />{item.status && <span>{String(item.status).replace(/[_-]+/g, ' ')}</span>}</div></div></li>
             ))}</ul> : <div className="users-empty-state"><strong>No recent activity</strong><p>Account events will appear here as they occur.</p></div>}
             <button type="button" className="users-text-button users-view-all" onClick={() => navigate(`/audit-logs?target_user_id=${encodeURIComponent(detail.user_id)}`)}>View all activity in Audit Logs</button>
           </>}
         </div>
-      </UserDrawer>
+      </AccessibleModal>
     );
   };
 
@@ -1011,28 +1134,37 @@ const UserManagementPage = () => {
   return (
     <div className="users-page">
       <header className="users-page-header">
-        <div><span className="users-eyebrow">SYSTEM MANAGEMENT</span><h1>Users</h1>
-          <p>Manage who can access HealthSync. <span aria-live="polite">{counts.total} users · {counts.active} active</span></p></div>
-        <button type="button" className="users-button users-button-primary users-add-button" onClick={openNewDrawer}><span aria-hidden="true">＋</span> Add user</button>
+        <div><span className="users-eyebrow">SYSTEM MANAGEMENT</span><h1>System Users</h1>
+          <p>Manage HealthSync accounts, roles, and access permissions. <span aria-live="polite">{formatCount(counts.total)} total users</span></p></div>
+        <button type="button" className="users-button users-button-primary users-add-button" onClick={openNewDrawer}><Plus size={17} aria-hidden="true" /> Add user</button>
       </header>
 
       <section className="users-summary" aria-label="User account summaries">
         {[
-          { key: 'total', label: 'Total', value: counts.total, filters: { status: null, passwordStatus: null } },
-          { key: 'active', label: 'Active', value: counts.active, filters: { status: 'active', passwordStatus: null } },
-          { key: 'inactive', label: 'Inactive', value: counts.inactive, filters: { status: 'inactive', passwordStatus: null } },
-          { key: 'locked', label: 'Locked', value: counts.locked, filters: { status: 'locked', passwordStatus: null } },
-          { key: 'temporary', label: 'Must change password', value: counts.temporary, filters: { status: null, passwordStatus: 'temporary' } },
+          { key: 'total', label: 'Total Users', value: counts.total, Icon: Users },
+          { key: 'active', label: 'Active Users', value: counts.active, Icon: Check },
+          { key: 'bhw', label: 'BHW Accounts', value: getRoleCount(roleCounts, 'bhw') ?? '—', Icon: HeartPulse },
+          { key: 'official', label: 'Official Accounts', value: getRoleCount(roleCounts, 'official') ?? '—', Icon: Building2 },
         ].map((chip) => {
-          const active = chip.key === 'total' ? !status && !passwordStatus : chip.key === 'temporary' ? passwordStatus === 'temporary' : status === chip.key;
-          const selected = chip.key === 'total' ? activeFilters.length === 0 : active;
+          const selected = chip.key === 'total'
+            ? activeFilters.length === 0
+            : chip.key === 'active' ? status === 'active'
+              : role === chip.key;
           return <button type="button" key={chip.key} className={`users-summary-chip ${selected ? 'selected' : ''}`} aria-pressed={selected}
-            onClick={() => chip.key === 'total' ? clearFilters() : updateQuery({ ...chip.filters, page: 1 })}>
-            <span className={`users-summary-icon users-summary-${chip.key}`} aria-hidden="true">{({ total: '◉', active: '✓', inactive: '○', locked: '⌑', temporary: '⟳' })[chip.key]}</span>
-            <span><strong>{chip.value}</strong><small>{chip.label}</small></span>
+            onClick={() => chip.key === 'total'
+              ? clearFilters()
+              : chip.key === 'active'
+                ? updateQuery({ status: 'active', passwordStatus: null, page: 1 })
+                : updateQuery({ role: chip.key, page: 1 })}>
+            <span className={`users-summary-icon users-summary-${chip.key}`} aria-hidden="true"><chip.Icon size={18} strokeWidth={2} /></span>
+            <span><strong>{typeof chip.value === 'number' ? formatCount(chip.value) : chip.value}</strong><small>{chip.label}</small></span>
           </button>;
         })}
       </section>
+      {roleSummaryError && <div className="users-summary-note" role="status">
+        <span>Role totals are unavailable.</span>
+        <button type="button" className="users-text-button" onClick={fetchRoleCounts}>Retry</button>
+      </div>}
 
       {actionError && !drawerMode && <StatusBanner error={actionError} compact />}
       <section className="users-directory-card" aria-label="System users directory">
@@ -1041,11 +1173,11 @@ const UserManagementPage = () => {
         </div>
         <div className="users-toolbar">
           <label className="users-search" htmlFor="users-search-input">
-            <span className="users-search-icon" aria-hidden="true">⌕</span>
+            <Search size={17} className="users-search-icon" aria-hidden="true" />
             <input id="users-search-input" ref={searchRef} value={searchInput} onChange={(event) => setSearchInput(event.target.value)}
               placeholder="Search by name or username…" aria-label="Search users by name or username" />
             {!searchInput && <kbd aria-hidden="true">/</kbd>}
-            {searchInput && <button type="button" aria-label="Clear search" onClick={() => { setSearchInput(''); updateQuery({ search: null, page: 1 }); }}>×</button>}
+            {searchInput && <button type="button" aria-label="Clear search" onClick={() => { setSearchInput(''); updateQuery({ search: null, page: 1 }); }}><X size={15} aria-hidden="true" /></button>}
           </label>
           <div className="users-toolbar-filters">{roleFilterOptions}</div>
           <button type="button" className="users-mobile-filter-button" aria-haspopup="dialog" onClick={() => setMobileFiltersOpen(true)}>Filters{activeFilters.length > 0 && <span>{activeFilters.length}</span>}</button>
@@ -1074,10 +1206,10 @@ const UserManagementPage = () => {
                 <tbody>
                   {loading ? Array.from({ length: 5 }, (_, index) => <tr className="users-skeleton-row" key={`skeleton-${index}`} aria-hidden="true">{Array.from({ length: 7 }, (_, cell) => <td key={cell}><span /></td>)}</tr>)
                     : users.length ? users.map((entry) => (
-                      <tr key={entry.user_id} className="users-data-row" tabIndex="0" aria-label={`Open ${entry.full_name}, ${roleLabel(entry.role)}, ${userStatus(entry)}`}
+                      <tr key={entry.user_id} className={`users-data-row${selectedUserId === String(entry.user_id) ? ' is-selected' : ''}`} tabIndex="0" aria-label={`Open ${entry.full_name}, ${roleLabel(entry.role)}, ${userStatus(entry)}`}
                         onClick={(event) => openUserDrawer(entry.user_id, event)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openUserDrawer(entry.user_id, event); } }}>
                         <td><div className="users-user-cell"><Avatar user={entry} /><span><strong>{entry.full_name}</strong><small>@{entry.username}</small>
-                          {entry.protected && <span className="users-protected-chip" title="The primary admin account is managed through its own Settings page.">🔒 Protected</span>}</span></div></td>
+                          {entry.protected && <span className="users-protected-chip" title="The primary admin account is managed through its own Settings page."><ShieldCheck size={12} aria-hidden="true" /> Protected</span>}</span></div></td>
                         <td><RoleBadge role={entry.role} /></td>
                         <td><StatusBadge user={entry} /></td>
                         <td><RelativeDate value={entry.last_login_at} /></td>
@@ -1085,7 +1217,7 @@ const UserManagementPage = () => {
                         <td className="users-created-cell"><RelativeDate value={entry.created_at} empty="—" /></td>
                         <td><div className="users-row-actions" onClick={(event) => event.stopPropagation()}>
                           <button type="button" className="users-icon-button users-edit-icon" aria-label={`Edit ${entry.full_name}`} title="Edit user"
-                            onClick={(event) => openUserDrawer(entry.user_id, event, true)}>✎</button>
+                            onClick={(event) => openUserDrawer(entry.user_id, event, true)}><Pencil size={15} aria-hidden="true" /></button>
                           <RowActionsMenu user={entry} currentUserId={currentUser?.user_id} activeAdmins={counts.active_admins || 0} onAction={handleRowAction} onTrigger={(event) => { triggerRef.current = event.currentTarget; }} />
                         </div></td>
                       </tr>
@@ -1096,7 +1228,7 @@ const UserManagementPage = () => {
             </div>
             {loading && <div className="users-mobile-list" aria-label="Loading users">{Array.from({ length: 3 }, (_, index) => <article className="users-mobile-card users-mobile-skeleton" key={`mobile-skeleton-${index}`} aria-hidden="true"><span /><span /><span /></article>)}</div>}
             {!loading && users.length > 0 && <div className="users-mobile-list">
-              {users.map((entry) => <article className="users-mobile-card" key={`mobile-${entry.user_id}`} onClick={(event) => openUserDrawer(entry.user_id, event)} tabIndex="0"
+              {users.map((entry) => <article className={`users-mobile-card${selectedUserId === String(entry.user_id) ? ' is-selected' : ''}`} key={`mobile-${entry.user_id}`} onClick={(event) => openUserDrawer(entry.user_id, event)} tabIndex="0"
                 onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openUserDrawer(entry.user_id, event); } }}>
                 <div className="users-mobile-card-top"><Avatar user={entry} /><div className="users-mobile-user"><strong>{entry.full_name}</strong><small>@{entry.username}</small><div><RoleBadge role={entry.role} /></div></div>
                   <div className="users-mobile-menu" onClick={(event) => event.stopPropagation()}><RowActionsMenu user={entry} currentUserId={currentUser?.user_id} activeAdmins={counts.active_admins || 0} onAction={handleRowAction} onTrigger={(event) => { triggerRef.current = event.currentTarget; }} /></div>
@@ -1122,6 +1254,28 @@ const UserManagementPage = () => {
           <button type="button" className="users-button users-button-primary" onClick={() => setMobileFiltersOpen(false)}>Show {total} results</button></div>
       </AccessibleModal>}
 
+      {deviceConfirm && <AccessibleModal
+        title={deviceConfirm.action === 'approve' ? 'Approve offline device?' : 'Revoke offline device?'}
+        onClose={() => { if (!saving) setDeviceConfirm(null); }}>
+        <div className="users-modal-body">
+          <p>{deviceConfirm.action === 'approve'
+            ? 'Allow this device to use the account’s offline access when it is disconnected?'
+            : 'This device will lose offline access the next time it reconnects.'}</p>
+          {offlineDevicesError && <StatusBanner error={offlineDevicesError} compact />}
+        </div>
+        <div className="users-modal-actions">
+          <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => setDeviceConfirm(null)}>Cancel</button>
+          <button type="button" className={deviceConfirm.action === 'revoke' ? 'users-button users-button-danger' : 'users-button users-button-primary'}
+            disabled={saving}
+            onClick={async () => {
+              const succeeded = await handleOfflineDeviceAction(deviceConfirm.device, deviceConfirm.action);
+              if (succeeded) setDeviceConfirm(null);
+            }}>
+            {saving ? <><span className="users-spinner" aria-hidden="true" /> Working…</> : deviceConfirm.action === 'approve' ? 'Approve device' : 'Revoke device'}
+          </button>
+        </div>
+      </AccessibleModal>}
+
       {confirmAction && <AccessibleModal title={selectedActionName} onClose={() => { if (!saving) { setConfirmAction(null); setAdminPassword(''); setResetPassword(''); } }}>
         <div className="users-modal-body">
           <p>{selectedActionBody}</p>
@@ -1144,10 +1298,10 @@ const UserManagementPage = () => {
         </div>
       </AccessibleModal>}
 
-      {showLeaveConfirm && <AccessibleModal title="Discard unsaved changes?" onClose={() => setShowLeaveConfirm(false)}>
-        <div className="users-modal-body"><p>Your changes have not been saved. Leave this drawer and discard them?</p></div>
-        <div className="users-modal-actions"><button type="button" className="users-button users-button-outline" onClick={() => setShowLeaveConfirm(false)}>Keep editing</button>
-          <button type="button" className="users-button users-button-danger" onClick={closeDrawer}>Discard changes</button></div>
+      {showLeaveConfirm && <AccessibleModal title="Discard unsaved changes?" onClose={keepEditing}>
+        <div className="users-modal-body"><p>Your changes have not been saved. Leave this dialog and discard them?</p></div>
+        <div className="users-modal-actions"><button type="button" className="users-button users-button-outline" onClick={keepEditing}>Keep editing</button>
+          <button type="button" className="users-button users-button-danger" onClick={discardChangesAndContinue}>Discard changes</button></div>
       </AccessibleModal>}
     </div>
   );

@@ -1,51 +1,140 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  CalendarDays,
+  ChevronRight,
+  Clock3,
+  HeartPulse,
+  KeyRound,
+  LogIn,
+  LogOut,
+  RefreshCw,
+  ScrollText,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  SquarePen,
+  Trash2,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import PageBanner from '../../components/common/PageBanner';
 import api from '../../services/api/apiClient';
 import { listAuditLogs } from '../../services/api/auditService';
 import { getEventConfig } from '../audit/auditEventConfig';
 import { formatDateTimeInTimeZone, formatRelativeTime } from '../../utils/dateUtils';
-import StatusBanner from '../../components/common/StatusBanner';
+import { getFriendlyError } from '../../utils/apiErrorMessages';
+import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 import './AdminDashboard.css';
 
 const REFRESH_INTERVAL = 30000;
 const RECENT_ITEMS_LIMIT = 5;
 
 const metricDefinitions = [
-  { key: 'totalUsers', label: 'Total users', note: 'All registered accounts', icon: 'users', tone: 'blue' },
-  { key: 'adminUsers', label: 'Administrators', note: 'System administrators', icon: 'shield', tone: 'violet' },
-  { key: 'bhwUsers', label: 'Health workers', note: 'Barangay health workers', icon: 'health', tone: 'green' },
-  { key: 'auditEventsThisMonth', label: 'Audit events', note: 'Recorded in the last 30 days', icon: 'activity', tone: 'teal' },
+  { key: 'totalUsers', label: 'Total users', caption: 'All registered accounts', Icon: Users, to: '/users' },
+  { key: 'adminUsers', label: 'Administrators', caption: 'System administrators', Icon: ShieldCheck },
+  { key: 'bhwUsers', label: 'Health workers', caption: 'Barangay health workers', Icon: HeartPulse },
+  { key: 'auditEvents', label: 'Audit events', caption: 'Recorded in the last 30 days', Icon: Activity, to: '/audit-logs' },
 ];
 
-function AdminIcon({ name, size = 18 }) {
-  const paths = {
-    users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
-    shield: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zM9 12l2 2 4-4',
-    health: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8zM3 12h4l2-3 3 6 2-3h7',
-    activity: 'M3 12h4l3-8 4 16 3-8h4',
-    audit: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
-    settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.7 2.9-.2-.1a1.7 1.7 0 0 0-1.8.2l-.1.1h-3.4l-.1-.2a1.7 1.7 0 0 0-1.6-1l-.2.1-2.9-1.7.1-.2a1.7 1.7 0 0 0-.2-1.8L7.6 15v-3.4l.2-.1a1.7 1.7 0 0 0 1-1.6l-.1-.2 1.7-2.9.2.1a1.7 1.7 0 0 0 1.8-.2l.1-.1h3.4l.1.2a1.7 1.7 0 0 0 1.6 1l.2-.1 2.9 1.7-.1.2a1.7 1.7 0 0 0 .2 1.8l.1.1V15z',
-    arrow: 'M5 12h14M13 6l6 6-6 6',
-    refresh: 'M20 7h-5V2M4 17h5v5M6 6a8 8 0 0 1 13.66-1L20 7M4 17l-.66 2A8 8 0 0 0 18 20',
-  };
+const roleAliases = {
+  admin: { key: 'admin', label: 'Administrator' },
+  administrator: { key: 'admin', label: 'Administrator' },
+  bhw: { key: 'bhw', label: 'BHW' },
+  official: { key: 'official', label: 'Official' },
+  barangay_official: { key: 'official', label: 'Official' },
+};
 
-  return (
-    <svg
-      className="dashboard-svg-icon"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d={paths[name] || paths.activity} />
-    </svg>
-  );
+const knownRoleColors = {
+  admin: '--admin-role-administrator',
+  bhw: '--admin-role-bhw',
+  official: '--admin-role-official',
+};
+
+const otherRoleColors = ['--admin-role-other-teal', '--admin-role-other-neutral'];
+
+const eventIcons = {
+  LOGIN: LogIn,
+  LOGOUT: LogOut,
+  CREATE: UserPlus,
+  USER_CREATED: UserPlus,
+  UPDATE: SquarePen,
+  USER_UPDATED: SquarePen,
+  DELETE: Trash2,
+  USER_DEACTIVATED: Trash2,
+  PASSWORD_CHANGED: KeyRound,
+  ACCOUNT_PASSWORD_UPDATED: KeyRound,
+  PASSWORD_RESET: KeyRound,
+  LOGIN_FAILED: ShieldAlert,
+  ACCOUNT_LOCKED: ShieldAlert,
+  ROLE_CHANGED: ShieldCheck,
+  USER_REACTIVATED: ShieldCheck,
+  USER_UNLOCKED: ShieldCheck,
+};
+
+function normalizeRoleKey(role) {
+  return String(role ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/_+/g, '_');
+}
+
+function hashRole(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash * 31) + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+function getRolePresentation(role) {
+  const key = normalizeRoleKey(role);
+  const known = roleAliases[key];
+  const label = known?.label || key.split('_').filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' ') || 'Unknown';
+  const canonicalKey = known?.key || key || 'unknown';
+  const colorToken = known
+    ? knownRoleColors[known.key]
+    : otherRoleColors[hashRole(canonicalKey) % otherRoleColors.length];
+
+  return {
+    key: canonicalKey,
+    label,
+    variant: known?.key || 'other',
+    color: `var(${colorToken})`,
+    outline: canonicalKey === 'official' ? 'var(--admin-role-official-outline)' : 'var(--admin-card)',
+  };
+}
+
+function getRoleStyle(role) {
+  return { '--admin-role-color': getRolePresentation(role).color };
+}
+
+function getRoleCount(usersByRole, requestedRole) {
+  const match = Object.entries(usersByRole).find(([role]) => (
+    getRolePresentation(role).key === requestedRole
+  ));
+  const count = Number(match?.[1]);
+  return Number.isFinite(count) ? count : 0;
+}
+
+function formatNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString() : '—';
+}
+
+function formatCreatedDate(value) {
+  if (!value) return 'Date unavailable';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Date unavailable'
+    : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatUpdatedTime(value) {
+  return value instanceof Date && !Number.isNaN(value.getTime())
+    ? value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : '';
 }
 
 function useCountUp(value) {
@@ -53,14 +142,14 @@ function useCountUp(value) {
   const [displayValue, setDisplayValue] = useState(0);
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (reducedMotion || count === 0) {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reducedMotion || count === 0 || !window.requestAnimationFrame || !window.cancelAnimationFrame) {
       setDisplayValue(count);
       return undefined;
     }
 
     const startedAt = performance.now();
-    const duration = 750;
+    const duration = 700;
     let frameId;
     let active = true;
     const tick = (now) => {
@@ -77,30 +166,38 @@ function useCountUp(value) {
     };
   }, [count]);
 
-  return displayValue.toLocaleString();
+  return formatNumber(displayValue);
 }
 
 function MetricTile({ metric, value, index }) {
   const animatedValue = useCountUp(value);
-  return (
-    <article className={`admin-kpi dashboard-entrance dashboard-delay-${index} tone-${metric.tone}`}>
-      <div className="admin-kpi-heading">
-        <span className={`admin-kpi-icon tone-${metric.tone}`}><AdminIcon name={metric.icon} size={17} /></span>
-        <span className="admin-kpi-label">{metric.label}</span>
-      </div>
-      <strong className="admin-kpi-value" aria-label={`${metric.label}: ${Number(value || 0).toLocaleString()}`}>
-        {animatedValue}
-      </strong>
-      <span className="admin-kpi-note">{metric.note}</span>
-    </article>
+  const { Icon } = metric;
+  const Content = (
+    <>
+      <span className="admin-metric-icon" aria-hidden="true"><Icon size={20} strokeWidth={1.8} /></span>
+      <span className="admin-metric-copy">
+        <span className="admin-metric-label">{metric.label}</span>
+        <strong className="admin-metric-value" aria-label={`${metric.label}: ${formatNumber(value)}`}>
+          {animatedValue}
+        </strong>
+        <span className="admin-metric-caption">{metric.caption}</span>
+      </span>
+      <Icon className="admin-metric-watermark" size={76} strokeWidth={1.2} aria-hidden="true" />
+      {metric.to && <ChevronRight className="admin-metric-chevron" size={17} aria-hidden="true" />}
+    </>
   );
+  const className = `admin-metric-card${metric.to ? ' is-link' : ''} dashboard-entrance dashboard-delay-${index}`;
+
+  return metric.to
+    ? <Link className={className} to={metric.to}>{Content}</Link>
+    : <article className={className}>{Content}</article>;
 }
 
-function DashboardPanel({ eyebrow, title, description, className = '', action, children, index }) {
+function DashboardPanel({ eyebrow, title, description, className = '', action, children }) {
   return (
-    <section className={`admin-panel dashboard-entrance dashboard-delay-${index} ${className}`}>
+    <section className={`admin-panel ${className}`}>
       <header className="admin-panel-header">
-        <div>
+        <div className="admin-panel-heading">
           <span className="admin-panel-eyebrow">{eyebrow}</span>
           <h2>{title}</h2>
           {description && <p>{description}</p>}
@@ -112,48 +209,336 @@ function DashboardPanel({ eyebrow, title, description, className = '', action, c
   );
 }
 
-function initialsFor(user) {
-  const name = String(user.full_name || user.username || 'U').trim();
-  return name.split(/\s+/).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
-}
-
-function formatCreatedDate(value) {
-  if (!value) return 'Date unavailable';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Date unavailable'
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function formatUpdatedTime(value) {
-  if (!value) return '';
-  return value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-function AdminDashboardSkeleton() {
+function RoleChip({ role, className = '' }) {
+  const presentation = getRolePresentation(role);
   return (
-    <div className="admin-dashboard-skeleton" role="status" aria-label="Loading administrator dashboard">
-      <div className="admin-skeleton-kpis">
-        {metricDefinitions.map((metric) => <span className="admin-skeleton" key={metric.key} />)}
+    <span className={`admin-role-chip ${className}`} style={getRoleStyle(role)}>
+      <i aria-hidden="true" />
+      {presentation.label}
+    </span>
+  );
+}
+
+function LiveStatusChip({ live }) {
+  return (
+    <span className={`admin-live-chip${live ? ' is-live' : ''}`} role="status" aria-live="polite">
+      <i aria-hidden="true" />
+      {live ? 'Live' : 'Paused'}
+    </span>
+  );
+}
+
+function DashboardIssue({ title, error, onRetry, retrying = false, className = '' }) {
+  const message = error ? getFriendlyError(error) : 'Please try again.';
+  return (
+    <div className={`admin-dashboard-issue ${className}`} role="alert">
+      <span className="admin-issue-icon" aria-hidden="true"><AlertTriangle size={19} /></span>
+      <div>
+        <strong>{title}</strong>
+        <p>{message}</p>
       </div>
-      <div className="admin-skeleton-grid">
-        {[0, 1, 2, 3].map((item) => <span className="admin-skeleton" key={item} />)}
-      </div>
-      <span className="visually-hidden">Loading administrator overview…</span>
+      {onRetry && (
+        <button type="button" className="admin-retry-button" onClick={onRetry} disabled={retrying}>
+          {retrying && <RefreshCw size={14} className="admin-spin" aria-hidden="true" />}
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+      )}
     </div>
   );
 }
 
-function getActivityTone(activity, event) {
-  const action = String(activity.action || '').toUpperCase();
-  if (['LOGIN_FAILED', 'ACCOUNT_LOCKED', 'DELETE', 'USER_DEACTIVATED', 'PASSWORD_RESET'].includes(action)) return 'danger';
-  if (['LOGIN', 'LOGOUT'].includes(action)) return 'blue';
-  if (['CREATE', 'USER_CREATED'].includes(action)) return 'green';
-  if (['UPDATE', 'USER_UPDATED', 'ACCOUNT_SETTINGS_UPDATED'].includes(action)) return 'teal';
-  if (['ROLE_CHANGED', 'AUDIT_EXPORTED', 'SESSIONS_REVOKED'].includes(action)) return 'violet';
-  if (event.category === 'authentication') return 'blue';
-  if (event.category === 'resident' || event.category === 'health_record' || event.category === 'nutrition') return 'teal';
-  return 'violet';
+function SkeletonLines({ count = 3, className = '' }) {
+  return (
+    <div className={`admin-skeleton-lines ${className}`} aria-hidden="true">
+      {Array.from({ length: count }, (_, index) => <span key={index} />)}
+    </div>
+  );
+}
+
+function MetricSkeleton() {
+  return (
+    <div className="admin-metric-skeleton" aria-hidden="true">
+      <span />
+      <div><i /><b /><small /></div>
+    </div>
+  );
+}
+
+function PieSkeleton() {
+  return (
+    <div className="admin-pie-skeleton" aria-hidden="true">
+      <span className="admin-skeleton-ring" />
+      <SkeletonLines count={3} />
+    </div>
+  );
+}
+
+function ActionSkeleton() {
+  return (
+    <div className="admin-action-skeleton-list" aria-hidden="true">
+      {Array.from({ length: 3 }, (_, index) => <div key={index}><i /><span /><b /></div>)}
+    </div>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <div className="admin-list-skeleton" aria-hidden="true">
+      {Array.from({ length: RECENT_ITEMS_LIMIT }, (_, index) => <div key={index}><i /><span /><b /></div>)}
+    </div>
+  );
+}
+
+function RolePieChart({ roles, totalUsers, activeRole, onActiveRoleChange }) {
+  const chartRoles = roles.filter((role) => role.count > 0);
+  const chartTotal = chartRoles.reduce((total, role) => total + role.count, 0);
+  const empty = chartTotal === 0;
+  const circumference = 2 * Math.PI * 38;
+  const signature = chartRoles.map((role) => `${role.key}:${role.count}`).join('|');
+  const [revealed, setRevealed] = useState(false);
+  const summary = roles.length
+    ? roles.map((role) => `${role.label}: ${formatNumber(role.count)}`).join('; ')
+    : 'No role data available';
+  const selectedRole = roles.find((role) => role.key === activeRole);
+  useEffect(() => {
+    setRevealed(false);
+    const frameId = window.requestAnimationFrame(() => setRevealed(true));
+    return () => window.cancelAnimationFrame(frameId);
+  }, [signature]);
+
+  let offset = 0;
+  const segments = chartRoles.map((role) => {
+    const length = (role.count / chartTotal) * circumference;
+    const segment = { ...role, length, offset };
+    offset += length;
+    return segment;
+  });
+
+  return (
+    <div className="admin-pie-layout">
+      <div className="admin-pie-wrap">
+        <svg
+          className="admin-role-pie"
+          viewBox="0 0 100 100"
+          role="group"
+          aria-label={`System user distribution. ${summary}.`}
+        >
+          <title>{`System user distribution: ${summary}`}</title>
+          {empty ? (
+            <>
+              <circle className="admin-pie-empty-ring" cx="50" cy="50" r="38" />
+            </>
+          ) : (
+            <>
+              <circle className="admin-pie-track" cx="50" cy="50" r="38" />
+              {segments.map((role, index) => {
+                const percentage = totalUsers > 0 ? Math.round((role.count / totalUsers) * 100) : 0;
+                const highlighted = activeRole === role.key;
+                const official = role.variant === 'official';
+                return (
+                  <circle
+                    key={role.role}
+                    className={`admin-pie-slice${activeRole && !highlighted ? ' is-dimmed' : ''}${official ? ' is-official' : ''}`}
+                    cx="50"
+                    cy="50"
+                    r="38"
+                    transform="rotate(-90 50 50)"
+                    stroke={role.color}
+                    style={{
+                      ...getRoleStyle(role.role),
+                      strokeDasharray: revealed
+                        ? `${role.length} ${circumference - role.length}`
+                        : `0 ${circumference}`,
+                      strokeDashoffset: -role.offset,
+                      transitionDelay: `${index * 70}ms`,
+                    }}
+                    tabIndex="0"
+                    role="button"
+                    aria-label={`${role.label}: ${formatNumber(role.count)} users (${percentage}%)`}
+                    title={`${role.label}: ${formatNumber(role.count)} (${percentage}%)`}
+                    onMouseEnter={() => onActiveRoleChange(role.key)}
+                    onMouseLeave={() => onActiveRoleChange(null)}
+                    onFocus={() => onActiveRoleChange(role.key)}
+                    onBlur={() => onActiveRoleChange(null)}
+                    onClick={() => onActiveRoleChange(activeRole === role.key ? null : role.key)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onActiveRoleChange(activeRole === role.key ? null : role.key);
+                      }
+                    }}
+                  />
+                );
+              })}
+            </>
+          )}
+        </svg>
+        <span className="admin-pie-center" aria-hidden="true">
+          <strong>{formatNumber(totalUsers)}</strong>
+          <small>{empty ? (totalUsers === 0 ? 'No users yet' : 'No role data') : 'total'}</small>
+        </span>
+        {selectedRole && (
+          <div className="admin-pie-tooltip" role="status" aria-live="polite">
+            <span className="admin-pie-tooltip-dot" style={getRoleStyle(selectedRole.role)} />
+            <strong>{selectedRole.label}</strong>
+            <span>{formatNumber(selectedRole.count)}</span>
+            <small>{totalUsers > 0 ? Math.round((selectedRole.count / totalUsers) * 100) : 0}% of users</small>
+          </div>
+        )}
+      </div>
+      <p className="admin-sr-only">{summary}</p>
+    </div>
+  );
+}
+
+function RoleLegend({ roles, totalUsers, activeRole, onActiveRoleChange }) {
+  if (!roles.length) return <p className="admin-role-legend-empty">No role breakdown is available.</p>;
+
+  return (
+    <ul className="admin-role-legend" aria-label="Users by role">
+      {roles.map((role) => {
+        const percentage = totalUsers > 0 ? Math.round((role.count / totalUsers) * 100) : 0;
+        const highlighted = activeRole === role.key;
+        return (
+          <li key={role.role}>
+            <Link
+              to={`/users?role=${encodeURIComponent(role.role)}`}
+              className={`admin-role-legend-row${highlighted ? ' is-highlighted' : ''}${activeRole && !highlighted ? ' is-dimmed' : ''}`}
+              style={getRoleStyle(role.role)}
+              aria-label={`${role.label}: ${formatNumber(role.count)} users, ${percentage}% of users. View users with this role.`}
+              title={`${role.label}: ${formatNumber(role.count)} users (${percentage}%)`}
+              onMouseEnter={() => onActiveRoleChange(role.key)}
+              onMouseLeave={() => onActiveRoleChange(null)}
+              onFocus={() => onActiveRoleChange(role.key)}
+              onBlur={() => onActiveRoleChange(null)}
+            >
+              <i className="admin-role-dot" aria-hidden="true" />
+              <span className="admin-role-name">{role.label}</span>
+              <strong>{formatNumber(role.count)}</strong>
+              <small>{percentage}%</small>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function UserDistributionCard({ usersByRole, totalUsers }) {
+  const [activeRole, setActiveRole] = useState(null);
+  const roles = useMemo(() => Object.entries(usersByRole).map(([role, value]) => {
+    const presentation = getRolePresentation(role);
+    const count = Number(value);
+    return {
+      role,
+      key: presentation.key,
+      label: presentation.label,
+      variant: presentation.variant,
+      color: presentation.color,
+      count: Number.isFinite(count) ? count : 0,
+    };
+  }), [usersByRole]);
+  const roleTotal = roles.reduce((total, role) => total + role.count, 0);
+
+  return (
+    <DashboardPanel
+      eyebrow="ACCESS MIX"
+      title="System user distribution"
+      description="Accounts by assigned system role."
+      className="admin-distribution-panel"
+      action={<span className="admin-total-badge">{formatNumber(totalUsers)} total</span>}
+    >
+      <RolePieChart roles={roles} totalUsers={totalUsers} activeRole={activeRole} onActiveRoleChange={setActiveRole} />
+      <RoleLegend roles={roles} totalUsers={totalUsers} activeRole={activeRole} onActiveRoleChange={setActiveRole} />
+      {roleTotal > 0 && <span className="admin-sr-only">{roles.map((role) => `${role.label}: ${formatNumber(role.count)}`).join('; ')}</span>}
+    </DashboardPanel>
+  );
+}
+
+function ActionRow({ to, title, description, Icon }) {
+  return (
+    <Link to={to} className="admin-quick-action">
+      <span className="admin-quick-icon" aria-hidden="true"><Icon size={18} strokeWidth={1.8} /></span>
+      <span className="admin-quick-copy"><strong>{title}</strong><small>{description}</small></span>
+      <ChevronRight size={18} className="admin-quick-chevron" aria-hidden="true" />
+    </Link>
+  );
+}
+
+function QuickActionsCard({ loading }) {
+  return (
+    <DashboardPanel
+      eyebrow="OPERATIONS"
+      title="Quick actions"
+      description="Common administration tasks."
+      className="admin-actions-panel"
+    >
+      {loading ? <ActionSkeleton /> : (
+        <nav className="admin-quick-actions" aria-label="Administration quick actions">
+          <ActionRow to="/users" title="User management" description="Manage accounts and roles" Icon={Users} />
+          <ActionRow to="/audit-logs" title="Audit logs" description="Review system activity" Icon={ScrollText} />
+          <ActionRow to="/admin-settings" title="Account settings" description="Update administrator profile" Icon={Settings} />
+        </nav>
+      )}
+    </DashboardPanel>
+  );
+}
+
+function getActivityPresentation(action, event) {
+  const key = String(action || '').toUpperCase();
+  const Icon = eventIcons[key] || Activity;
+  const dangerActions = ['LOGIN_FAILED', 'ACCOUNT_LOCKED', 'DELETE', 'USER_DEACTIVATED', 'PASSWORD_RESET'];
+  const positiveActions = ['LOGIN', 'USER_CREATED', 'CREATE', 'USER_REACTIVATED'];
+  const tealActions = ['UPDATE', 'USER_UPDATED', 'ACCOUNT_SETTINGS_UPDATED', 'ROLE_CHANGED'];
+  const tone = dangerActions.includes(key) || event.severity === 'critical' || event.severity === 'warning'
+    ? 'danger'
+    : positiveActions.includes(key) ? 'success'
+      : tealActions.includes(key) ? 'teal'
+        : 'neutral';
+  return { Icon, tone };
+}
+
+function ActivityRow({ activity }) {
+  const event = getEventConfig(activity.action);
+  const { Icon, tone } = getActivityPresentation(activity.action, event);
+  const fullDate = formatDateTimeInTimeZone(activity.created_at, 'Asia/Manila') || 'Time unavailable';
+  const relative = formatRelativeTime(activity.created_at);
+  const actor = activity.actor_username
+    ? `@${activity.actor_username}`
+    : activity.actor_name || (activity.actor_id ? 'Account' : 'Unknown actor');
+  const target = activity.target_label || activity.target_user_name || '';
+  const activityText = activity.description || event.label;
+  const fullTitle = [activityText, actor, target && target !== actor ? target : ''].filter(Boolean).join(' · ');
+
+  return (
+    <li className="admin-activity-item">
+      <span className={`admin-activity-icon tone-${tone}`} aria-hidden="true"><Icon size={17} strokeWidth={1.8} /></span>
+      <div className="admin-activity-copy">
+        <strong className="admin-activity-description" title={fullTitle}>{activityText}</strong>
+        <p title={[actor, activity.actor_role && getRolePresentation(activity.actor_role).label, target].filter(Boolean).join(' · ')}>
+          <span>{actor}</span>
+          {activity.actor_role && <RoleChip role={activity.actor_role} className="admin-activity-role" />}
+          {target && target !== actor && <span className="admin-activity-target">{target}</span>}
+        </p>
+      </div>
+      <div className="admin-activity-meta">
+        <span className={`admin-activity-status tone-${tone}`}>{event.label}</span>
+        <time dateTime={activity.created_at || undefined} title={`${fullDate}${relative ? ` · ${relative}` : ''}`}>
+          {relative || fullDate}
+        </time>
+      </div>
+    </li>
+  );
+}
+
+function EmptyState({ Icon, title, description }) {
+  return (
+    <div className="admin-empty-state">
+      <span className="admin-empty-icon" aria-hidden="true"><Icon size={21} strokeWidth={1.8} /></span>
+      <strong>{title}</strong>
+      <p>{description}</p>
+    </div>
+  );
 }
 
 function RecentSystemActivity() {
@@ -190,72 +575,125 @@ function RecentSystemActivity() {
   return (
     <DashboardPanel
       eyebrow="SYSTEM ACTIVITY"
-      title="Recent System Activity"
+      title="Recent system activity"
       description="Latest activities recorded across HealthSync."
       className="admin-activity-panel"
-      index={6}
-      action={<Link className="admin-view-all" to="/audit-logs">View all <AdminIcon name="arrow" size={13} /></Link>}
+      action={<Link className="admin-view-all" to="/audit-logs">View all <ArrowRight size={15} aria-hidden="true" /></Link>}
     >
       {loading && !activities.length ? (
-        <ul className="admin-activity-list" aria-label="Loading recent system activity" aria-busy="true">
-          {Array.from({ length: RECENT_ITEMS_LIMIT }, (_, index) => (
-            <li className="admin-activity-skeleton" key={index}><span /><div><i /><i /></div><b /></li>
-          ))}
-        </ul>
+        <ListSkeleton />
       ) : error && !activities.length ? (
-        <StatusBanner error={error} retry={fetchActivities} compact />
+        <DashboardIssue title="Recent activity is unavailable" error={error} onRetry={fetchActivities} />
       ) : activities.length ? (
         <ul className="admin-activity-list" aria-label="Latest system activity" aria-busy={loading}>
-          {activities.map((activity) => {
-            const event = getEventConfig(activity.action);
-            const tone = getActivityTone(activity, event);
-            const when = formatDateTimeInTimeZone(activity.created_at, 'Asia/Manila') || 'Time unavailable';
-            const relative = formatRelativeTime(activity.created_at);
-            const actor = activity.actor_username
-              ? `@${activity.actor_username}`
-              : activity.actor_name || (activity.actor_id ? 'Account' : 'Unknown actor');
-            const target = activity.target_label || activity.target_user_name || '';
-            return (
-              <li className="admin-activity-item" key={activity.audit_id}>
-                <span className={`admin-activity-icon tone-${tone}`} aria-hidden="true">{event.icon}</span>
-                <div className="admin-activity-copy">
-                  <div className="admin-activity-heading">
-                    <strong title={activity.description || event.label}>{activity.description || event.label}</strong>
-                    <span className={`admin-activity-type tone-${tone}`}>{event.label}</span>
-                  </div>
-                              <p title={target ? `${actor} · ${target}` : actor}>
-                                <span>{actor}</span>{activity.actor_role && <span className="admin-activity-role"> · {activity.actor_role}</span>}
-                                {target && target !== actor ? <><span aria-hidden="true"> · </span><span className="admin-activity-target">{target}</span></> : null}
-                  </p>
-                </div>
-                <time className="admin-activity-time" dateTime={activity.created_at || undefined} title={`${relative ? `${relative} · ` : ''}${when} Asia/Manila`}>
-                  {when}
-                </time>
-              </li>
-            );
-          })}
+          {activities.map((activity) => <ActivityRow key={activity.audit_id} activity={activity} />)}
         </ul>
       ) : (
-        <div className="admin-activity-empty">
-          <span className="admin-activity-empty-icon"><AdminIcon name="activity" size={17} /></span>
-          <span>No recent system activity.</span>
-        </div>
+        <EmptyState Icon={Activity} title="No activity yet" description="System activity will appear here as it is recorded." />
       )}
-      {error && activities.length > 0 && <StatusBanner error={error} retry={fetchActivities} compact />}
+      {error && activities.length > 0 && (
+        <DashboardIssue title="Activity could not be refreshed" error={error} onRetry={fetchActivities} />
+      )}
     </DashboardPanel>
   );
 }
 
-const AdminDashboardPage = () => {
+function initialsFor(user) {
+  const name = String(user.full_name || user.username || '').trim();
+  return name.split(/\s+/).filter(Boolean).slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase()).join('') || '?';
+}
+
+function UserAvatar({ user }) {
+  const [imageError, setImageError] = useState(false);
+  const image = user.profile_photo && !imageError ? getProfilePhotoUrl(user.profile_photo) : '';
+  return image ? (
+    <img className="admin-user-avatar" src={image} alt="" onError={() => setImageError(true)} />
+  ) : (
+    <span className="admin-user-avatar" style={getRoleStyle(user.role)} aria-hidden="true">{initialsFor(user)}</span>
+  );
+}
+
+function UserRow({ user }) {
+  const fullDate = formatDateTimeInTimeZone(user.created_at, 'Asia/Manila');
+  const relative = formatRelativeTime(user.created_at);
+  return (
+    <li className="admin-recent-user">
+      <UserAvatar user={user} />
+      <span className="admin-user-copy">
+        <strong title={user.full_name || user.username || ''}>{user.full_name || user.username || 'Unnamed account'}</strong>
+        {user.username && <small>@{user.username}</small>}
+      </span>
+      <RoleChip role={user.role} />
+      <time dateTime={user.created_at || undefined} title={[fullDate, relative].filter(Boolean).join(' · ') || 'Date unavailable'}>
+        {formatCreatedDate(user.created_at)}
+      </time>
+    </li>
+  );
+}
+
+function RecentUsersCard({ users, loading, error, onRetry, retrying }) {
+  return (
+    <DashboardPanel
+      eyebrow="ACCOUNTS"
+      title="Recently created"
+      description="Latest accounts registered in HealthSync."
+      className="admin-recent-panel"
+      action={<Link className="admin-view-all" to="/users">View all <ArrowRight size={15} aria-hidden="true" /></Link>}
+    >
+      {loading ? <ListSkeleton /> : error && !users.length ? (
+        <DashboardIssue title="Recently created accounts are unavailable" error={error} onRetry={onRetry} retrying={retrying} />
+      ) : users.length ? (
+        <ul className="admin-recent-list" aria-label="Recently created accounts">
+          {users.map((user) => <UserRow key={user.user_id} user={user} />)}
+        </ul>
+      ) : (
+        <EmptyState Icon={Users} title="No accounts yet" description="Newly created accounts will appear here." />
+      )}
+    </DashboardPanel>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="admin-dashboard-skeleton" role="status" aria-label="Loading administrator dashboard">
+      <div className="admin-metric-grid">
+        {metricDefinitions.map((metric) => <MetricSkeleton key={metric.key} />)}
+      </div>
+      <div className="admin-dashboard-grid">
+        <section className="admin-panel admin-distribution-panel" aria-label="Loading user distribution">
+          <div className="admin-panel-header"><div><span className="admin-skeleton-block" /><span className="admin-skeleton-block" /></div></div>
+          <PieSkeleton />
+        </section>
+        <section className="admin-panel admin-actions-panel" aria-label="Loading quick actions">
+          <div className="admin-panel-header"><div><span className="admin-skeleton-block" /><span className="admin-skeleton-block" /></div></div>
+          <ActionSkeleton />
+        </section>
+        <section className="admin-panel admin-activity-panel" aria-label="Loading recent activity">
+          <div className="admin-panel-header"><div><span className="admin-skeleton-block" /><span className="admin-skeleton-block" /></div></div>
+          <ListSkeleton />
+        </section>
+        <section className="admin-panel admin-recent-panel" aria-label="Loading recent accounts">
+          <div className="admin-panel-header"><div><span className="admin-skeleton-block" /><span className="admin-skeleton-block" /></div></div>
+          <ListSkeleton />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function AdminDashboardPage() {
   const [summary, setSummary] = useState(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const requestInFlight = useRef(false);
 
   const fetchSummary = useCallback(async () => {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
+    setRefreshing(true);
     try {
       const response = await api.get('/dashboard/admin-summary');
       if (response.data?.success !== true || !response.data?.data) {
@@ -263,13 +701,14 @@ const AdminDashboardPage = () => {
       }
       setSummary(response.data.data);
       setLastUpdated(new Date());
-      setError('');
+      setError(null);
     } catch (requestError) {
       console.error('Unable to load administrator overview.', requestError);
       setError(requestError);
     } finally {
       requestInFlight.current = false;
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -279,163 +718,147 @@ const AdminDashboardPage = () => {
     return () => window.clearInterval(timer);
   }, [fetchSummary]);
 
-  const usersByRole = summary?.usersByRole || {};
+  const usersByRole = useMemo(() => {
+    const value = summary?.usersByRole;
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }, [summary?.usersByRole]);
   const totalUsers = Number(summary?.totalUsers || 0);
-  const adminUsers = Number(usersByRole.admin || 0);
-  const bhwUsers = Number(usersByRole.bhw || 0);
-  const officialUsers = Number(usersByRole.official || usersByRole.barangay_official || 0);
-  const auditEvents = Number(summary?.auditEventsThisMonth || 0);
-  const recentUsers = Array.isArray(summary?.recentUsers) ? summary.recentUsers.slice(0, RECENT_ITEMS_LIMIT) : [];
-
-  const roleBreakdown = useMemo(() => {
-    const knownRoles = [
-      { label: 'Administrators', value: adminUsers, className: 'role-admin' },
-      { label: 'BHW users', value: bhwUsers, className: 'role-bhw' },
-      { label: 'Official users', value: officialUsers, className: 'role-official' },
-    ];
-    const otherUsers = Math.max(totalUsers - knownRoles.reduce((sum, item) => sum + item.value, 0), 0);
-    if (otherUsers > 0) knownRoles.push({ label: 'Other roles', value: otherUsers, className: 'role-other' });
-    return knownRoles.map((item) => ({
-      ...item,
-      percent: totalUsers > 0 ? (item.value / totalUsers) * 100 : 0,
-    }));
-  }, [adminUsers, bhwUsers, officialUsers, totalUsers]);
-
+  const metricValues = {
+    totalUsers,
+    adminUsers: getRoleCount(usersByRole, 'admin'),
+    bhwUsers: getRoleCount(usersByRole, 'bhw'),
+    auditEvents: Number(summary?.auditEventsThisMonth || 0),
+  };
+  const recentUsers = Array.isArray(summary?.recentUsers)
+    ? summary.recentUsers.slice(0, RECENT_ITEMS_LIMIT)
+    : [];
+  const dateLabel = new Date().toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
   const updatedLabel = formatUpdatedTime(lastUpdated);
-  const metricValues = { totalUsers, adminUsers, bhwUsers, auditEventsThisMonth: auditEvents };
+  const live = Boolean(summary && !error);
+
+  if (loading && !summary) {
+    return (
+      <main className="dashboard-page admin-dashboard-page">
+        <div className="admin-refresh-progress" aria-hidden="true" />
+        <PageBanner
+          icon={ShieldCheck}
+          title="Administrator Dashboard"
+          subtitle={(
+            <span className="admin-dashboard-subtitle">
+              <span className="admin-dashboard-date"><CalendarDays size={14} aria-hidden="true" />{dateLabel}</span>
+              <span>System access, account activity, and administration tools.</span>
+            </span>
+          )}
+          className="page-banner-dashboard admin-dashboard-banner is-loading"
+          actions={(
+            <div className="admin-dashboard-banner-actions" aria-label="Dashboard controls">
+              <LiveStatusChip live={false} />
+              <span className="admin-updated-skeleton" aria-hidden="true" />
+              <button type="button" className="admin-refresh-button" aria-label="Refresh" disabled>
+                <RefreshCw size={17} className="admin-spin" aria-hidden="true" />
+              </button>
+              <Link to="/users" className="admin-manage-button"><Users size={16} aria-hidden="true" />Manage users</Link>
+            </div>
+          )}
+        />
+        <DashboardSkeleton />
+      </main>
+    );
+  }
 
   return (
     <main className="dashboard-page admin-dashboard-page">
-      <header className="dashboard-header admin-dashboard-header">
-        <div className="dashboard-header-copy">
-          <p className="dashboard-date">{new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
-          <h1>Administrator dashboard</h1>
-          <p className="dashboard-subtitle">System access, account activity, and administration tools.</p>
-        </div>
-        <div className="admin-dashboard-header-actions">
-          <span className={`dashboard-sync-status ${error ? 'is-warning' : ''}`} role="status" aria-live="polite">
-            <i aria-hidden="true" />
-            {error ? 'Update unavailable' : 'Live updates'}
+      {refreshing && <div className="admin-refresh-progress" aria-hidden="true" />}
+      <PageBanner
+        icon={ShieldCheck}
+        title="Administrator Dashboard"
+        subtitle={(
+          <span className="admin-dashboard-subtitle">
+            <span className="admin-dashboard-date"><CalendarDays size={14} aria-hidden="true" />{dateLabel}</span>
+            <span>System access, account activity, and administration tools.</span>
           </span>
-          {updatedLabel && <span className="dashboard-updated">Updated {updatedLabel}</span>}
-          <button type="button" className="dashboard-action admin-refresh-button" onClick={fetchSummary} disabled={loading} aria-label="Refresh administrator dashboard" title="Refresh dashboard">
-            <AdminIcon name="refresh" size={16} />
-          </button>
-          <Link to="/users" className="dashboard-action dashboard-action-primary">
-            <AdminIcon name="users" size={16} />
-            Manage users
-          </Link>
-        </div>
-      </header>
-
-      {error && <StatusBanner error={error} retry={fetchSummary} />}
-
-      {loading && !summary ? <AdminDashboardSkeleton /> : summary && (
-        <>
-          <section className="admin-kpi-grid" aria-label="System metrics">
-            {metricDefinitions.map((metric, index) => (
-              <MetricTile key={metric.key} metric={metric} value={metricValues[metric.key]} index={index} />
-            ))}
-          </section>
-
-          <div className="admin-dashboard-grid">
-            <DashboardPanel
-              eyebrow="ACCESS MIX"
-              title="System user distribution"
-              description="Accounts by assigned system role."
-              className="admin-distribution-panel"
-              index={4}
-              action={<span className="admin-total-badge">{totalUsers.toLocaleString()} total</span>}
+        )}
+        className="page-banner-dashboard admin-dashboard-banner"
+        actions={(
+          <div className="admin-dashboard-banner-actions" aria-label="Dashboard controls">
+            <LiveStatusChip live={live} />
+            {updatedLabel
+              ? <span className="admin-dashboard-updated"><Clock3 size={14} aria-hidden="true" />Updated {updatedLabel}</span>
+              : <span className="admin-dashboard-updated is-pending"><Clock3 size={14} aria-hidden="true" />Updated —</span>}
+            <button
+              type="button"
+              className="admin-refresh-button"
+              onClick={fetchSummary}
+              disabled={refreshing}
+              aria-label="Refresh"
+              title="Refresh dashboard"
             >
-              <div
-                className="admin-role-bar"
-                role="img"
-                aria-label={roleBreakdown.map((item) => `${item.label}: ${item.value} (${Math.round(item.percent)}%)`).join(', ') || 'No user accounts'}
-              >
-                {roleBreakdown.map((item) => item.value > 0 && (
-                  <span
-                    key={item.className}
-                    className={`admin-role-segment ${item.className}`}
-                    style={{ width: `${item.percent}%` }}
-                    title={`${item.label}: ${item.value} (${Math.round(item.percent)}%)`}
-                  />
-                ))}
-              </div>
-              <ul className="admin-role-legend">
-                {roleBreakdown.map((item) => (
-                  <li key={item.className}>
-                    <span className={`admin-role-dot ${item.className}`} aria-hidden="true" />
-                    <span className="admin-role-name">{item.label}</span>
-                    <strong>{item.value.toLocaleString()}</strong>
-                    <span className="admin-role-percent">{Math.round(item.percent)}%</span>
-                  </li>
-                ))}
-                {!totalUsers && <li className="admin-no-accounts">No user accounts are available.</li>}
-              </ul>
-            </DashboardPanel>
-
-            <DashboardPanel
-              eyebrow="OPERATIONS"
-              title="Quick actions"
-              description="Common administration tasks."
-              className="admin-actions-panel"
-              index={5}
-            >
-              <nav className="admin-quick-actions" aria-label="Administration quick actions">
-                <Link to="/users" className="admin-quick-action">
-                  <span className="admin-quick-icon tone-blue"><AdminIcon name="users" size={17} /></span>
-                  <span><strong>User management</strong><small>Manage accounts and roles</small></span>
-                  <AdminIcon name="arrow" size={15} />
-                </Link>
-                <Link to="/audit-logs" className="admin-quick-action">
-                  <span className="admin-quick-icon tone-violet"><AdminIcon name="audit" size={17} /></span>
-                  <span><strong>Audit logs</strong><small>Review system activity</small></span>
-                  <AdminIcon name="arrow" size={15} />
-                </Link>
-                <Link to="/admin-settings" className="admin-quick-action">
-                  <span className="admin-quick-icon tone-teal"><AdminIcon name="settings" size={17} /></span>
-                  <span><strong>Account settings</strong><small>Update administrator profile</small></span>
-                  <AdminIcon name="arrow" size={15} />
-                </Link>
-              </nav>
-            </DashboardPanel>
-
-            <RecentSystemActivity />
-
-            <DashboardPanel
-              eyebrow="ACCOUNTS"
-              title="Recently created"
-              description="Latest accounts registered in HealthSync."
-              className="admin-recent-panel"
-              index={7}
-              action={<Link className="admin-view-all" to="/users">View all <AdminIcon name="arrow" size={13} /></Link>}
-            >
-              {recentUsers.length ? (
-                <ul className="admin-recent-list">
-                  {recentUsers.map((user) => {
-                    const role = String(user.role || 'user').replace(/[_-]+/g, ' ');
-                    return (
-                      <li key={user.user_id} className="admin-recent-user">
-                        <span className="admin-user-avatar" aria-hidden="true">{initialsFor(user)}</span>
-                        <span className="admin-user-copy">
-                          <strong>{user.full_name || user.username || 'Unnamed account'}</strong>
-                          <small>@{user.username || 'unknown'}</small>
-                        </span>
-                        <span className={`admin-role-badge role-badge-${role.replace(/\s+/g, '-')}`}>{role}</span>
-                        <time dateTime={user.created_at || undefined}>{formatCreatedDate(user.created_at)}</time>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <div className="admin-recent-empty">No recent accounts found.</div>
-              )}
-            </DashboardPanel>
+              <RefreshCw size={17} className={refreshing ? 'admin-spin' : ''} aria-hidden="true" />
+            </button>
+            <Link to="/users" className="admin-manage-button"><Users size={16} aria-hidden="true" />Manage users</Link>
           </div>
-        </>
+        )}
+      />
+
+      {error && summary && (
+        <div className="admin-refresh-warning" role="status">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>Dashboard updates are paused. {getFriendlyError(error)}</span>
+          <button type="button" onClick={fetchSummary} disabled={refreshing}>{refreshing ? 'Retrying…' : 'Retry'}</button>
+        </div>
       )}
+
+      <section className="admin-metric-grid" aria-label="System metrics">
+        {summary ? metricDefinitions.map((metric, index) => (
+          <MetricTile key={metric.key} metric={metric} value={metricValues[metric.key]} index={index} />
+        )) : (
+          <DashboardIssue
+            title="System metrics are unavailable"
+            error={error}
+            onRetry={fetchSummary}
+            retrying={refreshing}
+            className="admin-metrics-error"
+          />
+        )}
+      </section>
+
+      <div className={`admin-dashboard-grid${summary ? '' : ' has-summary-error'}`}>
+        {summary ? (
+          <UserDistributionCard usersByRole={usersByRole} totalUsers={totalUsers} />
+        ) : (
+          <DashboardPanel
+            eyebrow="ACCESS MIX"
+            title="System user distribution"
+            description="Accounts by assigned system role."
+            className="admin-distribution-panel"
+            action={<span className="admin-total-badge">— total</span>}
+          >
+            <DashboardIssue title="User distribution is unavailable" error={error} onRetry={fetchSummary} retrying={refreshing} />
+          </DashboardPanel>
+        )}
+        <QuickActionsCard />
+        <RecentSystemActivity />
+        {summary ? (
+          <RecentUsersCard users={recentUsers} />
+        ) : (
+          <DashboardPanel
+            eyebrow="ACCOUNTS"
+            title="Recently created"
+            description="Latest accounts registered in HealthSync."
+            className="admin-recent-panel"
+            action={<Link className="admin-view-all" to="/users">View all <ArrowRight size={15} aria-hidden="true" /></Link>}
+          >
+            <DashboardIssue title="Recently created accounts are unavailable" error={error} onRetry={fetchSummary} retrying={refreshing} />
+          </DashboardPanel>
+        )}
+      </div>
     </main>
   );
-};
+}
 
 export default AdminDashboardPage;

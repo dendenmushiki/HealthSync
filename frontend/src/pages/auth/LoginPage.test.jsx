@@ -15,9 +15,10 @@ const renderLoginPage = (login) => render(
 test('exposes accessible credential fields and password visibility control', () => {
   renderLoginPage(jest.fn());
 
-  const username = screen.getByLabelText('Username');
+  const username = screen.getByLabelText('Username or email address');
   const password = screen.getByLabelText('Password');
 
+  expect(username).toHaveAttribute('placeholder', 'Enter username or email');
   expect(username).toHaveAttribute('autocomplete', 'username');
   expect(username).toHaveAttribute('autocapitalize', 'none');
   expect(username).toHaveAttribute('enterkeyhint', 'next');
@@ -37,7 +38,7 @@ test('disables repeated submissions and announces authentication errors', async 
   }));
   renderLoginPage(login);
 
-  fireEvent.change(screen.getByLabelText('Username'), { target: { value: '  bhw-user  ' } });
+  fireEvent.change(screen.getByLabelText('Username or email address'), { target: { value: '  bhw-user  ' } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'incorrect' } });
   fireEvent.submit(screen.getByRole('form', { name: 'HEALTHSYNC PORTAL' }));
 
@@ -47,9 +48,9 @@ test('disables repeated submissions and announces authentication errors', async 
 
   finishLogin({ success: false, message: 'Invalid credentials' });
 
-  const errorMessage = await screen.findByText('Please check your username and password.');
+  const errorMessage = await screen.findByText('Please check your username or email and password.');
   expect(errorMessage.closest('.hs-status-banner')).toBeInTheDocument();
-  expect(screen.getByLabelText('Username')).toHaveAttribute('aria-invalid', 'true');
+  expect(screen.getByLabelText('Username or email address')).toHaveAttribute('aria-invalid', 'true');
   expect(screen.getByLabelText('Password')).toHaveAttribute('aria-describedby', 'login-error');
   expect(screen.getByRole('button', { name: /login/i })).toBeEnabled();
 });
@@ -61,12 +62,24 @@ test('shows the credential message when invalid credentials reject with HTTP 401
   });
   renderLoginPage(login);
 
-  fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'bhw-user' } });
+  fireEvent.change(screen.getByLabelText('Username or email address'), { target: { value: 'bhw-user' } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'incorrect' } });
   fireEvent.submit(screen.getByRole('form', { name: 'HEALTHSYNC PORTAL' }));
 
-  expect(await screen.findByText('Please check your username and password.')).toBeInTheDocument();
+  expect(await screen.findByText('Please check your username or email and password.')).toBeInTheDocument();
   logError.mockRestore();
+});
+
+test('submits email addresses through the existing login identifier', async () => {
+  const login = jest.fn().mockResolvedValue({ success: false, message: 'Invalid credentials' });
+  renderLoginPage(login);
+
+  fireEvent.change(screen.getByLabelText('Username or email address'), { target: { value: '  bhw@example.org  ' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct-password' } });
+  fireEvent.submit(screen.getByRole('form', { name: 'HEALTHSYNC PORTAL' }));
+
+  expect(login).toHaveBeenCalledWith('bhw@example.org', 'correct-password');
+  expect(await screen.findByText('Please check your username or email and password.')).toBeInTheDocument();
 });
 
 test('opens the terms and privacy policy modal from the login agreement and closes with Escape', () => {

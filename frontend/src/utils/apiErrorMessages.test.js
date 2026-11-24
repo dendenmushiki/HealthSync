@@ -9,7 +9,7 @@ afterEach(() => {
 test.each([
   [{ code: 'ECONNABORTED', message: 'timeout of 10000ms exceeded' }, "Can't reach the server right now."],
   [{ message: 'Network Error' }, "Can't reach the server right now."],
-  [{ response: { status: 401, data: { message: 'Invalid credentials' } } }, 'Please check your username and password.'],
+  [{ response: { status: 401, data: { message: 'Invalid credentials' } } }, 'Please check your username or email and password.'],
   [{ response: { status: 401 } }, 'Your session expired. Please sign in again.'],
   [{ response: { status: 403 } }, 'Your session expired. Please sign in again.'],
   [{ response: { status: 503 } }, 'Something went wrong on our side. Try again in a moment.'],

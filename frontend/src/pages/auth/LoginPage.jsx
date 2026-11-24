@@ -6,7 +6,7 @@ import { getFriendlyError } from '../../utils/apiErrorMessages';
 import TermsPrivacyModal from './TermsPrivacyModal';
 
 const LoginPage = () => {
-  const [username, setUsername] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
@@ -43,10 +43,10 @@ const LoginPage = () => {
     setError(null);
     setIsSubmitting(true);
 
-    const cleanUsername = username.trim();
+    const cleanIdentifier = identifier.trim();
 
     try {
-      const resp = await login(cleanUsername, password);
+      const resp = await login(cleanIdentifier, password);
 
       if (resp.success) {
         navigate(resp.mustChangePassword
@@ -149,14 +149,14 @@ const LoginPage = () => {
             {error && <StatusBanner id="login-error" error={error} compact />}
             <form onSubmit={handleSubmit} className="login-form" aria-labelledby="login-form-label">
               <div className="login-field">
-                <label className="form-label" htmlFor="username">Username</label>
+                <label className="form-label" htmlFor="username">Username or email address</label>
                 <input
                   id="username"
                   className="form-control login-input"
                   type="text"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  placeholder="Enter username"
+                  value={identifier}
+                  onChange={(event) => setIdentifier(event.target.value)}
+                  placeholder="Enter username or email"
                   autoComplete="username"
                   autoCapitalize="none"
                   autoCorrect="off"

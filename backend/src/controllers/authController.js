@@ -26,12 +26,15 @@ const recordLoginHistory = async ({ userId, sessionId = null, status, req, expir
 };
 
 const login = async (req, res) => {
-    const { username, password } = req.body;
+    const identifier = typeof req.body?.identifier === 'string'
+        ? req.body.identifier.trim()
+        : typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+    const { password } = req.body || {};
 
-    if (!username || !password) {
+    if (!identifier || !password) {
         return res.status(400).json({
             success: false,
-            message: 'Username and password required'
+            message: 'Username or email and password required'
         });
     }
 
@@ -42,25 +45,34 @@ const login = async (req, res) => {
         await ensureUserManagementSchema();
         await ensureOfflineSecuritySchema();
 
-        const [rows] = await pool.query(
-            `SELECT user_id, full_name, username, contact_number, email, password, role, is_active, profile_photo, token_version,
+        const userSelect = `SELECT user_id, full_name, username, contact_number, email, password, role, is_active, profile_photo, token_version,
                 must_change_password, offline_pin_setup_required, offline_pin_hash, offline_pin_version,
                 temp_password_expires_at, failed_login_attempts, locked_until,
                 (locked_until IS NOT NULL AND locked_until > UTC_TIMESTAMP()) AS is_locked,
                 (temp_password_expires_at IS NOT NULL AND temp_password_expires_at <= UTC_TIMESTAMP()) AS temp_password_expired
-             FROM users WHERE username = ?`,
-            [username]
+             FROM users`;
+        const [usernameRows] = await pool.query(
+            `${userSelect} WHERE username = ? LIMIT 1`,
+            [identifier]
         );
+        let rows = usernameRows;
+        if (rows.length === 0) {
+            const [emailRows] = await pool.query(
+                `${userSelect} WHERE LOWER(email) = LOWER(?) LIMIT 2`,
+                [identifier]
+            );
+            rows = emailRows;
+        }
 
-        if (!rows || rows.length === 0) {
+        if (!rows || rows.length !== 1) {
             await logAudit({
                 actorId: null,
                 action: 'LOGIN_FAILED',
                 module: 'auth',
                 description: 'Failed sign-in for an unknown account.',
-                targetType: 'username',
-                targetId: String(username).slice(0, 64),
-                targetLabel: `@${String(username).slice(0, 120)}`,
+                targetType: 'login_identifier',
+                targetId: identifier.slice(0, 64),
+                targetLabel: identifier.slice(0, 120),
                 status: 'FAILED',
                 severity: 'warning',
                 req,

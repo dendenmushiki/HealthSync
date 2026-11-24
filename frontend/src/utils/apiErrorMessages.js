@@ -9,12 +9,12 @@ export function getFriendlyError(error) {
   const responseMessage = error?.response?.data?.message;
 
   if (status === 401 && typeof responseMessage === 'string' && INVALID_CREDENTIALS.test(responseMessage)) {
-    return 'Please check your username and password.';
+    return 'Please check your username or email and password.';
   }
 
   if (typeof error === 'string') {
     if (INVALID_CREDENTIALS.test(error)) {
-      return 'Please check your username and password.';
+      return 'Please check your username or email and password.';
     }
     if (/timeout|timed out|network error|failed to fetch/i.test(error)) return NETWORK_MESSAGE;
     if (/\b(?:401|403)\b/.test(error)) return 'Your session expired. Please sign in again.';
