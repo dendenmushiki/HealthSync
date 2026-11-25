@@ -20,6 +20,8 @@ const user = {
   is_active: true,
   is_locked: false,
   must_change_password: false,
+  offline_pin_enrolled: true,
+  offline_pin_setup_required: false,
   profile_photo: null,
   created_at: '2026-01-15T10:00:00Z',
   created_by_name: 'System setup',
@@ -103,20 +105,85 @@ test('keeps security device data cached when switching between detail tabs', asy
   expect(api.get.mock.calls.filter(([path]) => path === '/users/7')).toHaveLength(1);
 });
 
-test('asks before leaving a profile edit with unsaved changes', async () => {
+test('asks before leaving a role edit with unsaved changes and offers no identity fields', async () => {
   renderUsersPage();
   fireEvent.click(await screen.findByRole('row', { name: /Open Sample User/ }));
   await screen.findByRole('dialog', { name: 'Sample User' });
-  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Change role' }));
 
-  fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Updated User' } });
+  expect(screen.queryByLabelText('Full name')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Username')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: /Official/ }));
   fireEvent.click(screen.getByRole('tab', { name: 'Security' }));
 
   const discardDialog = await screen.findByRole('dialog', { name: 'Discard unsaved changes?' });
   fireEvent.click(within(discardDialog).getByRole('button', { name: 'Discard changes' }));
 
   expect(screen.getByRole('tab', { name: 'Security' })).toHaveAttribute('aria-selected', 'true');
-  expect(screen.queryByLabelText('Full name')).not.toBeInTheDocument();
+  expect(screen.queryByRole('radio', { name: /Official/ })).not.toBeInTheDocument();
+});
+
+test('admin role updates send no name or username fields', async () => {
+  api.put.mockResolvedValue({ data: { success: true } });
+  renderUsersPage();
+  fireEvent.click(await screen.findByRole('row', { name: /Open Sample User/ }));
+  await screen.findByRole('dialog', { name: 'Sample User' });
+  fireEvent.click(screen.getByRole('button', { name: 'Change role' }));
+
+  fireEvent.click(screen.getByRole('radio', { name: /Official/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+  await waitFor(() => expect(api.put).toHaveBeenCalledWith('/users/7', { role: 'official' }));
+});
+
+test('admin PIN reset requires confirmation and explains that encrypted offline data is retained', async () => {
+  api.post.mockResolvedValue({
+    data: { success: true, message: 'Offline PIN reset required. The user must sign in and set a new PIN.' },
+  });
+  renderUsersPage();
+  fireEvent.click(await screen.findByRole('row', { name: /Open Sample User/ }));
+  await screen.findByRole('dialog', { name: 'Sample User' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Security' }));
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Reset offline PIN' }));
+  const confirmation = await screen.findByRole('dialog', { name: 'Reset offline PIN' });
+  expect(within(confirmation).getByText(/Queued offline data is not deleted/)).toBeInTheDocument();
+  expect(within(confirmation).getByLabelText('Your current account password')).toBeInTheDocument();
+  fireEvent.change(within(confirmation).getByLabelText('Your current account password'), {
+    target: { value: 'AdminPassword9!' },
+  });
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Reset offline PIN' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/users/7/reset-offline-pin', {
+    current_password: 'AdminPassword9!',
+  }));
+});
+
+test('does not log the administrator password when a PIN reset request fails', async () => {
+  const requestError = new Error('Reset failed.');
+  requestError.config = { data: JSON.stringify({ current_password: 'AdminPassword9!' }) };
+  requestError.response = { status: 401, data: { errorCode: 'INVALID_PASSWORD' } };
+  api.post.mockRejectedValue(requestError);
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  try {
+    renderUsersPage();
+    fireEvent.click(await screen.findByRole('row', { name: /Open Sample User/ }));
+    await screen.findByRole('dialog', { name: 'Sample User' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Security' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset offline PIN' }));
+    const confirmation = await screen.findByRole('dialog', { name: 'Reset offline PIN' });
+    fireEvent.change(within(confirmation).getByLabelText('Your current account password'), {
+      target: { value: 'AdminPassword9!' },
+    });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Reset offline PIN' }));
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled());
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('AdminPassword9!');
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('current_password');
+  } finally {
+    errorSpy.mockRestore();
+  }
 });
 
 test('role summary cards apply the existing URL-backed role filter', async () => {

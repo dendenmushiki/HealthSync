@@ -59,6 +59,7 @@ test('renders a clinical document with saved fields, calendar dates and screenin
   expect(await screen.findByRole('heading', { name: 'Cruz, Leah' })).toBeInTheDocument();
   expect(screen.getAllByText('Sep 7, 2026').length).toBeGreaterThan(0);
   expect(screen.getByText('Feb 25, 1978')).toBeInTheDocument();
+  expect(screen.getByText('Female')).toBeInTheDocument();
   expect(screen.getAllByText('BP (mmHg)').length).toBeGreaterThan(0);
   expect(screen.getByRole('button', { name: /Print \/ Save PDF/ })).toBeInTheDocument();
   expect(screen.getAllByText('High').length).toBeGreaterThan(0);
@@ -66,6 +67,26 @@ test('renders a clinical document with saved fields, calendar dates and screenin
   expect(screen.getByText('Headache and dizziness.')).toBeInTheDocument();
   expect(screen.getByText('Juan Dela Cruz')).toBeInTheDocument();
   expect(getHealthRecordDetails).toHaveBeenCalledWith('patient_clinical_records', '95');
+});
+
+test('formats other sex values in the health record document title case', async () => {
+  getHealthRecordDetails.mockResolvedValue({
+    success: true,
+    data: {
+      record: {
+        id: 22, resident_id: 18, record_type: 'clinical', record_date: '2026-03-04',
+        record_data: { sex: 'others' },
+      },
+      resident: {
+        resident_id: 18, first_name: 'Alex', last_name: 'Rivera',
+        birthdate: '1990-02-10', sex: 'others',
+      },
+    },
+  });
+
+  renderDetail('clinical', 'patient_clinical_records-22');
+
+  expect(await screen.findByText('Others')).toBeInTheDocument();
 });
 
 test('renders form-specific patient information, clinical histories and visit links from saved values', async () => {

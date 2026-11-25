@@ -155,7 +155,7 @@ const AdolescentBMIFormRedesign = ({ onSaved, onSwitchToAdult }) => {
   const weightWarning = form.weight_kg && (Number(form.weight_kg) <= 0 || Number(form.weight_kg) > 300) ? 'Check measurement: weight needs verification.' : '';
   const extremeWarning = preview && Number.isFinite(Number(preview.bmi_for_age_zscore)) && (Number(preview.bmi_for_age_zscore) < -5 || Number(preview.bmi_for_age_zscore) > 5) ? 'Check measurement: BMI-for-age z-score is outside the plausible WHO range.' : '';
   const displayResult = preview;
-  const switchAdult = outsideGroup && ageYears !== null && ageYears >= 20;
+  const switchAdult = outsideGroup && ageMonths !== null && ageMonths >= 229;
 
   return <>
     <div className="nutrition-operation-layout adolescent-bmi-layout">

@@ -285,7 +285,6 @@ const RowActionsMenu = ({ user, currentUserId, activeAdmins, onAction, onTrigger
   const protectedUser = Boolean(user.protected);
   const lastAdmin = user.role === 'admin' && activeAdmins <= 1;
   const items = [
-    { label: 'Edit user', action: 'edit', disabled: protectedUser, reason: 'The primary admin is managed through Settings.' },
     { label: 'Reset password', action: 'reset', disabled: self || protectedUser, reason: self ? 'Use Settings to change your own password.' : 'The primary admin cannot be reset here.' },
     { label: 'Change role', action: 'change-role', disabled: protectedUser || self, reason: protectedUser ? 'The primary admin is protected.' : 'You cannot change your own role.' },
     { label: user.is_active ? 'Deactivate' : 'Reactivate', action: user.is_active ? 'deactivate' : 'reactivate', disabled: user.is_active && (self || protectedUser || lastAdmin), reason: self ? 'You cannot deactivate yourself.' : protectedUser ? 'The primary admin cannot be deactivated.' : 'The last active admin cannot be deactivated.' },
@@ -339,10 +338,9 @@ const UserManagementPage = () => {
   const [offlineDevicesLoading, setOfflineDevicesLoading] = useState(false);
   const offlineDevicesCacheRef = useRef(new Map());
   const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({ full_name: '', username: '', role: 'bhw' });
-  const [savedEditForm, setSavedEditForm] = useState({ full_name: '', username: '', role: 'bhw' });
+  const [editForm, setEditForm] = useState({ role: 'bhw' });
+  const [savedEditForm, setSavedEditForm] = useState({ role: 'bhw' });
   const [editErrors, setEditErrors] = useState({});
-  const [editUsernameCheck, setEditUsernameCheck] = useState({ checking: false, available: null, error: '' });
   const [newForm, setNewForm] = useState(EMPTY_NEW_USER);
   const [newErrors, setNewErrors] = useState({});
   const [newUsernameCheck, setNewUsernameCheck] = useState({ checking: false, available: null, error: '' });
@@ -484,7 +482,7 @@ const UserManagementPage = () => {
 
   useEffect(() => {
     if (!detail) return;
-    const next = { full_name: detail.full_name || '', username: detail.username || '', role: detail.role || 'bhw' };
+    const next = { role: detail.role || 'bhw' };
     setEditForm(next);
     setSavedEditForm(next);
   }, [detail]);
@@ -539,29 +537,6 @@ const UserManagementPage = () => {
     }, 350);
     return () => { active = false; window.clearTimeout(timer); };
   }, [drawerMode, newForm.username]);
-
-  useEffect(() => {
-    if (drawerMode !== 'user' || !editMode || !detail || !editForm.username.trim()) {
-      setEditUsernameCheck({ checking: false, available: null, error: '' });
-      return undefined;
-    }
-    if (!/^[A-Za-z0-9._-]{3,32}$/.test(editForm.username.trim())) {
-      setEditUsernameCheck({ checking: false, available: false, error: 'Use 3-32 letters, numbers, dots, underscores, or hyphens.' });
-      return undefined;
-    }
-    let active = true;
-    setEditUsernameCheck({ checking: true, available: null, error: '' });
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await api.get('/users/check-username', { params: { username: editForm.username.trim(), exclude: detail.user_id } });
-        if (active) setEditUsernameCheck({ checking: false, available: response.data?.available === true, error: response.data?.message || '' });
-      } catch (error) {
-        console.error('Unable to check username availability.', error);
-        if (active) setEditUsernameCheck({ checking: false, available: null, error: getFriendlyError(error) });
-      }
-    }, 350);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [detail, drawerMode, editForm.username, editMode]);
 
   useEffect(() => {
     if (!isDirty) return undefined;
@@ -706,10 +681,6 @@ const UserManagementPage = () => {
       openUserDrawer(selected.user_id, null, true);
       return;
     }
-    if (action === 'edit') {
-      openUserDrawer(selected.user_id, null, true);
-      return;
-    }
     setConfirmAction({ type: action, user: selected });
   };
 
@@ -745,6 +716,12 @@ const UserManagementPage = () => {
     setConfirmAction({ type: 'reset', user: target });
   };
 
+  const openOfflinePinReset = (target) => {
+    setAdminPassword('');
+    setActionError('');
+    setConfirmAction({ type: 'reset-pin', user: target });
+  };
+
   const handleConfirmAction = async () => {
     if (!confirmAction) return;
     const { type, user: target } = confirmAction;
@@ -767,6 +744,27 @@ const UserManagementPage = () => {
         await fetchUsers();
         return;
       }
+      if (type === 'reset-pin') {
+        const response = await api.post(`/users/${target.user_id}/reset-offline-pin`, {
+          current_password: adminPassword,
+        });
+        if (!response.data?.success) throw new Error(response.data?.message || 'The offline PIN reset could not be completed.');
+        setConfirmAction(null);
+        setAdminPassword('');
+        setToast(response.data.message || 'Offline PIN reset required.');
+        await fetchUsers();
+        if (drawerMode === 'user' && String(selectedUserId) === String(target.user_id)) {
+          try {
+            const refreshed = await api.get(`/users/${target.user_id}`);
+            if (!refreshed.data?.success) throw new Error(refreshed.data?.message || 'Unable to refresh user details.');
+            setDetail(refreshed.data.data);
+          } catch (refreshError) {
+            console.error('Unable to refresh user details after offline PIN reset.', refreshError);
+            setDetailError(refreshError);
+          }
+        }
+        return;
+      }
       const endpoint = {
         deactivate: 'deactivate',
         reactivate: 'reactivate',
@@ -784,7 +782,11 @@ const UserManagementPage = () => {
         navigate('/login', { replace: true });
       }
     } catch (error) {
-      console.error('Unable to complete user action.', error);
+      console.error('Unable to complete user action.', {
+        name: error?.name || 'Error',
+        status: error.response?.status || null,
+        errorCode: error.response?.data?.errorCode || null,
+      });
       setActionError(error);
     } finally {
       setSaving(false);
@@ -795,25 +797,17 @@ const UserManagementPage = () => {
     event.preventDefault();
     if (!detail) return;
     setEditErrors({});
-    if (editUsernameCheck.available !== true) return;
     setSaving(true);
     try {
       const response = await api.put(`/users/${detail.user_id}`, {
-        full_name: editForm.full_name.trim(),
-        username: editForm.username.trim(),
         role: editForm.role,
       });
       if (!response.data?.success) throw new Error(response.data?.message || 'Unable to save changes.');
-      setToast(editForm.role !== detail.role ? 'User updated and role changed.' : 'User updated.');
-      if (Number(detail.user_id) === Number(currentUser?.user_id) && editForm.username.trim() !== detail.username) {
-        await logout();
-        navigate('/login', { replace: true, state: { message: 'Your username was changed. Sign in again with your new username.' } });
-        return;
-      }
+      setToast('User role updated.');
       setEditMode(false);
       const updatedResponse = await api.get(`/users/${detail.user_id}`);
       setDetail(updatedResponse.data.data);
-      const saved = { full_name: editForm.full_name.trim(), username: editForm.username.trim(), role: editForm.role };
+      const saved = { role: editForm.role };
       setEditForm(saved);
       setSavedEditForm(saved);
       await fetchUsers();
@@ -1022,23 +1016,14 @@ const UserManagementPage = () => {
             {detail.protected && <div className="users-protected-chip" title="The primary HealthSync admin account is managed through its own Settings page."><ShieldCheck size={13} aria-hidden="true" /> Protected — managed through Settings</div>}
             {editMode ? (
               <form className="users-edit-form" onSubmit={handleEditSave} noValidate>
-                <div className="users-form-field"><label htmlFor="edit-full-name">Full name</label>
-                  <input id="edit-full-name" maxLength="120" value={editForm.full_name} onChange={(event) => updateEditForm('full_name', event.target.value)} aria-invalid={Boolean(editErrors.full_name)} />
-                  {editErrors.full_name && <small className="users-field-error">{editErrors.full_name}</small>}
-                </div>
-                <div className="users-form-field"><label htmlFor="edit-username">Username</label>
-                  <input id="edit-username" maxLength="32" value={editForm.username} onChange={(event) => updateEditForm('username', event.target.value)} aria-invalid={Boolean(editErrors.username || editUsernameCheck.available === false)} />
-                  <small className={editErrors.username || editUsernameCheck.error || editUsernameCheck.available === false ? 'users-field-error' : 'users-field-hint'}>
-                    {editErrors.username || editUsernameCheck.error || (editUsernameCheck.checking ? 'Checking availability…' : editUsernameCheck.available ? 'Username is available.' : editUsernameCheck.available === false ? 'That username is already in use.' : '3-32 letters, numbers, dots, underscores, or hyphens.')}
-                  </small>
-                </div>
+                <p className="users-field-hint">Users manage their own name and username in Settings. Admins can change account roles here.</p>
                 <RoleSelector value={editForm.role} onChange={(value) => updateEditForm('role', value)}
                   disabled={Boolean(detail.protected || Number(detail.user_id) === Number(currentUser?.user_id))} idPrefix="edit" />
                 {editErrors.role && <small className="users-field-error">{editErrors.role}</small>}
                 {actionError && <StatusBanner error={actionError} compact />}
                 <div className="users-detail-save-bar">
                   <button type="button" className="users-button users-button-outline" onClick={() => { setEditForm(savedEditForm); setEditMode(false); setEditErrors({}); }}>Cancel</button>
-                  <button type="submit" className="users-button users-button-primary" disabled={!isEditDirty || editUsernameCheck.available !== true || saving}>
+                  <button type="submit" className="users-button users-button-primary" disabled={!isEditDirty || saving}>
                     {saving ? <><span className="users-spinner" aria-hidden="true" /> Saving…</> : 'Save changes'}
                   </button>
                 </div>
@@ -1065,7 +1050,7 @@ const UserManagementPage = () => {
                 </section>
               </div>
               <div className="users-detail-actions">
-                <button type="button" className="users-button users-button-primary" disabled={detail.protected} title={detail.protected ? 'The primary admin is managed through Settings.' : undefined} onClick={() => setEditMode(true)}>Edit profile</button>
+                <button type="button" className="users-button users-button-primary" disabled={detail.protected} title={detail.protected ? 'The primary admin is managed through Settings.' : undefined} onClick={() => setEditMode(true)}>Change role</button>
                 <button type="button" className="users-button users-button-outline" onClick={() => handleRowAction('activity', detail)}>View activity</button>
               </div>
             </>}
@@ -1078,11 +1063,17 @@ const UserManagementPage = () => {
               <div><span>Failed attempts</span><strong>{Number(detail.failed_login_attempts || 0)}</strong></div>
               <div><span>Locked until</span><strong>{detail.is_locked ? <RelativeDate value={detail.locked_until} /> : 'Not locked'}</strong></div>
               <div><span>Active sessions</span><strong>{detail.active_sessions}</strong></div>
+              <div><span>Offline PIN</span><strong>{detail.offline_pin_setup_required ? 'Reset required' : detail.offline_pin_enrolled ? 'Configured' : 'Not configured'}</strong></div>
             </div>
             {detail.must_change_password && tempPasswordExpired(detail) && <div className="users-inline-alert" role="status">This temporary password has expired. Reset it to issue a new one.</div>}
             <div className="users-security-actions">
               {detail.is_locked && <button type="button" className="users-button users-button-outline" onClick={() => setConfirmAction({ type: 'unlock', user: detail })}>Unlock account</button>}
               <button type="button" className="users-button users-button-outline" onClick={() => openResetPassword(detail)} disabled={detail.protected || Number(detail.user_id) === Number(currentUser?.user_id)}>Reset password</button>
+              <button type="button" className="users-button users-button-outline" onClick={() => openOfflinePinReset(detail)}
+                disabled={!detail.offline_pin_enrolled || detail.offline_pin_setup_required || detail.must_change_password || detail.protected || Number(detail.user_id) === Number(currentUser?.user_id)}
+                title={!detail.offline_pin_enrolled ? 'The user has no shared offline PIN to reset.' : detail.must_change_password ? 'Complete password setup before resetting the PIN.' : undefined}>
+                {detail.offline_pin_setup_required ? 'PIN reset pending' : 'Reset offline PIN'}
+              </button>
               <button type="button" className="users-button users-button-outline" onClick={() => setConfirmAction({ type: 'logout-all', user: detail })}>Log out of all devices</button>
             </div>
             <section className="users-offline-devices" aria-label="Offline authorized devices">
@@ -1123,13 +1114,16 @@ const UserManagementPage = () => {
   const selectedActionName = confirmAction?.type === 'deactivate' ? 'Deactivate user'
     : confirmAction?.type === 'reactivate' ? 'Reactivate user'
       : confirmAction?.type === 'unlock' ? 'Unlock account'
-        : confirmAction?.type === 'logout-all' ? 'Log out of all devices' : 'Reset password';
+        : confirmAction?.type === 'logout-all' ? 'Log out of all devices'
+          : confirmAction?.type === 'reset-pin' ? 'Reset offline PIN' : 'Reset password';
   const selectedActionBody = confirmAction?.type === 'deactivate'
     ? `${confirmAction.user.full_name} will no longer be able to log in and will be signed out immediately.`
     : confirmAction?.type === 'reactivate' ? `Restore sign-in access for ${confirmAction?.user.full_name}?`
       : confirmAction?.type === 'unlock' ? `Clear the lockout and failed login attempts for ${confirmAction?.user.full_name}?`
         : confirmAction?.type === 'logout-all' ? `All active sessions for ${confirmAction?.user.full_name} will be signed out.`
-          : `A new temporary password will be generated for ${confirmAction?.user.full_name}. Their active sessions will be signed out, and they must choose a new password at their next login.`;
+          : confirmAction?.type === 'reset-pin'
+            ? `${confirmAction.user.full_name} will be signed out and must set a new PIN after signing in. Each device must be unlocked with its current PIN or, if configured, its account-password wrapper before the local vault can be rewrapped. Queued offline data is not deleted, but devices without an existing unlock credential may remain inaccessible.`
+            : `A new temporary password will be generated for ${confirmAction?.user.full_name}. Their active sessions will be signed out, and they must choose a new password at their next login.`;
 
   return (
     <div className="users-page">
@@ -1216,7 +1210,7 @@ const UserManagementPage = () => {
                         <td className="users-password-col">{entry.must_change_password && <span className={`users-temp-chip ${tempPasswordExpired(entry) ? 'expired' : ''}`}>{tempPasswordExpired(entry) ? 'Expired' : 'Temporary · must change'}</span>}</td>
                         <td className="users-created-cell"><RelativeDate value={entry.created_at} empty="—" /></td>
                         <td><div className="users-row-actions" onClick={(event) => event.stopPropagation()}>
-                          <button type="button" className="users-icon-button users-edit-icon" aria-label={`Edit ${entry.full_name}`} title="Edit user"
+                          <button type="button" className="users-icon-button users-edit-icon" aria-label={`Change role for ${entry.full_name}`} title="Change role"
                             onClick={(event) => openUserDrawer(entry.user_id, event, true)}><Pencil size={15} aria-hidden="true" /></button>
                           <RowActionsMenu user={entry} currentUserId={currentUser?.user_id} activeAdmins={counts.active_admins || 0} onAction={handleRowAction} onTrigger={(event) => { triggerRef.current = event.currentTarget; }} />
                         </div></td>
@@ -1288,13 +1282,18 @@ const UserManagementPage = () => {
               <input id="admin-current-password" type="password" autoComplete="current-password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} /></div>
             <p className="users-modal-note">The reset signs out all active sessions. The user must choose a new password at next sign-in.</p>
           </>}
+          {confirmAction.type === 'reset-pin' && <div className="users-form-field">
+            <label htmlFor="admin-pin-reset-current-password">Your current account password</label>
+            <input id="admin-pin-reset-current-password" type="password" autoComplete="current-password" value={adminPassword}
+              onChange={(event) => setAdminPassword(event.target.value)} />
+          </div>}
           {actionError && <StatusBanner error={actionError} compact />}
         </div>
         <div className="users-modal-actions">
-          <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => setConfirmAction(null)}>Cancel</button>
+          <button type="button" className="users-button users-button-outline" disabled={saving} onClick={() => { setConfirmAction(null); setAdminPassword(''); setActionError(''); }}>Cancel</button>
           <button type="button" className={`users-button ${confirmAction.type === 'deactivate' ? 'users-button-danger' : 'users-button-primary'}`}
-            disabled={saving || (confirmAction.type === 'reset' && (!adminPassword || (resetPasswordMode === 'manual' && !Object.values(normalizePassword(resetPassword)).every(Boolean))))}
-            onClick={handleConfirmAction}>{saving ? <><span className="users-spinner" aria-hidden="true" /> Working…</> : confirmAction.type === 'reset' ? 'Reset password' : confirmAction.type === 'deactivate' ? 'Deactivate user' : confirmAction.type === 'reactivate' ? 'Reactivate user' : confirmAction.type === 'unlock' ? 'Unlock account' : 'Log out all devices'}</button>
+            disabled={saving || (confirmAction.type === 'reset' && (!adminPassword || (resetPasswordMode === 'manual' && !Object.values(normalizePassword(resetPassword)).every(Boolean)))) || (confirmAction.type === 'reset-pin' && !adminPassword)}
+            onClick={handleConfirmAction}>{saving ? <><span className="users-spinner" aria-hidden="true" /> Working…</> : confirmAction.type === 'reset' ? 'Reset password' : confirmAction.type === 'reset-pin' ? 'Reset offline PIN' : confirmAction.type === 'deactivate' ? 'Deactivate user' : confirmAction.type === 'reactivate' ? 'Reactivate user' : confirmAction.type === 'unlock' ? 'Unlock account' : 'Log out all devices'}</button>
         </div>
       </AccessibleModal>}
 

@@ -24,6 +24,12 @@ const hasValue = (value) => value !== null && value !== undefined && String(valu
 
 function displayValue(value, field = {}) {
   if (!hasValue(value)) return EMPTY_VALUE;
+  if (String(field.name || '').toLowerCase() === 'sex') {
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === 'male') return 'Male';
+    if (normalized === 'female') return 'Female';
+    if (normalized === 'other' || normalized === 'others') return 'Others';
+  }
   if (field.type === 'date' || /date|birthdate|lmp|edc/i.test(field.name || '')) {
     return formatDateLabel(value) || String(value);
   }

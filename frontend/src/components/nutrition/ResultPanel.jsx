@@ -48,7 +48,7 @@ const ResultPanel = ({ result, calculating, emptyTitle = 'Enter weight and lengt
     if (resident?.pregnant) notes.push('Pregnant resident: standard adult BMI interpretation may not apply; follow existing clinical guidance.');
     if (resident?.lactating) notes.push('Lactating resident: consider clinical context when interpreting BMI.');
     if (Number(ageYears) >= 60) notes.push('Resident is 60+: interpretation in older adults may differ.');
-    if (Number(ageYears) >= 19 && Number(ageYears) <= 21) notes.push('Resident is near the adolescent/adult boundary (5–19 years vs 20+ years).');
+    if (Number(ageYears) >= 19 && Number(ageYears) <= 20) notes.push('Adult BMI classification starts at 19 years and 1 month; follow clinical guidance for residents near this age.');
     return <aside className="nutrition-assessment-card nutrition-adult-bmi-result" aria-live="polite">
       <div className="nutrition-bmi-hero"><span>BMI</span><strong>{Number.isFinite(bmi) ? bmi.toFixed(2) : '—'}</strong><small>kg/m²</small></div>
       <div className="nutrition-bmi-classification"><ClassificationBadge status={category} severe={category === 'Obese' || category === 'Underweight'} /></div>

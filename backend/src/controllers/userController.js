@@ -219,7 +219,8 @@ const getUser = async (req, res) => {
     const [rows] = await pool.query(
       `SELECT u.user_id, u.full_name, u.username, u.contact_number, u.email, u.role, u.profile_photo, u.is_active, u.created_at, u.updated_at,
         u.created_by, creator.full_name AS created_by_name, u.last_login_at, u.password_changed_at,
-        u.must_change_password, u.temp_password_expires_at, u.failed_login_attempts, u.locked_until,
+        u.must_change_password, u.offline_pin_setup_required, (u.offline_pin_hash IS NOT NULL) AS offline_pin_enrolled,
+        u.temp_password_expires_at, u.failed_login_attempts, u.locked_until,
         (u.must_change_password = 1 AND u.temp_password_expires_at IS NOT NULL
           AND u.temp_password_expires_at <= UTC_TIMESTAMP()) AS temp_password_expired,
         (SELECT COUNT(*) FROM user_login_history h WHERE h.user_id = u.user_id AND h.status = 'ACTIVE'
@@ -245,6 +246,8 @@ const getUser = async (req, res) => {
         is_active: isActive(row),
         is_locked: isLocked(row),
         must_change_password: Boolean(row.must_change_password),
+        offline_pin_setup_required: Boolean(row.offline_pin_setup_required),
+        offline_pin_enrolled: Boolean(row.offline_pin_enrolled),
         temp_password_expired: Boolean(row.temp_password_expired),
         protected: isProtectedSystemUser(row),
         active_sessions: Number(row.active_sessions || 0),
@@ -323,14 +326,12 @@ const updateUser = async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body || {}, 'password')) {
     return sendError(res, 400, 'Passwords can only be changed through password reset or Settings.');
   }
-  const identity = validateIdentity({
-    full_name: req.body?.full_name,
-    username: req.body?.username,
-    role: req.body?.role,
-  });
-  if (Object.keys(identity.fieldErrors).length) {
-    return sendError(res, 400, 'Check the highlighted fields.', 'VALIDATION_ERROR', identity.fieldErrors);
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'full_name') ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, 'username')) {
+    return sendError(res, 403, 'Users can change their own name and username in Settings.', 'PROFILE_OWNER_ONLY');
   }
+  const role = normalizeUserRole(req.body?.role);
+  if (!role) return sendError(res, 400, 'Choose a valid role.', 'VALIDATION_ERROR', { role: 'Choose a valid role.' });
 
   const connection = await pool.getConnection();
   try {
@@ -346,14 +347,13 @@ const updateUser = async (req, res) => {
       await connection.rollback();
       return sendError(res, 403, 'The primary admin account can only be changed from its own Settings page.', 'PROTECTED_USER');
     }
-    if (Number(id) === Number(req.user.user_id) && identity.role !== normalizeUserRole(current.role)) {
+    if (Number(id) === Number(req.user.user_id) && role !== normalizeUserRole(current.role)) {
       await connection.rollback();
       return sendError(res, 403, 'You cannot change your own role.', 'SELF_ROLE_CHANGE');
     }
 
-    const roleChanged = identity.role !== normalizeUserRole(current.role);
-    const usernameChanged = identity.username !== current.username;
-    if (roleChanged && normalizeUserRole(current.role) === 'admin' && identity.role !== 'admin' && isActive(current)) {
+    const roleChanged = role !== normalizeUserRole(current.role);
+    if (roleChanged && normalizeUserRole(current.role) === 'admin' && role !== 'admin' && isActive(current)) {
       const admins = await lockActiveAdmins(connection);
       if (admins.length <= 1) {
         await connection.rollback();
@@ -362,35 +362,23 @@ const updateUser = async (req, res) => {
     }
 
     await connection.query(
-      `UPDATE users SET full_name = ?, username = ?, role = ?,
-        token_version = token_version + ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?`,
-      [identity.name, identity.username, identity.role, roleChanged || usernameChanged ? 1 : 0, id]
+      `UPDATE users SET role = ?, token_version = token_version + ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?`,
+      [role, roleChanged ? 1 : 0, id]
     );
-    if (roleChanged || usernameChanged) {
+    if (roleChanged) {
       await connection.query(
         "UPDATE user_login_history SET status = 'REVOKED', ended_at = UTC_TIMESTAMP() WHERE user_id = ? AND status = 'ACTIVE'",
         [id]
       );
     }
     await connection.commit();
-    const oldData = { full_name: current.full_name, username: current.username, role: normalizeRoleLabel(current.role) };
-    const newData = { full_name: identity.name, username: identity.username, role: normalizeRoleLabel(identity.role) };
     if (roleChanged) {
       await writeUserAudit(req, {
         action: 'role_changed',
         targetId: id,
-        description: `Changed ${identity.username}'s role`,
-        old_data: { role: oldData.role },
-        new_data: { role: newData.role },
-      });
-    }
-    if (oldData.full_name !== newData.full_name || oldData.username !== newData.username) {
-      await writeUserAudit(req, {
-        action: 'user_updated',
-        targetId: id,
-        description: `Updated profile for ${identity.username}`,
-        old_data: { full_name: oldData.full_name, username: oldData.username },
-        new_data: { full_name: newData.full_name, username: newData.username },
+        description: `Changed ${current.username}'s role`,
+        old_data: { role: normalizeRoleLabel(current.role) },
+        new_data: { role: normalizeRoleLabel(role) },
       });
     }
     return res.json({ success: true, message: 'User updated successfully.' });

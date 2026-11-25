@@ -328,12 +328,12 @@ html[data-theme='dark'] .sync-status-page { color-scheme: dark; }
 .sync-select-wrap > svg.sync-select-leading { right: auto; left: 11px; color: var(--accent); }
 
 .sync-filter-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 0 18px; border-bottom: 1px solid var(--border); }
-.sync-status-chips { display: flex; min-width: 0; align-items: stretch; gap: 18px; overflow-x: auto; scrollbar-width: thin; }
-.sync-status-chips button { position: relative; display: inline-flex; min-height: 46px; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 550; white-space: nowrap; cursor: pointer; }
-.sync-status-chips button:hover { color: var(--accent); }
-.sync-status-chips button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 700; }
+.sync-status-chips { display: flex; min-width: 0; align-items: center; gap: 7px; overflow-x: auto; scrollbar-width: thin; }
+.sync-status-chips button { position: relative; display: inline-flex; min-height: 34px; flex: 0 0 auto; align-items: center; gap: 7px; margin: 6px 0; padding: 0 12px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 550; white-space: nowrap; cursor: pointer; }
+.sync-status-chips button:hover { background: var(--surface-muted); color: var(--accent); }
+.sync-status-chips button.active { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); background: var(--accent-tint); color: var(--accent); font-weight: 700; }
 .sync-tab-count { display: inline-grid; min-width: 22px; min-height: 20px; place-items: center; padding: 0 5px; border-radius: 999px; background: transparent; color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.sync-status-chips button.active .sync-tab-count { background: var(--teal-50); color: var(--accent); }
+.sync-status-chips button.active .sync-tab-count { background: transparent; color: var(--accent); }
 .sync-clear { min-height: 44px; flex: 0 0 auto; padding: 0 4px; border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 650; cursor: pointer; }
 
 .sync-table-wrap { width: 100%; overflow-x: auto; }
@@ -464,8 +464,8 @@ html[data-theme='dark'] .sync-status-page { color-scheme: dark; }
   .sync-selects { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sync-selects > :last-child:nth-child(odd) { grid-column: 1 / -1; }
   .sync-filter-row { align-items: flex-start; padding: 0 14px; }
-  .sync-status-chips { gap: 15px; }
-  .sync-status-chips button { min-height: 46px; font-size: 12px; }
+  .sync-status-chips { gap: 7px; }
+  .sync-status-chips button { min-height: 34px; font-size: 12px; }
   .sync-table-wrap { display: none; }
   .sync-mobile-list { display: grid; gap: 0; }
   .sync-mobile-card { display: grid; gap: 10px; min-width: 0; padding: 14px; border-bottom: 1px solid var(--border); }

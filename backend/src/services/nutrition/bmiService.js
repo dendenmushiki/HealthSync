@@ -20,7 +20,7 @@ function calculateBMI(weightKg, heightCm) {
 }
 
 /**
- * Classify adult BMI (WHO standard for 20+ years)
+ * Classify adult BMI using standard adult BMI categories
  * @param {number} bmi
  * @returns {string} BMI category
  */

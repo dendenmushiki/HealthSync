@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
-import { persistPreferences, useTheme } from '../../context/ThemeContext';
+import { DEFAULT_PREFERENCES, persistPreferences, useTheme } from '../../context/ThemeContext';
 import api from '../../services/api/apiClient';
 import { getProfilePhotoUrl, validateProfilePhoto } from '../../utils/profilePhoto';
 import { formatRelativeTime } from '../../utils/dateUtils';
@@ -58,17 +58,6 @@ const SECTIONS = [
   { id: 'notifications', label: 'Notifications', Icon: Bell },
   { id: 'privacy', label: 'Data & Privacy', Icon: LockKeyhole },
 ];
-
-const DEFAULT_PREFERENCES = {
-  theme: 'system',
-  textSize: 'default',
-  notifications: {
-    nutritionAlerts: true,
-    seniorFollowUpAlerts: true,
-    offlineSyncAlerts: true,
-    newResidentAlerts: true,
-  },
-};
 
 const readCachedPreferences = () => {
   try {

@@ -72,6 +72,8 @@ const completePinSetup = async (req, res) => {
   try {
     await ensureOfflineSecuritySchema();
     const pin = req.body?.pin;
+    const currentPin = isPin(req.body?.current_pin) ? req.body.current_pin : '';
+    const currentPassword = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
     if (!isPin(pin)) return res.status(400).json({ success: false, message: 'PIN must contain exactly six digits.' });
     if (!req.user.offline_pin_setup_required) {
       const [rows] = await pool.query(
@@ -94,16 +96,10 @@ const completePinSetup = async (req, res) => {
     try {
       await connection.beginTransaction();
       const [accountRows] = await connection.query(
-        'SELECT offline_pin_hash, offline_pin_version FROM users WHERE user_id = ? FOR UPDATE',
+        'SELECT password, offline_pin_hash, offline_pin_version FROM users WHERE user_id = ? FOR UPDATE',
         [req.user.user_id]
       );
       if (!accountRows.length) throw new Error('The account could not be found while setting up its PIN.');
-      const accountPinMatches = Boolean(accountRows[0].offline_pin_hash) &&
-        await bcrypt.compare(pin, accountRows[0].offline_pin_hash);
-      if (accountRows[0].offline_pin_hash && !accountPinMatches) {
-        await connection.rollback();
-        return res.status(409).json({ success: false, message: 'Use the existing account PIN on this device.' });
-      }
       const [deviceRows] = await connection.query(
         'SELECT pin_hash, status FROM offline_devices WHERE device_id = ? AND user_id = ? LIMIT 1',
         [req.user.device_id, req.user.user_id]
@@ -112,14 +108,88 @@ const completePinSetup = async (req, res) => {
         await connection.rollback();
         return res.status(403).json({ success: false, message: 'This device is not authorized.' });
       }
-      if (!accountRows[0].offline_pin_hash && deviceRows[0].pin_hash &&
-          !await bcrypt.compare(pin, deviceRows[0].pin_hash)) {
-        await connection.rollback();
-        return res.status(409).json({ success: false, message: 'Use this device’s existing PIN to preserve its offline data.' });
+
+      const currentAccountPinHash = accountRows[0].offline_pin_hash;
+      const currentDevicePinHash = deviceRows[0].pin_hash;
+      const hasExistingPin = Boolean(currentAccountPinHash || currentDevicePinHash);
+      if (hasExistingPin) {
+        const accountPinMatches = Boolean(currentAccountPinHash) &&
+          await bcrypt.compare(pin, currentAccountPinHash);
+        const devicePinMatches = !currentAccountPinHash && Boolean(currentDevicePinHash) &&
+          await bcrypt.compare(pin, currentDevicePinHash);
+        const isResetRequired = Boolean(req.user.offline_pin_setup_required && currentAccountPinHash &&
+          (currentPin || currentPassword));
+
+        if (req.user.offline_pin_setup_required && currentAccountPinHash && !isResetRequired) {
+          await connection.rollback();
+          return res.status(401).json({ success: false, message: 'Enter your current PIN or account password to protect existing offline data.' });
+        }
+
+        if (isResetRequired) {
+          const currentPinMatchesAccount = Boolean(currentPin && currentAccountPinHash) &&
+            await bcrypt.compare(currentPin, currentAccountPinHash);
+          const currentPinMatchesDevice = Boolean(currentPin && currentDevicePinHash) &&
+            await bcrypt.compare(currentPin, currentDevicePinHash);
+          const currentPasswordMatches = Boolean(currentPassword) &&
+            await bcrypt.compare(currentPassword, accountRows[0].password);
+          if (!currentPinMatchesAccount && !currentPinMatchesDevice && !currentPasswordMatches) {
+            await connection.rollback();
+            return res.status(401).json({ success: false, message: 'The current PIN or account password is incorrect.' });
+          }
+          if (accountPinMatches || devicePinMatches ||
+              (currentDevicePinHash && await bcrypt.compare(pin, currentDevicePinHash))) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: 'Choose a PIN different from the existing offline PIN.' });
+          }
+          const currentVersion = Number(accountRows[0].offline_pin_version || 0);
+          const pinVersion = Math.max(1, currentVersion + 1);
+          const accountPinHash = await bcrypt.hash(pin, 12);
+          await connection.query(
+            `UPDATE users SET offline_pin_setup_required = 0, offline_pin_hash = ?, offline_pin_version = ?
+             WHERE user_id = ? AND offline_pin_setup_required = 1`,
+            [accountPinHash, pinVersion, req.user.user_id]
+          );
+          await setCurrentDevicePinVersion({
+            connection,
+            userId: req.user.user_id,
+            currentDeviceId: req.user.device_id,
+            pinVersion,
+            invalidateOtherDevices: true,
+          });
+          await connection.commit();
+          await writeAudit({
+            user_id: req.user.user_id,
+            action: 'OFFLINE_PIN_RESET',
+            module: 'auth',
+            description: 'Offline PIN reset completed.',
+            targetType: 'user',
+            targetId: req.user.user_id,
+            result: 'success',
+            req,
+          });
+          return res.json({ success: true, message: 'Offline PIN reset completed.' });
+        }
+
+        if (currentAccountPinHash && !accountPinMatches) {
+          await connection.rollback();
+          return res.status(409).json({ success: false, message: 'Use the existing account PIN on this device.' });
+        }
+        if (!currentAccountPinHash && currentDevicePinHash && !devicePinMatches) {
+          await connection.rollback();
+          return res.status(409).json({ success: false, message: 'Use this device’s existing PIN to preserve its offline data.' });
+        }
       }
+
+      if (!hasExistingPin && (currentPin || currentPassword)) {
+        await connection.rollback();
+        return res.status(400).json({ success: false, message: 'No existing offline PIN is available to reset.' });
+      }
+
+      const accountPinMatches = Boolean(currentAccountPinHash) &&
+        await bcrypt.compare(pin, currentAccountPinHash);
       const currentVersion = Number(accountRows[0].offline_pin_version || 0);
       const pinVersion = accountPinMatches ? Math.max(1, currentVersion) : Math.max(1, currentVersion + 1);
-      const accountPinHash = accountPinMatches ? accountRows[0].offline_pin_hash : await bcrypt.hash(pin, 12);
+      const accountPinHash = accountPinMatches ? currentAccountPinHash : await bcrypt.hash(pin, 12);
       const [result] = await connection.query(
         `UPDATE users SET offline_pin_setup_required = 0, offline_pin_hash = ?, offline_pin_version = ?
          WHERE user_id = ? AND offline_pin_setup_required = 1`,
@@ -416,6 +486,92 @@ const adminManageDevice = async (req, res) => {
   }
 };
 
+const adminResetUserPin = async (req, res) => {
+  const { id } = req.params;
+  const currentPassword = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
+  if (!/^\d+$/.test(String(id || '')) || Number(id) <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+  }
+  if (Number(id) === Number(req.user.user_id)) {
+    return res.status(403).json({ success: false, message: 'You cannot reset your own offline PIN here.' });
+  }
+  if (!currentPassword) {
+    return res.status(400).json({ success: false, message: 'Enter your current account password to reset this PIN.' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await ensureOfflineSecuritySchema();
+    await connection.beginTransaction();
+    const [adminRows] = await connection.query('SELECT password FROM users WHERE user_id = ? FOR UPDATE', [req.user.user_id]);
+    if (!adminRows.length || !(await bcrypt.compare(currentPassword, adminRows[0].password))) {
+      await connection.rollback();
+      return res.status(401).json({ success: false, message: 'The current account password is incorrect.' });
+    }
+
+    const [rows] = await connection.query(
+      `SELECT user_id, username, must_change_password, offline_pin_setup_required, offline_pin_hash
+       FROM users WHERE user_id = ? FOR UPDATE`,
+      [id]
+    );
+    if (!rows.length) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    const target = rows[0];
+    if (String(target.username).trim().toLowerCase() === 'hsync_admin') {
+      await connection.rollback();
+      return res.status(403).json({ success: false, message: 'The primary admin account is managed through its own Settings page.' });
+    }
+    if (target.must_change_password) {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'Complete the required password setup before resetting the offline PIN.' });
+    }
+    if (target.offline_pin_setup_required) {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'An offline PIN reset is already pending for this user.' });
+    }
+    if (!target.offline_pin_hash) {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'This user has not set up a shared offline PIN.' });
+    }
+
+    await connection.query(
+      `UPDATE users SET offline_pin_setup_required = 1, token_version = token_version + 1,
+        updated_at = UTC_TIMESTAMP() WHERE user_id = ?`,
+      [id]
+    );
+    await connection.query(
+      "UPDATE user_login_history SET status = 'REVOKED', ended_at = UTC_TIMESTAMP() WHERE user_id = ? AND status = 'ACTIVE'",
+      [id]
+    );
+    await connection.commit();
+    await writeAudit({
+      user_id: req.user.user_id,
+      action: 'OFFLINE_PIN_RESET_REQUIRED',
+      module: 'users',
+      description: 'Required the user to reset their offline PIN.',
+      table_name: 'users',
+      record_id: id,
+      targetType: 'user',
+      targetId: id,
+      result: 'success',
+      req,
+    });
+    return res.json({
+      success: true,
+      message: 'Offline PIN reset required. The user must sign in and set a new PIN.',
+    });
+  } catch (error) {
+    await connection.rollback();
+    const logger = require('../services/logger');
+    logger.error('adminResetUserPin error', error);
+    return res.status(500).json({ success: false, message: 'Unable to reset the offline PIN.' });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   checkDeviceStatus,
   completePinSetup,
@@ -426,4 +582,5 @@ module.exports = {
   getUserDevices,
   revokeOwnDevice,
   adminManageDevice,
+  adminResetUserPin,
 };

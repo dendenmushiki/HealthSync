@@ -5,6 +5,17 @@ const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const FONT_SCALES = { small: '0.875', default: '1', large: '1.125', 'extra-large': '1.25' };
 const ThemeContext = createContext(null);
 
+export const DEFAULT_PREFERENCES = {
+  theme: 'system',
+  textSize: 'default',
+  notifications: {
+    nutritionAlerts: true,
+    seniorFollowUpAlerts: true,
+    offlineSyncAlerts: true,
+    newResidentAlerts: true,
+  },
+};
+
 function readPreferences() {
   try {
     const preferences = JSON.parse(window.localStorage.getItem(PREFERENCES_KEY) || '{}');
@@ -87,11 +98,12 @@ export function ThemeProvider({ children }) {
   }, [applyPreferences]);
 
   const setThemePreference = useCallback((theme) => {
-    if (!THEME_VALUES.has(theme)) return;
+    if (!THEME_VALUES.has(theme)) return null;
     const nextPreferences = { ...readPreferences(), theme };
     persistPreferences(nextPreferences);
     applyPreferences(nextPreferences);
     window.dispatchEvent(new CustomEvent('healthsync:preferences-updated', { detail: nextPreferences }));
+    return nextPreferences;
   }, [applyPreferences]);
 
   return (

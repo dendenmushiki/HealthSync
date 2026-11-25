@@ -214,6 +214,24 @@ html[data-theme='dark'] #root .residents-directory-page .resident-record-table-a
   color: var(--accent);
 }
 
+html[data-theme='dark'] #root .residents-directory-page .resident-category-tabs button {
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+html[data-theme='dark'] #root .residents-directory-page .resident-category-tabs button[aria-selected='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--primary-text);
+}
+
+html[data-theme='dark'] #root .residents-directory-page .resident-category-tabs button:not([aria-selected='true']):hover {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
 #root .residents-directory-page .residents-offline-note {
   border-color: var(--warning);
   background: var(--warning-soft);

@@ -64,7 +64,7 @@ export const AuthProvider = ({ children }) => {
             setUser(stored.user);
             setOfflineVaultNeedsUnlock(Boolean(grantMatchesUser && needsInactivityPin));
             const restoreSessionUnlock = Boolean(
-              grantMatchesUser && stored.token && isOnline && !needsInactivityPin &&
+              grantMatchesUser && stored.token && !needsInactivityPin &&
               !stored.user.must_change_password && !stored.user.offline_pin_setup_required &&
               hasOfflineVaultSessionUnlock({
                 userId: ownerId,
@@ -83,21 +83,34 @@ export const AuthProvider = ({ children }) => {
                   deviceId: grant.deviceId,
                 });
                 if (!restored) throw new Error('The saved offline session could not be restored.');
-                const response = await api.get('/auth/me');
-                const serverUser = response?.data?.data?.user;
-                if (!response?.data?.success || !serverUser ||
-                    String(serverUser.user_id) !== String(ownerId) || serverUser.role !== grant.role) {
-                  throw new Error('The online account session could not be verified.');
-                }
-                const vaultMetadata = await getOfflineVaultMetadata(ownerId);
-                if (vaultMetadata?.credentialType === 'pin' && !serverUser.offline_pin_enrolled) {
-                  throw new Error('The shared PIN changed. Reconnect and unlock this device again.');
+                if (isOnline) {
+                  let response;
+                  try {
+                    response = await api.get('/auth/me');
+                  } catch (error) {
+                    if (error.response) throw error;
+                    if (!active) return;
+                    setOfflineVaultReady(true);
+                    setOfflineVaultNeedsUnlock(false);
+                    setOfflineVaultError(null);
+                    return;
+                  }
+                  const serverUser = response?.data?.data?.user;
+                  if (!response?.data?.success || !serverUser ||
+                      String(serverUser.user_id) !== String(ownerId) || serverUser.role !== grant.role) {
+                    throw new Error('The online account session could not be verified.');
+                  }
+                  const vaultMetadata = await getOfflineVaultMetadata(ownerId);
+                  if (vaultMetadata?.credentialType === 'pin' && !serverUser.offline_pin_enrolled) {
+                    throw new Error('The shared PIN changed. Reconnect and unlock this device again.');
+                  }
+                  if (!active) return;
+                  const verifiedUser = { ...stored.user, ...serverUser, device_id: stored.user.device_id };
+                  setToken(stored.token);
+                  setUser(verifiedUser);
+                  setAuth(stored.token, verifiedUser);
                 }
                 if (!active) return;
-                const verifiedUser = { ...stored.user, ...serverUser, device_id: stored.user.device_id };
-                setToken(stored.token);
-                setUser(verifiedUser);
-                setAuth(stored.token, verifiedUser);
                 setOfflineVaultReady(true);
                 setOfflineVaultNeedsUnlock(false);
                 setOfflineVaultError(null);
@@ -116,12 +129,7 @@ export const AuthProvider = ({ children }) => {
                 }
               }
             } else {
-              if (!isOnline && grantMatchesUser) {
-                lockOfflineVault(ownerId);
-                setOfflineVaultReady(false);
-              } else {
-                setOfflineVaultReady(Boolean(grantMatchesUser && isOfflineVaultUnlocked(ownerId)));
-              }
+              setOfflineVaultReady(Boolean(grantMatchesUser && isOfflineVaultUnlocked(ownerId)));
             }
           }
         }
@@ -397,11 +405,11 @@ export const AuthProvider = ({ children }) => {
     }
   }, [checkOnlineDeviceAuthorization, user]);
 
-  const lockOfflineAccess = useCallback(({ broadcast = true, requirePin = false } = {}) => {
+  const lockOfflineAccess = useCallback(({ broadcast = true, requirePin = false, preserveSessionUnlock = false } = {}) => {
     if (user?.user_id !== undefined) {
       if (requirePin) setOfflinePinRequired(user.user_id, true);
       const wasUnlocked = isOfflineVaultUnlocked(user.user_id);
-      lockOfflineVault(user.user_id);
+      lockOfflineVault(user.user_id, { preserveSessionUnlock });
       if (wasUnlocked) setOfflineVaultNeedsUnlock(true);
     }
     pendingOnlinePassword.current = null;
@@ -459,8 +467,9 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('healthsync:offline-authorization-revoked', handleAuthorizationRevoked);
   }, []);
 
-  const completePasswordChange = useCallback(async (nextToken, nextUser, pin, onlinePassword) => {
+  const completePasswordChange = useCallback(async (nextToken, nextUser, pin, onlinePassword, currentPin, currentPassword) => {
     let migrationPending = false;
+    const resettingExistingPin = Boolean(nextUser?.offline_pin_setup_required && nextUser.offline_account_pin_enrolled);
     setOfflineVaultReady(false);
     setOfflineVaultError(null);
     setAuth(nextToken, nextUser);
@@ -526,7 +535,45 @@ export const AuthProvider = ({ children }) => {
       createOfflineSession({ userId: ownerId, role: nextUser.role, deviceId: nextUser.device_id });
       const metadata = await getOfflineVaultMetadata(ownerId);
       let updated;
-      if (metadata?.credentialType === 'pin') {
+      if (resettingExistingPin) {
+        if (metadata && !isOfflineVaultUnlocked(ownerId)) {
+          if (metadata.credentialType === 'pin') {
+            if (currentPin) {
+              await unlockOfflineVault({ userId: ownerId, credential: currentPin });
+            } else if (currentPassword) {
+              await unlockOfflineVault({ userId: ownerId, credential: currentPassword, credentialType: 'online-password' });
+            } else {
+              await unlockOfflineVault({ userId: ownerId, credential: pin });
+            }
+          } else if (currentPassword) {
+            await unlockOfflineVault({ userId: ownerId, credential: currentPassword, credentialType: 'password' });
+          } else {
+            throw new Error('Unlock existing offline data with its account password before resetting the PIN.');
+          }
+        }
+
+        const response = await api.post('/auth/complete-offline-setup', {
+          pin,
+          ...(currentPin ? { current_pin: currentPin } : {}),
+          ...(currentPassword ? { current_password: currentPassword } : {}),
+        });
+        if (!response.data?.success) throw new Error(response.data?.message || 'Unable to save PIN enrollment.');
+
+        if (metadata) {
+          updated = await changeOfflineVaultCredential({ userId: ownerId, credential: pin, credentialType: 'pin' });
+          if (currentPassword && !metadata.hasOnlinePasswordWrapper) {
+            await addOfflineVaultPasswordWrapper({ userId: ownerId, credential: currentPassword });
+          }
+        } else {
+          updated = await createOfflineVault({
+            userId: ownerId,
+            role: nextUser.role,
+            credential: pin,
+            credentialType: 'pin',
+            ...(passwordForWrapper ? { onlinePassword: passwordForWrapper } : {}),
+          });
+        }
+      } else if (metadata?.credentialType === 'pin') {
         if (!isOfflineVaultUnlocked(ownerId)) await unlockOfflineVault({ userId: ownerId, credential: pin });
         updated = metadata;
       } else if (metadata) {
@@ -546,12 +593,14 @@ export const AuthProvider = ({ children }) => {
           ...(passwordForWrapper ? { onlinePassword: passwordForWrapper } : {}),
         });
       }
-      if (passwordForWrapper && metadata && !metadata.hasOnlinePasswordWrapper) {
+      if (!resettingExistingPin && passwordForWrapper && metadata && !metadata.hasOnlinePasswordWrapper) {
         await addOfflineVaultPasswordWrapper({ userId: ownerId, credential: passwordForWrapper });
       }
       if (updated.role !== nextUser.role) throw new Error('Offline access must be refreshed after an account role change.');
-      const response = await api.post('/auth/complete-offline-setup', { pin });
-      if (!response.data?.success) throw new Error(response.data?.message || 'Unable to save PIN enrollment.');
+      if (!resettingExistingPin) {
+        const response = await api.post('/auth/complete-offline-setup', { pin });
+        if (!response.data?.success) throw new Error(response.data?.message || 'Unable to save PIN enrollment.');
+      }
       const completedUser = {
         ...nextUser,
         offline_pin_enrolled: true,
@@ -567,7 +616,7 @@ export const AuthProvider = ({ children }) => {
       await migrateLegacyQueueSafely(ownerId, setOfflineVaultError);
       return true;
     } catch (error) {
-      if (nextUser?.user_id !== undefined) lockOfflineVault(nextUser.user_id);
+      if (nextUser?.user_id !== undefined && !resettingExistingPin) lockOfflineVault(nextUser.user_id);
       setOfflineVaultReady(false);
       setOfflineVaultNeedsUnlock(true);
       setOfflineVaultError(error.message || 'PIN setup could not be completed. Retry setup before using HealthSync.');

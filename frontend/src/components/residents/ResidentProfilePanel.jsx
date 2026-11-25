@@ -17,7 +17,7 @@ import {
 import './ResidentProfilePanel.css';
 import { getResidentSummary } from '../../services/api/residentService';
 import { calculateAdultBMIOffline, calculateAdolescentBMIOffline } from '../../services/nutrition/offlineNutritionCalculator';
-import { calculateAge, formatResidentName } from '../../utils/residentUtils';
+import { calculateAge, calculateAgeInMonths, formatResidentName } from '../../utils/residentUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
 
 const PROFILE_TABS = [
@@ -145,9 +145,9 @@ function getLatestAssessment(resident, visits, snapshot) {
   if (!(result.weightKg > 0) || !(result.heightCm > 0) || !resident?.birthdate || !latest.date) return result;
 
   const date = String(latest.date).slice(0, 10);
-  const ageAtMeasurement = calculateAge(resident.birthdate, new Date(`${date}T00:00:00`));
+  const ageAtMeasurementMonths = calculateAgeInMonths(resident.birthdate, date);
   try {
-    if (ageAtMeasurement >= 20) {
+    if (ageAtMeasurementMonths >= 229) {
       const calculation = calculateAdultBMIOffline(resident, {
         date_recorded: date,
         weight_kg: result.weightKg,
@@ -155,7 +155,7 @@ function getLatestAssessment(resident, visits, snapshot) {
       });
       return { ...result, bmi: calculation.bmi, nutritionStatus: result.nutritionStatus || calculation.bmi_category };
     }
-    if (ageAtMeasurement >= 5) {
+    if (ageAtMeasurementMonths >= 61) {
       const calculation = calculateAdolescentBMIOffline(resident, {
         record_date: date,
         weight_kg: result.weightKg,

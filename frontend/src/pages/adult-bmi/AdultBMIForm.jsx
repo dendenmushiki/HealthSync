@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ResidentAutocomplete from '../../components/residents/ResidentAutocomplete';
 import { createAdultBMI } from '../../services/api/adultBMIService';
-import { calculateAge, normalizeResidentId } from '../../utils/residentUtils';
+import { calculateAgeInMonths, normalizeResidentId } from '../../utils/residentUtils';
 import { getLocalDateInputValue } from '../../utils/dateUtils';
 import StatusBanner from '../../components/common/StatusBanner';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
@@ -13,7 +13,8 @@ const AdultBMIForm = ({ onSaved }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const ageYears = useMemo(() => calculateAge(selectedResident?.birthdate, form.record_date ? new Date(`${form.record_date}T00:00:00`) : new Date()), [selectedResident, form.record_date]);
+  const ageMonths = useMemo(() => calculateAgeInMonths(selectedResident?.birthdate, form.record_date), [selectedResident, form.record_date]);
+  const ageYears = ageMonths === null ? null : Math.floor(ageMonths / 12);
 
   const liveBmi = useMemo(() => {
     const height = Number(form.height_cm);
@@ -40,8 +41,8 @@ const AdultBMIForm = ({ onSaved }) => {
       return;
     }
 
-    if (ageYears === null || ageYears < 20) {
-      setError('Adult BMI is valid only for residents aged 20 or above.');
+    if (ageMonths === null || ageMonths < 229) {
+      setError('Adult BMI classification is available from 19 years and 1 month.');
       return;
     }
 
@@ -91,7 +92,7 @@ const AdultBMIForm = ({ onSaved }) => {
                 <ResidentAutocomplete
                   value={form.resident_id}
                   selectedResident={selectedResident}
-                  minAge={20}
+                  minAgeMonths={229}
                   onSelect={(resident) => { setSelectedResident(resident); setForm((prev) => ({ ...prev, resident_id: resident?.resident_id || '' })); }}
                   placeholder="Search name or household number"
                 />

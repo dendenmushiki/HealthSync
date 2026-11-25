@@ -93,6 +93,23 @@ function AuthControls() {
         );
         setPasswordChanged(true);
       }}>Complete password change</button>
+      <button type="button" onClick={async () => {
+        await auth.completePasswordChange(
+          'server-token-first',
+          {
+            user_id: 7,
+            role: 'bhw',
+            device_id: 'device-local',
+            offline_pin_setup_required: true,
+            offline_pin_enrolled: true,
+            offline_account_pin_enrolled: true,
+          },
+          '000456',
+          undefined,
+          '000123'
+        );
+        setPasswordChanged(true);
+      }}>Complete offline PIN reset</button>
       <button type="button" onClick={() => auth.unlockOfflineAccess('CorrectHorseBattery9!')}>Unlock offline vault</button>
       <button type="button" onClick={() => auth.unlockOfflineAccess('000042')}>Migrate legacy vault</button>
       <button type="button" onClick={async () => {
@@ -222,6 +239,39 @@ test('prepares an encrypted sync queue on online login when this device has no o
     .toEqual(expect.objectContaining({ status: 'PENDING' }));
 });
 
+test('rewraps the local vault with a reset PIN without losing its queued records', async () => {
+  await createOfflineVault({
+    userId: 7,
+    role: 'bhw',
+    credential: '000123',
+    credentialType: 'pin',
+    onlinePassword: 'CurrentPassword9!',
+  });
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await putOfflineRecord(7, 'offlineQueue', 'queued-operation', {
+    offlineOperationId: 'queued-operation',
+    status: 'PENDING',
+  });
+  lockOfflineVault(7);
+  api.post.mockResolvedValue({ data: { success: true } });
+  render(<AuthProvider><AuthControls /></AuthProvider>);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Complete offline PIN reset' }));
+
+  await waitFor(() => expect(screen.getByTestId('vault-ready')).toHaveTextContent('true'));
+  expect(api.post).toHaveBeenCalledWith('/auth/complete-offline-setup', {
+    pin: '000456',
+    current_pin: '000123',
+  });
+  expect(await getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .toEqual(expect.objectContaining({ status: 'PENDING' }));
+
+  lockOfflineVault(7, { preserveSessionUnlock: true });
+  await unlockOfflineVault({ userId: 7, credential: '000456' });
+  expect(await getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .toEqual(expect.objectContaining({ status: 'PENDING' }));
+});
+
 test('restores the online session but leaves a vault without a remembered session key locked', async () => {
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
   localStorage.setItem('hs_offline_device_id', 'device-local');
@@ -293,7 +343,7 @@ test('keeps the encrypted offline queue unlocked after an online browser refresh
     .resolves.toEqual(expect.objectContaining({ status: 'PENDING' }));
 });
 
-test('requires PIN unlock after refreshing offline instead of restoring the tab session key', async () => {
+test('restores same-tab offline access after refresh when the session key is retained', async () => {
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
   sessionStorage.clear();
   localStorage.setItem('hs_offline_device_id', 'device-local');
@@ -311,18 +361,57 @@ test('requires PIN unlock after refreshing offline instead of restoring the tab 
     device_id: 'device-local',
     offline_pin_enrolled: true,
   }));
+  await putOfflineRecord(7, 'offlineQueue', 'queued-operation', {
+    offlineOperationId: 'queued-operation',
+    status: 'PENDING',
+  });
   lockOfflineVault(7, { preserveSessionUnlock: true });
 
   render(<AuthProvider><AuthControls /></AuthProvider>);
 
   await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
-  expect(screen.getByTestId('vault-ready')).toHaveTextContent('false');
+  expect(screen.getByTestId('vault-ready')).toHaveTextContent('true');
   expect(hasOfflineVaultSessionUnlock({
     userId: 7,
     role: 'bhw',
     deviceId: 'device-local',
-  })).toBe(false);
-  expect(isOfflineVaultUnlocked(7)).toBe(false);
+  })).toBe(true);
+  expect(isOfflineVaultUnlocked(7)).toBe(true);
+  await expect(getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .resolves.toEqual(expect.objectContaining({ status: 'PENDING' }));
+});
+
+test('keeps restored offline access when the online session check loses connectivity', async () => {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+  localStorage.setItem('hs_offline_device_id', 'device-local');
+  createOfflineSession({ userId: 7, role: 'bhw', deviceId: 'device-local' });
+  await createOfflineVault({
+    userId: 7,
+    role: 'bhw',
+    credential: 'CorrectHorseBattery9!',
+    onlinePassword: 'CorrectHorseBattery9!',
+  });
+  await putOfflineRecord(7, 'offlineQueue', 'queued-operation', {
+    offlineOperationId: 'queued-operation',
+    status: 'PENDING',
+  });
+  localStorage.setItem('hs_token', 'stored-token');
+  localStorage.setItem('hs_user', JSON.stringify({
+    user_id: 7,
+    role: 'bhw',
+    device_id: 'device-local',
+    offline_pin_enrolled: true,
+  }));
+  lockOfflineVault(7, { preserveSessionUnlock: true });
+  api.get.mockRejectedValueOnce(new Error('Network unavailable'));
+
+  render(<AuthProvider><AuthControls /></AuthProvider>);
+
+  await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+  expect(screen.getByTestId('vault-ready')).toHaveTextContent('true');
+  expect(isOfflineVaultUnlocked(7)).toBe(true);
+  await expect(getOfflineRecord(7, 'offlineQueue', 'queued-operation'))
+    .resolves.toEqual(expect.objectContaining({ status: 'PENDING' }));
 });
 
 test('allows local PIN unlock when the backend cannot confirm device status', async () => {

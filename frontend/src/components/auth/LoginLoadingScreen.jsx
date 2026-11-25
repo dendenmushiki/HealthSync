@@ -150,8 +150,6 @@ function LoginLoadingScreen({ ready, error, onError, onExit, onBackToLogin }) {
   const readyRef = useRef(ready);
   const errorRef = useRef(error);
   const exitRef = useRef(onExit);
-  const [skipRequested, setSkipRequested] = useState(false);
-  const [skipVisible, setSkipVisible] = useState(false);
   const [phase, setPhase] = useState('preloading');
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -230,23 +228,13 @@ function LoginLoadingScreen({ ready, error, onError, onExit, onBackToLogin }) {
   }, []);
 
   useEffect(() => {
-    const skipTimer = window.setTimeout(
-      () => setSkipVisible(true),
-      ANIMATION_CONFIG.skipRevealMs
-    );
     const readyTimer = window.setTimeout(() => {
       if (!readyRef.current && !errorRef.current) {
         onError('The dashboard is taking longer than expected to load.');
       }
     }, ANIMATION_CONFIG.readyTimeoutMs);
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') setSkipRequested(true);
-    };
-    window.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.clearTimeout(skipTimer);
       window.clearTimeout(readyTimer);
-      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [onError]);
 
@@ -366,26 +354,6 @@ function LoginLoadingScreen({ ready, error, onError, onExit, onBackToLogin }) {
         wordmarkRef.current.style.transform = 'translateY(8px)';
       }
 
-      if (skipRequested) {
-        setCompleteLogo();
-        setPhase('waiting');
-        if (!readyRef.current) {
-          while (active && !readyRef.current && !errorRef.current) {
-            await pulseCycle(ANIMATION_CONFIG.pulseMs, ANIMATION_CONFIG.pulseOverlapMs);
-          }
-        }
-        if (active && readyRef.current && !errorRef.current) {
-          setPhase('exiting');
-          await animate(screenRef.current, [{ opacity: 1 }, { opacity: 0 }], {
-            duration: prefersReducedMotion
-              ? ANIMATION_CONFIG.reducedMotion.exitFadeMs
-              : ANIMATION_CONFIG.exitFadeMs,
-          }, { opacity: '0' });
-          if (active) exitRef.current?.();
-        }
-        return;
-      }
-
       if (prefersReducedMotion) {
         setPhase('assembling');
         Object.values(pieces).forEach((piece) => {
@@ -481,11 +449,7 @@ function LoginLoadingScreen({ ready, error, onError, onExit, onBackToLogin }) {
       timers.forEach((timer) => window.clearTimeout(timer));
       animations.forEach((animation) => animation.cancel());
     };
-  }, [error, prefersReducedMotion, setCompleteLogo, skipRequested]);
-
-  const skipIntro = () => {
-    setSkipRequested(true);
-  };
+  }, [error, prefersReducedMotion, setCompleteLogo]);
 
   if (error) {
     return createPortal(
@@ -545,16 +509,6 @@ function LoginLoadingScreen({ ready, error, onError, onExit, onBackToLogin }) {
           />
         </div>
       </div>
-      {skipVisible && (
-        <button
-          className="login-loading-skip"
-          type="button"
-          aria-label="Skip intro"
-          onClick={skipIntro}
-        >
-          Skip
-        </button>
-      )}
     </div>,
     document.body
   );

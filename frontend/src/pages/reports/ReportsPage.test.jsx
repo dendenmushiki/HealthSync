@@ -64,10 +64,30 @@ describe('ReportsPage', () => {
     expect(screen.getAllByRole('heading', { name: 'HealthSync Community Health Report' })).not.toHaveLength(0);
     expect(screen.getAllByText(/not a complete FHSIS submission/i)).not.toHaveLength(0);
     expect(screen.queryByRole('switch', { name: /hide not-tracked/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Noted by / Approved by')).not.toBeInTheDocument();
+    expect(screen.queryByText('Signature over printed name')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Reporting period' }), { target: { value: 'quarter' } });
     expect(await screen.findByRole('combobox', { name: 'Quarter' })).toBeInTheDocument();
     expect(screen.getByTestId('search-params')).toHaveTextContent('period=quarter');
+  });
+
+  test('hides the jurisdiction placeholder when report metadata has no configured area', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/reports/fhsis/remarks') return Promise.resolve({ data: { success: true, data: [] } });
+      if (path === '/reports/fhsis') {
+        return Promise.resolve({
+          data: { success: true, data: { ...reportData, metadata: { generatedAt: '2026-11-23T09:00:00.000Z' } } },
+        });
+      }
+      return Promise.reject(new Error(`Unexpected report endpoint: ${path}`));
+    });
+
+    renderReportsPage();
+    await screen.findByRole('table', { name: 'Child care & immunization indicators' });
+
+    expect(screen.queryByText(/Jurisdiction not configured/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Set jurisdiction' })).not.toBeInTheDocument();
   });
 
   test('removes the section navigator and keeps compact expand and collapse controls', async () => {

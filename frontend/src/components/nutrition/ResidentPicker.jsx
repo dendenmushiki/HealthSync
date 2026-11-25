@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getResidents } from '../../services/api/residentService';
-import { calculateAge } from '../../utils/residentUtils';
+import { calculateAgeInMonths } from '../../utils/residentUtils';
 
 const nameFor = (resident) => [resident.first_name, resident.middle_name, resident.last_name, resident.suffix].filter(Boolean).join(' ').trim();
 
@@ -45,15 +45,21 @@ const ResidentPicker = ({ inputId, selectedResident, value, onSelect, outOfRange
         } else {
           const broadResponse = await getResidents({ search: term, page: 1, limit: 8 });
           const match = broadResponse?.success ? (broadResponse.data?.items || []).find((resident) => {
-            const years = calculateAge(resident.birthdate);
-            const ageMonths = years === null ? null : years * 12;
+            const ageMonths = calculateAgeInMonths(resident.birthdate);
             return ageMonths !== null && (ageMonths < minAgeMonths || ageMonths > maxAgeMonths);
           }) : null;
           if (active) {
             setItems([]);
             if (match) {
-              const years = calculateAge(match.birthdate);
-              setRangeMessage(`This resident is ${years} years old. ${years >= 20 ? 'Switch to Adult BMI' : minAgeMonths > 0 ? 'This resident is outside this age group.' : 'Use BMI computation'}`);
+              const ageMonths = calculateAgeInMonths(match.birthdate);
+              const years = ageMonths === null ? null : Math.floor(ageMonths / 12);
+              const isBmiRange = minAgeMonths >= 61 && maxAgeMonths >= 228;
+              const switchToAdult = isBmiRange && ageMonths >= 229;
+              const switchToAdolescent = isBmiRange && minAgeMonths >= 229 && ageMonths >= 61 && ageMonths <= 228;
+              const guidance = switchToAdult ? 'Switch to Adult BMI'
+                : switchToAdolescent ? 'Switch to Adolescent BMI'
+                  : minAgeMonths > 0 ? 'This resident is outside this age group.' : 'Use BMI computation';
+              setRangeMessage(`This resident is ${years === null ? 'age unknown' : `${years} years old`}. ${guidance}`);
             } else setRangeMessage('');
           }
         }

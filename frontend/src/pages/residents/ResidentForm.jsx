@@ -816,7 +816,9 @@ const ResidentForm = ({ onBack }) => {
                         value={form.resident_status} onChange={handleChange} onBlur={handleBlur} required
                         aria-invalid={Boolean(removeFieldError('resident_status'))}
                         aria-describedby={removeFieldError('resident_status') ? 'resident_status-error' : undefined} disabled={saving}>
-                        {['Active', 'Inactive', 'Transferred', 'Deceased'].map((item) => <option key={item} value={item}>{item}</option>)}
+                        {(id && String(form.resident_status || '').toLowerCase() === 'inactive'
+                          ? ['Active', 'Inactive', 'Transferred', 'Deceased']
+                          : ['Active', 'Transferred', 'Deceased']).map((item) => <option key={item} value={item}>{item}</option>)}
                       </select>
                       <ChevronDown size={16} strokeWidth={1.8} aria-hidden="true" />
                     </div>

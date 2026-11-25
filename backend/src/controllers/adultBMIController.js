@@ -1,6 +1,6 @@
 /**
  * Adult BMI Controller
- * Handles BMI recording for adults 20+ years
+ * Handles BMI recording for residents eligible for adult BMI classification
  * Uses WHO standard BMI categories
  */
 
@@ -161,14 +161,12 @@ const createAdultBMI = async (req, res) => {
 
     const resident = residentCheck[0];
 
-    // Calculate age
-    const ageYears = ageService.getAgeYears(resident.birthdate, new Date(date_recorded));
+    const ageMonths = ageService.getAgeMonths(resident.birthdate, date_recorded);
 
-    // Verify age is 20+
-    if (ageYears < 20) {
+    if (!Number.isFinite(ageMonths) || ageMonths < ageService.MIN_ADULT_BMI_AGE_MONTHS) {
       return res.status(400).json({
         success: false,
-        message: `Resident is ${ageYears} years old. Adult BMI is for ages 20+. Use Adolescent BMI for ages 5-19.`
+        message: 'Adult BMI classification is available from 19 years and 1 month.'
       });
     }
 
@@ -242,6 +240,20 @@ const updateAdultBMI = async (req, res) => {
     }
 
     const oldData = oldRecords[0];
+    const updatedDate = date_recorded !== undefined ? date_recorded : oldData.date_recorded;
+    const [residentRows] = await pool.query(
+      'SELECT birthdate FROM residents WHERE resident_id = ?',
+      [oldData.resident_id]
+    );
+    const ageMonths = residentRows.length
+      ? ageService.getAgeMonths(residentRows[0].birthdate, updatedDate)
+      : NaN;
+    if (!Number.isFinite(ageMonths) || ageMonths < ageService.MIN_ADULT_BMI_AGE_MONTHS) {
+      return res.status(400).json({
+        success: false,
+        message: 'Adult BMI classification is available from 19 years and 1 month.'
+      });
+    }
 
     // Build update
     const updates = [];
@@ -347,8 +359,15 @@ const previewAdultBMI = async (req, res) => {
     }
     const [residentRows] = await pool.query('SELECT resident_id, birthdate FROM residents WHERE resident_id = ?', [resident_id]);
     if (!residentRows.length) return res.status(404).json({ success: false, message: 'Resident not found.' });
-    const ageYears = ageService.getAgeYears(residentRows[0].birthdate, new Date(`${date_recorded}T00:00:00`));
-    if (ageYears < 20) return res.status(400).json({ success: false, message: `Resident is ${ageYears} years old. Adult BMI is for ages 20+.`, errors: { resident_id: 'This resident is outside the adult BMI age range.' } });
+    const ageMonths = ageService.getAgeMonths(residentRows[0].birthdate, date_recorded);
+    if (!Number.isFinite(ageMonths) || ageMonths < ageService.MIN_ADULT_BMI_AGE_MONTHS) {
+      return res.status(400).json({
+        success: false,
+        message: 'Adult BMI classification is available from 19 years and 1 month.',
+        errors: { resident_id: 'This resident is outside the adult BMI age range.' }
+      });
+    }
+    const ageYears = Math.floor(ageMonths / 12);
     const bmi = bmiService.calculateBMI(Number(weight_kg), Number(height_cm));
     return res.json({ success: true, data: { resident_id: Number(resident_id), age_years: ageYears, height_cm: Number(height_cm), weight_kg: Number(weight_kg), bmi, bmi_category: bmiService.classifyAdultBMI(bmi) } });
   } catch (error) {

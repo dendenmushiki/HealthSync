@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Baby,
   Calendar,
@@ -17,7 +17,6 @@ import {
   LayoutDashboard,
   Loader2,
   MapPin,
-  MapPinOff,
   MessageSquareText,
   RefreshCw,
   Stethoscope,
@@ -365,7 +364,7 @@ const ReportsPage = () => {
   const metadata = useMemo(() => report?.metadata || {}, [report]);
   const generatedAt = metadata.generatedAt ? formatDateTimeInTimeZone(metadata.generatedAt) : '';
   const reportIsStale = metadata.generatedAt && Date.now() - new Date(metadata.generatedAt).getTime() > 24 * 60 * 60 * 1000;
-  const municipality = [metadata.barangay, metadata.municipality].filter(Boolean).join(', ') || 'Jurisdiction not configured';
+  const municipality = [metadata.barangay, metadata.municipality].filter(Boolean).join(', ');
   const periodLabel = periodCaption(range);
   const canEdit = ['bhw', 'official'].includes(String(user?.role || '').toLowerCase());
 
@@ -710,11 +709,7 @@ const ReportsPage = () => {
           </>}
         </div>
         <div className="fhsis-period-meta">
-          <span className={`fhsis-locality${municipality === 'Jurisdiction not configured' ? ' is-unconfigured' : ''}`}>
-            {municipality === 'Jurisdiction not configured'
-              ? <><MapPinOff aria-hidden="true" />{municipality}<Link to="/admin-settings">Set jurisdiction</Link></>
-              : <><MapPin aria-hidden="true" />{municipality}</>}
-          </span>
+          {municipality && <span className="fhsis-locality"><MapPin aria-hidden="true" />{municipality}</span>}
           <span className="fhsis-generated"><Clock3 aria-hidden="true" />Generated <time dateTime={metadata.generatedAt || undefined}>{generatedAt || '—'}</time></span>
           <button type="button" className="fhsis-refresh" aria-label="Refresh report" title="Refresh report" onClick={() => setRetry((value) => value + 1)} disabled={loading}>
             <RefreshCw aria-hidden="true" className={loading ? 'fhsis-spin' : ''} />
@@ -840,17 +835,10 @@ const ReportsPage = () => {
             <textarea id="fhsis-general-note" aria-label="General note" value={generalNote} maxLength={REMARK_LIMIT} onChange={(event) => { setGeneralNote(event.target.value); setRemarkValue('general', event.target.value); }} onBlur={() => saveRemarkNow('general')} placeholder={canEdit ? 'Add a note about this report' : 'No note'} readOnly={!canEdit} />
             <div className="fhsis-general-note-footer"><span>{generalNote.length}/{REMARK_LIMIT}</span><SaveState status={generalNoteStatus} onRetry={() => saveRemarkNow('general')} /></div>
           </section>
-          <div className="fhsis-report-end">
-            <footer className="fhsis-report-signature">
-              <div className="fhsis-signature-cell"><span>Prepared by</span><i className="fhsis-signature-line" aria-hidden="true" /><strong>{user?.full_name || ''}</strong><small>{user?.role || 'Health worker'}</small><small className="fhsis-signature-caption">Signature over printed name</small></div>
-              <div className="fhsis-signature-cell"><span>Noted by / Approved by</span><i className="fhsis-signature-line" aria-hidden="true" /><strong aria-label="Name not provided" /><small>Municipal health officer</small><small className="fhsis-signature-caption">Signature over printed name</small></div>
-            </footer>
-            <p className="fhsis-report-footnote"><Info aria-hidden="true" /><span>This report covers information recorded in HealthSync and is not a complete FHSIS submission. A displayed zero means no matching HealthSync records were found for the selected period.</span></p>
-          </div>
         </>
       )}
       <div className="fhsis-print-header">
-        <p>{municipality}</p><h1>HealthSync Community Health Report</h1>
+        {municipality && <p>{municipality}</p>}<h1>HealthSync Community Health Report</h1>
         <p>Reporting period: {periodLabel} · Generated: {generatedAt || '—'} · Prepared by: {user?.full_name || 'HealthSync user'}</p>
       </div>
       <DrilldownDrawer

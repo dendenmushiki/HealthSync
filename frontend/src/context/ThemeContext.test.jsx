@@ -2,7 +2,11 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import ThemeToggle from '../components/common/ThemeToggle';
 import { ThemeProvider } from './ThemeContext';
+import { AuthContext } from './AuthContext';
+import api from '../services/api/apiClient';
 import '../theme.css';
+
+jest.mock('../services/api/apiClient', () => ({ put: jest.fn() }));
 
 const originalMatchMedia = window.matchMedia;
 
@@ -63,4 +67,41 @@ test('system preference follows live operating-system theme changes', () => {
   systemIsDark = true;
   act(() => handleSystemChange());
   expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+});
+
+test('authenticated header theme changes persist to the account preferences endpoint', async () => {
+  api.put.mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        theme: 'dark',
+        textSize: 'default',
+        notifications: {
+          nutritionAlerts: true,
+          seniorFollowUpAlerts: true,
+          offlineSyncAlerts: true,
+          newResidentAlerts: true,
+        },
+      },
+    },
+  });
+  window.localStorage.setItem('hs_preferences', JSON.stringify({ textSize: 'default' }));
+
+  render(
+    <AuthContext.Provider value={{ user: { user_id: 7 } }}>
+      <ThemeProvider>
+        <ThemeToggle persistAccount />
+      </ThemeProvider>
+    </AuthContext.Provider>
+  );
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Color theme' }), { target: { value: 'dark' } });
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(api.put).toHaveBeenCalledWith('/admin-settings/preferences', {
+    preferences: expect.objectContaining({ theme: 'dark', textSize: 'default' }),
+  });
+  expect(JSON.parse(window.localStorage.getItem('hs_preferences')).theme).toBe('dark');
 });

@@ -8,23 +8,10 @@ import TrendChart from '../../components/nutrition/TrendChart';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import { createAdultBMI, previewAdultBMI, getPreviousAdultBMI } from '../../services/api/adultBMIService';
 import { getLocalDateInputValue, formatDateLabel } from '../../utils/dateUtils';
-import { normalizeResidentId } from '../../utils/residentUtils';
+import { calculateAgeInMonths, normalizeResidentId } from '../../utils/residentUtils';
 import { getFriendlyError } from '../../utils/apiErrorMessages';
 
 const initialForm = () => ({ resident_id: '', date_recorded: getLocalDateInputValue(), height_cm: '', weight_kg: '' });
-const ageInMonths = (birthdate, asOf) => {
-  const b = /^\d{4}-\d{2}-\d{2}$/.exec(String(birthdate || '').slice(0, 10));
-  const d = /^\d{4}-\d{2}-\d{2}$/.exec(String(asOf || ''));
-  if (!b || !d) return null;
-  const [by, bm, bd] = birthdate.slice(0, 10).split('-').map(Number);
-  const [ry, rm, rd] = asOf.split('-').map(Number);
-  const birth = new Date(Date.UTC(by, bm - 1, bd));
-  const record = new Date(Date.UTC(ry, rm - 1, rd));
-  if (record < birth || birth.getUTCDate() !== bd) return null;
-  let months = (ry - by) * 12 + rm - bm;
-  if (rd < bd) months -= 1;
-  return months;
-};
 
 const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
   const [form, setForm] = useState(initialForm);
@@ -40,9 +27,9 @@ const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const pickerRef = useRef(null);
 
-  const months = useMemo(() => ageInMonths(resident?.birthdate, form.date_recorded), [resident, form.date_recorded]);
+  const months = useMemo(() => calculateAgeInMonths(resident?.birthdate, form.date_recorded), [resident, form.date_recorded]);
   const ageYears = months === null ? null : Math.floor(months / 12);
-  const outsideGroup = resident && months !== null && months < 240;
+  const outsideGroup = resident && months !== null && months < 229;
 
   useEffect(() => {
     if (!resident) { setHistory([]); return undefined; }
@@ -54,7 +41,7 @@ const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
     return () => { active = false; };
   }, [resident]);
 
-  const complete = resident && months !== null && months >= 240 && form.date_recorded && form.height_cm !== '' && form.weight_kg !== '';
+  const complete = resident && months !== null && months >= 229 && form.date_recorded && form.height_cm !== '' && form.weight_kg !== '';
   useEffect(() => {
     if (!complete) { setPreview(null); setCalculating(false); return undefined; }
     let active = true;
@@ -90,7 +77,7 @@ const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
     else if (Number(form.height_cm) < 50 || Number(form.height_cm) > 230) next.height_cm = 'Check measurement: height must be between 50 and 230 cm.';
     if (!form.weight_kg || Number(form.weight_kg) <= 0) next.weight_kg = 'Enter a weight greater than 0 kg.';
     else if (Number(form.weight_kg) > 300) next.weight_kg = 'Check measurement: weight is unusually high.';
-    if (months !== null && months < 240) next.resident_id = 'This resident is outside the adult BMI age range.';
+    if (resident && (months === null || months < 229)) next.resident_id = 'Adult BMI classification is available from 19 years and 1 month.';
     setErrors(next);
     return next;
   };
@@ -150,7 +137,7 @@ const AdultBMIFormRedesign = ({ onSaved, onSwitchToAdolescent }) => {
       <div className="nutrition-operation-form">
         <section className="nutrition-form-card">
           <header><span className="nutrition-card-icon" aria-hidden="true">◉</span><div><h2>Adult</h2><p>Search for the adult being assessed</p></div></header>
-          {!resident ? <ResidentPicker inputId="adult-resident" label="Resident" value={form.resident_id} selectedResident={null} minAgeMonths={240} maxAgeMonths={1200} onBMILabel="Switch to Adolescent BMI" onBMI={() => onSwitchToAdolescent ? onSwitchToAdolescent() : window.location.assign('/nutrition?tab=bmi-computation&bmi=adolescent')} onSelect={(item) => { setResident(item); setForm((current) => ({ ...current, resident_id: item?.resident_id || '' })); }} /> : <ResidentSummaryCard resident={resident} ageMonths={months || 0} onChange={() => { setResident(null); setForm((current) => ({ ...current, resident_id: '' })); window.setTimeout(() => pickerRef.current?.focus(), 0); }} />}
+          {!resident ? <ResidentPicker inputId="adult-resident" label="Resident" value={form.resident_id} selectedResident={null} minAgeMonths={229} maxAgeMonths={1200} onBMILabel="Switch to Adolescent BMI" onBMI={() => onSwitchToAdolescent ? onSwitchToAdolescent() : window.location.assign('/nutrition?tab=bmi-computation&bmi=adolescent')} onSelect={(item) => { setResident(item); setForm((current) => ({ ...current, resident_id: item?.resident_id || '' })); }} /> : <ResidentSummaryCard resident={resident} ageMonths={months || 0} onChange={() => { setResident(null); setForm((current) => ({ ...current, resident_id: '' })); window.setTimeout(() => pickerRef.current?.focus(), 0); }} />}
           {errors.resident_id && <div className="nutrition-field-error"><span>!</span>{errors.resident_id}</div>}
           {outsideGroup && <div className="nutrition-out-range">This resident is {ageYears} years old. <button type="button" className="nutrition-link-button" onClick={() => onSwitchToAdolescent ? onSwitchToAdolescent() : window.location.assign('/nutrition?tab=bmi-computation&bmi=adolescent')}>Switch to Adolescent BMI</button></div>}
         </section>

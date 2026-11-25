@@ -42,7 +42,7 @@ test('Operation Timbang offline matches the backend WHO Anthro regression result
   expect(result).not.toHaveProperty('bmi');
 });
 
-test('adult BMI offline matches backend rounding and 240-month eligibility', () => {
+test('adult BMI offline matches backend rounding and 229-month eligibility', () => {
   const resident = { birthdate: '2006-01-01' };
   const result = calculateAdultBMIOffline(resident, {
     resident_id: 8,
@@ -60,10 +60,17 @@ test('adult BMI offline matches backend rounding and 240-month eligibility', () 
     bmi_category: 'Normal',
   });
   expect(() => calculateAdultBMIOffline(resident, {
-    date_recorded: '2025-12-01',
+    date_recorded: '2025-01-01',
     weight_kg: 70,
     height_cm: 170,
-  })).toThrow('Adult BMI is for ages 20+');
+  })).toThrow('Adult BMI classification is available from 19 years and 1 month');
+
+  const eligibleAtBoundary = calculateAdultBMIOffline(resident, {
+    date_recorded: '2025-02-01',
+    weight_kg: 70,
+    height_cm: 170,
+  });
+  expect(eligibleAtBoundary.age_years).toBe(19);
 });
 
 test('adolescent BMI offline matches backend WHO 2007 LMS regression results', () => {

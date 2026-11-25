@@ -181,7 +181,7 @@ export function calculateAdultBMIOffline(resident, input = {}) {
   if (measured.text < birth.text) throw validationError('Record date cannot be before the resident birthdate.');
   let ageMonths = (measured.year - birth.year) * 12 + measured.month - birth.month;
   if (measured.day < birth.day) ageMonths -= 1;
-  if (ageMonths < 240) throw validationError(`Resident is ${Math.floor(ageMonths / 12)} years old. Adult BMI is for ages 20+. Use Adolescent BMI for ages 5-19.`);
+  if (ageMonths < 229) throw validationError(`Resident is ${Math.floor(ageMonths / 12)} years old. Adult BMI classification is available from 19 years and 1 month.`);
 
   const weight = Number(input.weight_kg);
   const height = Number(input.height_cm);

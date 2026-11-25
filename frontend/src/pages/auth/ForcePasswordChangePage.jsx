@@ -107,9 +107,12 @@ const ForcePasswordChangePage = () => {
   const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [pin, setPin] = useState('');
   const [pinConfirmation, setPinConfirmation] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [capsLock, setCapsLock] = useState(false);
   const pinInputRef = useRef(null);
   const pinConfirmationInputRef = useRef(null);
+  const currentPinInputRef = useRef(null);
   const passwordRef = useRef(null);
   const [setupToken, setSetupToken] = useState('');
   const [setupUser, setSetupUser] = useState(null);
@@ -122,11 +125,14 @@ const ForcePasswordChangePage = () => {
 
   const requirements = useMemo(() => getPasswordRules(password), [password]);
   const setupRequired = Boolean(user?.offline_pin_setup_required);
+  const pinResetRequired = setupRequired && Boolean(user?.offline_account_pin_enrolled);
   const pinValid = /^\d{6}$/.test(pin) && pin === pinConfirmation;
+  const hasResetCredential = /^\d{6}$/.test(currentPin) || Boolean(currentPassword);
   const mismatch = Boolean(confirmation && password !== confirmation);
   const valid = (passwordUpdated || !user?.must_change_password
     ? pinValid
-    : Object.values(requirements).every(Boolean) && password === confirmation && (!setupRequired || pinValid));
+    : Object.values(requirements).every(Boolean) && password === confirmation && (!setupRequired || pinValid))
+    && (!pinResetRequired || hasResetCredential);
 
   useEffect(() => {
     if (error) passwordRef.current?.focus();
@@ -139,10 +145,19 @@ const ForcePasswordChangePage = () => {
     setBusy(true);
     try {
       if (passwordUpdated || !user?.must_change_password) {
-        const ready = await completePasswordChange(setupToken || token, setupUser || user, pin, password || undefined);
+        const ready = await completePasswordChange(
+          setupToken || token,
+          setupUser || user,
+          pin,
+          password || currentPassword || undefined,
+          currentPin || undefined,
+          currentPassword || undefined,
+        );
         if (!ready) throw new Error(offlineVaultError || 'PIN setup could not be completed. Retry before continuing.');
         setPin('');
         setPinConfirmation('');
+        setCurrentPin('');
+        setCurrentPassword('');
         if (!setupRequired) {
           navigate(user?.role === 'admin' ? '/admin-dashboard' : '/dashboard', { replace: true });
           return;
@@ -158,7 +173,14 @@ const ForcePasswordChangePage = () => {
       setSetupToken(response.data.data.token);
       setSetupUser(response.data.data.user);
       if (response.data.data.user?.offline_pin_setup_required) {
-        const offlineReady = await completePasswordChange(response.data.data.token, response.data.data.user, pin, password);
+        const offlineReady = await completePasswordChange(
+          response.data.data.token,
+          response.data.data.user,
+          pin,
+          password,
+          currentPin || undefined,
+          currentPassword || undefined,
+        );
         if (!offlineReady) {
           setOfflineWarning(offlineVaultError || 'PIN setup was not completed. Retry PIN setup before continuing.');
           return;
@@ -182,6 +204,20 @@ const ForcePasswordChangePage = () => {
     navigate('/login', { replace: true });
   };
 
+  const existingCredentialFields = pinResetRequired ? (
+    <div className="hs-force-existing-credential">
+      <p>Enter this device’s current PIN, or the account password if this device has an account-password vault wrapper.</p>
+      <fieldset className="hs-force-pin-group"><legend>Current six-digit PIN</legend>
+        <PinDigitInput ref={currentPinInputRef} onChange={setCurrentPin} />
+      </fieldset>
+      <div className="hs-force-current-password">
+        <label htmlFor="hs-current-account-password">Or current account password</label>
+        <input id="hs-current-account-password" type="password" autoComplete="current-password" value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)} />
+      </div>
+    </div>
+  ) : null;
+
   return (
     <AuthScreen size="password">
       <section className="hs-force-card" aria-labelledby="hs-force-title">
@@ -189,8 +225,8 @@ const ForcePasswordChangePage = () => {
         {complete ? (
           <div className="hs-force-complete" role="status" aria-live="polite">
             <span className="hs-force-check"><CheckCircle2 size={24} aria-hidden="true" /></span>
-            <h1 id="hs-force-title">{setupRequired ? 'PIN registered' : 'Password updated'}</h1>
-            <p>{setupRequired ? 'Your shared six-digit PIN is ready to use on your approved devices. Each device keeps its own offline records.' : 'Your password is secure and your other sessions have been signed out.'}</p>
+            <h1 id="hs-force-title">{pinResetRequired ? 'Offline PIN reset' : setupRequired ? 'PIN registered' : 'Password updated'}</h1>
+            <p>{pinResetRequired ? 'Your new shared PIN is saved. Other devices may need to sign in and unlock their existing offline vault before re-enrolling.' : setupRequired ? 'Your shared six-digit PIN is ready to use on your approved devices. Each device keeps its own offline records.' : 'Your password is secure and your other sessions have been signed out.'}</p>
             {offlineWarning && <p className="hs-force-inline-alert" role="status"><AlertCircle size={15} aria-hidden="true" />{offlineWarning}</p>}
             <button type="button" className="hs-force-primary" onClick={continueToWorkspace}>Continue to HealthSync</button>
           </div>
@@ -198,10 +234,12 @@ const ForcePasswordChangePage = () => {
           <>
             <p className="hs-force-eyebrow"><ShieldAlert size={14} aria-hidden="true" />Security requirement</p>
             <h1 id="hs-force-title">{passwordUpdated || !user?.must_change_password
-              ? 'Set your offline PIN'
+              ? pinResetRequired ? 'Reset your offline PIN' : 'Set your offline PIN'
               : setupRequired ? 'Set your password and account PIN' : 'Set your new password'}</h1>
             <p className="hs-force-copy">{passwordUpdated || !user?.must_change_password
-              ? 'Choose one six-digit PIN for your account. Use the same PIN on your other approved devices; each device stores its offline data separately.'
+              ? pinResetRequired
+                ? 'Choose a new six-digit PIN. Unlock this device’s existing offline vault with its current PIN or a configured account-password wrapper first. Other devices will need to re-enroll when they reconnect.'
+                : 'Choose one six-digit PIN for your account. Use the same PIN on your other approved devices; each device stores its offline data separately.'
               : setupRequired
                 ? 'Choose a password only you know and set a six-digit PIN for offline access. Your temporary password cannot be used again.'
                 : 'Choose a password only you know. Your temporary password cannot be used again.'}</p>
@@ -215,6 +253,7 @@ const ForcePasswordChangePage = () => {
                 <StrengthMeter password={password} rules={requirements} />
                 <RequirementsList rules={requirements} />
                 {setupRequired && <>
+                  {existingCredentialFields}
                   <fieldset className="hs-force-pin-group"><legend>Six-digit PIN</legend><PinDigitInput ref={pinInputRef} onChange={setPin} showStrengthHint /></fieldset>
                   <fieldset className="hs-force-pin-group"><legend>Confirm six-digit PIN</legend><PinDigitInput ref={pinConfirmationInputRef} invalid={Boolean(pinConfirmation && pin !== pinConfirmation)} describedBy={pinConfirmation && pin !== pinConfirmation ? 'hs-force-pin-mismatch' : undefined} autoFocus={false} onChange={setPinConfirmation} /></fieldset>
                   {pinConfirmation && pin !== pinConfirmation && <span id="hs-force-pin-mismatch" className="hs-force-inline-error" role="status">PIN entries do not match.</span>}
@@ -223,6 +262,7 @@ const ForcePasswordChangePage = () => {
               </form>
             )}
             {(passwordUpdated || !user?.must_change_password) && <form onSubmit={submit} className="hs-force-form">
+              {existingCredentialFields}
               <fieldset className="hs-force-pin-group"><legend>Six-digit PIN</legend><PinDigitInput ref={pinInputRef} onChange={setPin} showStrengthHint /></fieldset>
               <fieldset className="hs-force-pin-group"><legend>Confirm six-digit PIN</legend><PinDigitInput ref={pinConfirmationInputRef} invalid={Boolean(pinConfirmation && pin !== pinConfirmation)} describedBy={pinConfirmation && pin !== pinConfirmation ? 'hs-force-pin-mismatch' : undefined} autoFocus={false} onChange={setPinConfirmation} /></fieldset>
               {pinConfirmation && pin !== pinConfirmation && <span id="hs-force-pin-mismatch" className="hs-force-inline-error" role="status">PIN entries do not match.</span>}

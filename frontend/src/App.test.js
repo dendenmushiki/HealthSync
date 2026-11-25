@@ -322,6 +322,38 @@ test('keeps content inert while the navigation drawer is open and exposes accoun
   localStorage.clear();
 });
 
+test('preserves the same-tab offline unlock across a page refresh', () => {
+  const lockOfflineAccess = jest.fn();
+  render(
+    <AuthContext.Provider value={{
+      user: { ...bhwUser, username: 'mina' },
+      loading: false,
+      offlineVaultReady: true,
+      offlineVaultNeedsUnlock: false,
+      offlineVaultMigrationRequired: false,
+      offlineVaultError: null,
+      sessionCleanupError: null,
+      updateUser: jest.fn(),
+      unlockOfflineAccess: jest.fn(),
+      logout: jest.fn(),
+      lockOfflineAccess,
+      lockForAccountSwitch: jest.fn(),
+    }}>
+      <MemoryRouter initialEntries={['/not-authorized']}>
+        <AppContent />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  fireEvent(window, new Event('pagehide'));
+
+  expect(lockOfflineAccess).toHaveBeenCalledWith({
+    broadcast: false,
+    preserveSessionUnlock: true,
+  });
+  localStorage.clear();
+});
+
 test('renders actual dashboard summary metrics and method-specific charts', async () => {
   api.get.mockResolvedValue({
     data: { success: true, data: dashboardSummary },

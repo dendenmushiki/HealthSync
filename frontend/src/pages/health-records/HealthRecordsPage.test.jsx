@@ -235,3 +235,31 @@ test('resident picker supports arrow selection, Escape, and trigger focus restor
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getAllByRole('button', { name: 'New record' })[0]).toHaveFocus());
 });
+
+test('maternal record picker only offers female residents', async () => {
+  getResidents.mockResolvedValue({
+    success: true,
+    data: {
+      items: [
+        { resident_id: 81, first_name: 'Alma', last_name: 'Reyes', sex: 'female' },
+        { resident_id: 82, first_name: 'Ben', last_name: 'Santos', sex: 'male' },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 10,
+      pagination: { totalPages: 1 },
+    },
+  });
+  listAllHealthRecords.mockResolvedValue(success());
+  render(<MemoryRouter initialEntries={['/health-records']}><HealthRecordsPage /></MemoryRouter>);
+
+  await userEvent.click(screen.getAllByRole('button', { name: 'New record' })[0]);
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Maternal Record' }));
+
+  expect(await screen.findByRole('option', { name: 'Choose Reyes, Alma' })).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: 'Choose Santos, Ben' })).not.toBeInTheDocument();
+  expect(getResidents).toHaveBeenCalledWith(
+    expect.objectContaining({ sex: 'female', page: 1, pageSize: 10 }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+});

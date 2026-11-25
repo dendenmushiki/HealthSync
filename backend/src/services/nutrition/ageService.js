@@ -2,6 +2,7 @@
  * Age Calculation Service
  * Handles precise age calculations from birthdate
  */
+const MIN_ADULT_BMI_AGE_MONTHS = 229;
 
 /**
  * Calculate age in years from birthdate
@@ -31,17 +32,31 @@ function getAgeYears(birthdate, refDate = new Date()) {
  * @returns {number} Age in months
  */
 function getAgeMonths(birthdate, refDate = new Date()) {
-  const bd = new Date(birthdate);
-  const rd = new Date(refDate);
-  
-  let months = (rd.getFullYear() - bd.getFullYear()) * 12;
-  months += rd.getMonth() - bd.getMonth();
-  
-  // If haven't had the day of month yet, subtract 1
-  if (rd.getDate() < bd.getDate()) {
-    months--;
-  }
-  
+  const dateParts = (value) => {
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return null;
+      return { year: value.getFullYear(), month: value.getMonth() + 1, day: value.getDate() };
+    }
+
+    const text = String(value || '');
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(text);
+    if (match) {
+      const [, year, month, day] = match.map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day) return null;
+      return { year, month, day };
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return { year: parsed.getFullYear(), month: parsed.getMonth() + 1, day: parsed.getDate() };
+  };
+  const birth = dateParts(birthdate);
+  const reference = dateParts(refDate);
+  if (!birth || !reference) return NaN;
+
+  let months = (reference.year - birth.year) * 12 + reference.month - birth.month;
+  if (reference.day < birth.day) months--;
   return Math.max(0, months);
 }
 
@@ -85,7 +100,7 @@ function getAgeGroup(ageMonths) {
   if (ageMonths < 24) return 'toddler';
   if (ageMonths < 60) return 'preschool';
   if (ageMonths < 120) return 'child';
-  if (ageMonths < 240) return 'adolescent';
+  if (ageMonths < MIN_ADULT_BMI_AGE_MONTHS) return 'adolescent';
   if (ageMonths < 720) return 'adult';
   return 'senior';
 }
@@ -100,13 +115,14 @@ function getNutritionEligibility(ageMonths) {
   
   return {
     isUnder5: ageMonths < 60,           // Operation Timbang eligible
-    isAdolescent: ageMonths >= 60 && ageMonths < 240, // 5-19 years
-    isAdult: ageYears >= 20,             // 20+ years
+    isAdolescent: ageMonths >= 60 && ageMonths < MIN_ADULT_BMI_AGE_MONTHS,
+    isAdult: ageMonths >= MIN_ADULT_BMI_AGE_MONTHS,
     isSeniorEligible: ageYears >= 60     // 60+ years
   };
 }
 
 module.exports = {
+  MIN_ADULT_BMI_AGE_MONTHS,
   getAgeYears,
   getAgeMonths,
   getExactAge,

@@ -103,31 +103,6 @@
   user-select: none;
 }
 
-.login-loading-skip {
-  position: absolute;
-  z-index: 2;
-  bottom: max(22px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  min-height: 38px;
-  padding: 7px 17px;
-  border: 1px solid var(--ls-control-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ls-copy);
-  font: inherit;
-  font-size: .875rem;
-  opacity: 1;
-  cursor: pointer;
-  transition: background-color 140ms ease, opacity 140ms ease;
-}
-
-.login-loading-skip:hover {
-  background-color: var(--ls-control-hover);
-  opacity: 1;
-}
-
-.login-loading-skip:focus-visible,
 .login-loading-error-card button:focus-visible {
   outline: 3px solid var(--ls-focus);
   outline-offset: 3px;
@@ -187,14 +162,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .login-loading-skip {
-    transition: none;
-  }
-}
-
 @media (forced-colors: active) {
-  .login-loading-skip,
   .login-loading-error-card,
   .login-loading-error-card button {
     border-color: ButtonText;
@@ -203,7 +171,6 @@
     box-shadow: none;
   }
 
-  .login-loading-skip:focus-visible,
   .login-loading-error-card button:focus-visible {
     outline-color: Highlight;
   }

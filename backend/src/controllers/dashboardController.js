@@ -487,7 +487,7 @@ const getNutritionStats = async (req, res) => {
       }
     });
 
-    // Adult BMI distribution (20+)
+    // Adult BMI distribution (19 years and 1 month+)
     const [adultBMI] = await pool.query(`
       SELECT 
         bmi_category,

@@ -220,13 +220,14 @@ function InactivityLockManager() {
     };
     resetTimerRef.current = resetTimer;
     const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'click'];
+    const handlePageHide = () => lockOfflineAccess({ broadcast: false, preserveSessionUnlock: true });
     activityEvents.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
-    window.addEventListener('pagehide', lockOfflineAccess);
+    window.addEventListener('pagehide', handlePageHide);
     resetTimer();
     return () => {
       window.clearTimeout(idleTimer);
       activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
-      window.removeEventListener('pagehide', lockOfflineAccess);
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, [lockOfflineAccess, offlineVaultReady, user]);
 
@@ -576,7 +577,7 @@ function AppShellContent() {
             <div className="healthsync-topbar-title"><span>Barangay Health Monitoring</span></div>
           </div>
           <div className="healthsync-topbar-user" aria-label={user ? `Signed in as ${user.username || user.name || 'User'}, ${user.role || 'User'}` : 'Account'}>
-            <ThemeToggle />
+            <ThemeToggle persistAccount={Boolean(user)} />
             {!isAdmin && !isOfficial && <div className="healthsync-sync-wrap">
               <button type="button" className={`healthsync-sync-chip ${syncUnavailable || syncHeaderState.signInRequired ? 'offline' : 'online'}`} onClick={() => setSyncPopoverOpen((open) => !open)} aria-expanded={syncPopoverOpen} aria-label={`Sync status: ${syncHeaderLabel}`}>
                 <SyncStatusIcon aria-hidden="true" />{syncHeaderLabel}

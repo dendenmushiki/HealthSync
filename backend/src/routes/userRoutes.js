@@ -16,7 +16,11 @@ const {
   unlockUser,
   logoutAllUserSessions,
 } = require('../controllers/userController');
-const { adminManageDevice, getUserDevices } = require('../controllers/offlineSecurityController');
+const {
+  adminManageDevice,
+  adminResetUserPin,
+  getUserDevices,
+} = require('../controllers/offlineSecurityController');
 
 const resetPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -26,10 +30,19 @@ const resetPasswordLimiter = rateLimit({
   message: { success: false, message: 'Too many reset attempts. Try again later.' },
 });
 
+const resetOfflinePinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many PIN reset attempts. Try again later.' },
+});
+
 router.get('/', authenticateToken, authorizeRole(['admin']), listUsers);
 router.get('/check-username', authenticateToken, authorizeRole(['admin']), checkUsername);
 router.post('/', authenticateToken, authorizeRole(['admin']), createUser);
 router.post('/:id/reset-password', authenticateToken, authorizeRole(['admin']), resetPasswordLimiter, resetUserPassword);
+router.post('/:id/reset-offline-pin', authenticateToken, authorizeRole(['admin']), resetOfflinePinLimiter, adminResetUserPin);
 router.post('/:id/deactivate', authenticateToken, authorizeRole(['admin']), deactivateUser);
 router.post('/:id/reactivate', authenticateToken, authorizeRole(['admin']), reactivateUser);
 router.post('/:id/unlock', authenticateToken, authorizeRole(['admin']), unlockUser);

@@ -5,10 +5,11 @@ const dashboardSummaryCache = require('../src/services/dashboardSummaryCache');
 
 const originalLoad = Module._load;
 
-test('creates an Adult BMI record and audit entry through the idempotency transaction', async () => {
+test('creates an Adult BMI record at 229 months and audits through the idempotency transaction', async () => {
   dashboardSummaryCache.set('nutrition-cache-test', { nutrition: {} });
   const queries = [];
   const auditEntries = [];
+  let assessedAgeMonths = 229;
   const connection = {
     async query(sql, values) {
       queries.push({ sql, values });
@@ -40,7 +41,7 @@ test('creates an Adult BMI record and audit entry through the idempotency transa
     }
     if (request === '../services/nutrition' && parent?.filename?.endsWith('\\controllers\\adultBMIController.js')) {
       return {
-        ageService: { getAgeYears: () => 25 },
+        ageService: { MIN_ADULT_BMI_AGE_MONTHS: 229, getAgeMonths: () => assessedAgeMonths },
         bmiService: {
           validateBMIInput: () => ({ valid: true }),
           calculateBMI: () => 22.77,
@@ -80,6 +81,27 @@ test('creates an Adult BMI record and audit entry through the idempotency transa
   assert.equal(auditEntries.length, 1);
   assert.equal(auditEntries[0].connection, connection);
   assert.equal(dashboardSummaryCache.get('nutrition-cache-test'), null);
+
+  assessedAgeMonths = 228;
+  const belowBoundary = {
+    statusCode: 200,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+  };
+  await createAdultBMI({
+    idempotencyConnection: connection,
+    user: { user_id: 7 },
+    body: { resident_id: 15, height_cm: 165, weight_kg: 62, date_recorded: '2025-01-01' },
+  }, belowBoundary);
+  assert.equal(belowBoundary.statusCode, 400);
+  assert.match(belowBoundary.body.message, /19 years and 1 month/);
+  assert.equal(auditEntries.length, 1);
 });
 
 test('enables atomic idempotency specifically on Adult BMI creation', () => {

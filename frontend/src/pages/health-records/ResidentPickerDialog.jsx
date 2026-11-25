@@ -65,7 +65,9 @@ function PickerHeader({ typeInfo, onClose }) {
     <div className="resident-picker-heading">
       <span className="resident-picker-eyebrow">NEW {typeInfo.fullLabel.toUpperCase()}</span>
       <h2 id="resident-picker-title">Choose a resident</h2>
-      <p id="resident-picker-description">Select who this record is for.</p>
+      <p id="resident-picker-description">
+        {typeInfo.key === 'maternal' ? 'Select a female resident for this record.' : 'Select who this record is for.'}
+      </p>
     </div>
     <button type="button" className="resident-picker-close" aria-label="Close" onClick={onClose}>
       <X size={18} strokeWidth={1.9} aria-hidden="true" />
@@ -121,13 +123,14 @@ function PickerSkeleton({ count = 6 }) {
   </div>;
 }
 
-function PickerEmptyState({ searching, onClear }) {
+function PickerEmptyState({ searching, femaleOnly, onClear }) {
+  const residentLabel = femaleOnly ? 'female resident' : 'resident';
   return <div className="resident-picker-empty">
     <span className="resident-picker-empty-icon">
       {searching ? <Search size={22} strokeWidth={1.8} aria-hidden="true" /> : <Users size={22} strokeWidth={1.8} aria-hidden="true" />}
     </span>
-    <h3>{searching ? 'No residents found' : 'No residents registered yet'}</h3>
-    <p>{searching ? 'Try a different name or clear the search.' : 'Register a resident before creating a health record.'}</p>
+    <h3>{searching ? `No ${residentLabel}s found` : `No ${residentLabel}s registered yet`}</h3>
+    <p>{searching ? 'Try a different name or clear the search.' : `Register a ${residentLabel} before creating this record.`}</p>
     {searching
       ? <button type="button" className="resident-picker-ghost-button" onClick={onClear}>Clear search</button>
       : <Link className="resident-picker-register-primary" to="/residents/new"><UserPlus size={17} strokeWidth={1.8} aria-hidden="true" />Register resident</Link>}
@@ -203,6 +206,7 @@ function ResidentPickerDialog({ typeInfo, onClose, onSelect }) {
   const optionRefs = useRef([]);
   const requestRef = useRef(null);
   const selectionTimerRef = useRef(null);
+  const femaleOnly = typeInfo.key === 'maternal';
   const searchValue = query.trim();
   const hasMore = page < totalPages;
   const activeDescendant = activeIndex >= 0 ? `resident-picker-option-${activeIndex}` : '';
@@ -241,17 +245,21 @@ function ResidentPickerDialog({ typeInfo, onClose, onSelect }) {
           pageSize: PAGE_SIZE,
           sort: 'name',
           order: 'asc',
+          ...(femaleOnly ? { sex: 'female' } : {}),
         }, { signal: controller.signal });
         if (controller.signal.aborted) return;
         if (!response?.success || !Array.isArray(response.data?.items)) {
           throw new Error(response?.message || 'Unable to load residents.');
         }
         const data = response.data;
-        setResidents(data.items);
+        const eligibleResidents = femaleOnly
+          ? data.items.filter((resident) => String(resident.sex || '').trim().toLowerCase() === 'female')
+          : data.items;
+        setResidents(eligibleResidents);
         setTotal(Number(data.total) || 0);
         setPage(Number(data.page) || 1);
         setTotalPages(getTotalPages(data));
-        setActiveIndex(data.items.length ? 0 : -1);
+        setActiveIndex(eligibleResidents.length ? 0 : -1);
       } catch (loadError) {
         if (controller.signal.aborted || loadError?.name === 'CanceledError' || loadError?.code === 'ERR_CANCELED') return;
         setError(loadError);
@@ -265,7 +273,7 @@ function ResidentPickerDialog({ typeInfo, onClose, onSelect }) {
       controller.abort();
       if (requestRef.current === controller) requestRef.current = null;
     };
-  }, [retry, searchValue]);
+  }, [femaleOnly, retry, searchValue]);
 
   useEffect(() => {
     if (activeIndex >= 0) optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
@@ -286,13 +294,18 @@ function ResidentPickerDialog({ typeInfo, onClose, onSelect }) {
         pageSize: PAGE_SIZE,
         sort: 'name',
         order: 'asc',
+        ...(femaleOnly ? { sex: 'female' } : {}),
       }, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!response?.success || !Array.isArray(response.data?.items)) {
         throw new Error(response?.message || 'Unable to load more residents.');
       }
       const data = response.data;
-      setResidents((current) => [...current, ...data.items]);
+      const eligibleResidents = femaleOnly
+        ? data.items.filter((resident) => String(resident.sex || '').trim().toLowerCase() === 'female')
+        : data.items;
+      setResidents((current) => [...current, ...eligibleResidents]);
+      if (eligibleResidents.length) setActiveIndex((current) => current < 0 ? 0 : current);
       setTotal(Number(data.total) || 0);
       setPage(Number(data.page) || nextPage);
       setTotalPages(getTotalPages(data));
@@ -303,7 +316,7 @@ function ResidentPickerDialog({ typeInfo, onClose, onSelect }) {
       if (!controller.signal.aborted) setLoadingMore(false);
       if (requestRef.current === controller) requestRef.current = null;
     }
-  }, [hasMore, loading, loadingMore, page, searchValue, selectingId]);
+  }, [femaleOnly, hasMore, loading, loadingMore, page, searchValue, selectingId]);
 
   const chooseResident = (resident) => {
     if (selectingId) return;
@@ -397,7 +410,7 @@ function ResidentPickerDialog({ typeInfo, onClose, onSelect }) {
                 <button type="button" className="resident-picker-ghost-button" onClick={() => setRetry((current) => current + 1)}>Retry</button>
               </div>
               : shouldShowEmpty
-                ? <PickerEmptyState searching={Boolean(searchValue)} onClear={() => { setQuery(''); inputRef.current?.focus(); }} />
+                ? <PickerEmptyState searching={Boolean(searchValue)} femaleOnly={femaleOnly} onClear={() => { setQuery(''); inputRef.current?.focus(); }} />
                 : <div className="resident-picker-results">
                   <ul id="resident-picker-options" className="resident-picker-list" role="listbox" aria-label="Residents">
                     {residents.map((resident, index) => <ResidentOption

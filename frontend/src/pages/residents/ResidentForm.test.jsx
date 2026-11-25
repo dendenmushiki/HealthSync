@@ -109,6 +109,8 @@ test('gender and civil status choices match the new form options', async () => {
   expect(Array.from(civilStatus.options).map((option) => option.textContent)).toEqual([
     'Select civil status', 'Single', 'Married', 'Widowed', 'Separated', 'Annulled',
   ]);
+  expect(Array.from(screen.getByRole('combobox', { name: 'Resident status' }).options).map((option) => option.textContent))
+    .toEqual(['Active', 'Transferred', 'Deceased']);
   expect(screen.queryByLabelText(/^Sex/)).not.toBeInTheDocument();
 });
 
