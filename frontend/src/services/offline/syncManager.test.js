@@ -9,6 +9,9 @@ jest.mock('./offlineQueueService', () => ({
     getQueueItems: jest.fn(),
     getOperation: jest.fn(),
     updateOperationStatus: jest.fn(),
+    getResidentIdMapping: jest.fn(),
+    putResidentIdMapping: jest.fn(),
+    rewriteResidentReferences: jest.fn(),
   },
   SYNCABLE_QUEUE_TABLES: new Set([
   'residents',
@@ -47,6 +50,9 @@ beforeEach(() => {
     Object.assign(item, updates);
     return item;
   });
+  offlineQueue.getResidentIdMapping.mockResolvedValue(null);
+  offlineQueue.putResidentIdMapping.mockResolvedValue(null);
+  offlineQueue.rewriteResidentReferences.mockResolvedValue(0);
   api.request.mockReset();
   api.post.mockReset();
   jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -54,6 +60,45 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+test('processes queued items in sequence instead of device-clock order', async () => {
+  const laterClock = {
+    offlineOperationId: 'second-operation',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'health_records',
+    sequence: 2,
+    createdAt: '2026-11-20T00:00:00.000Z',
+    status: 'PENDING',
+    payload: { resident_id: 5 },
+    request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
+  };
+  const earlierClock = {
+    offlineOperationId: 'first-operation',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'residents',
+    sequence: 1,
+    createdAt: '2026-11-25T00:00:00.000Z',
+    status: 'PENDING',
+    payload: { first_name: 'First', last_name: 'Resident' },
+    request: { method: 'POST', url: '/residents', data: { first_name: 'First', last_name: 'Resident' } },
+  };
+  queue = [laterClock, earlierClock];
+  const attempted = [];
+  api.request.mockImplementation(async ({ headers }) => {
+    attempted.push(headers['X-Idempotency-Key']);
+    return headers['X-Idempotency-Key'] === 'first-operation'
+      ? { data: { success: true, data: { resident_id: 77 } } }
+      : { data: { success: true, data: { id: 12 } } };
+  });
+
+  await runSync();
+
+  expect(attempted).toEqual(['first-operation', 'second-operation']);
+  expect(earlierClock.status).toBe('SYNCED');
+  expect(laterClock.status).toBe('SYNCED');
 });
 
 test('maps locally created resident IDs to server IDs before syncing dependent records', async () => {
@@ -96,6 +141,57 @@ test('maps locally created resident IDs to server IDs before syncing dependent r
   expect(child.status).toBe('SYNCED');
 });
 
+test('persists resident ID mappings and rewrites dependents after the parent syncs', async () => {
+  const resident = {
+    offlineOperationId: 'resident-operation',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'residents',
+    status: 'PENDING',
+    sequence: 1,
+    payload: { first_name: 'Offline', last_name: 'Resident' },
+    localRecord: {
+      resident_id: 'offline:resident-operation',
+      offlineResidentId: 'offline:resident-operation',
+    },
+    request: { method: 'POST', url: '/residents', data: { first_name: 'Offline', last_name: 'Resident' } },
+  };
+  const dependent = {
+    offlineOperationId: 'clinical-operation',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'patient_clinical_records',
+    status: 'PENDING',
+    sequence: 2,
+    payload: { resident_id: 'offline:resident-operation' },
+    request: {
+      method: 'POST',
+      url: '/resident-medical-records/offline:resident-operation/clinical',
+      data: { resident_id: 'offline:resident-operation' },
+    },
+  };
+  queue = [resident, dependent];
+  api.request
+    .mockResolvedValueOnce({ data: { success: true, data: { resident_id: 77 } } })
+    .mockResolvedValueOnce({ data: { success: true, data: { id: 12 } } });
+
+  await runSync();
+
+  expect(resident.status).toBe('SYNCED');
+  expect(resident.serverRecordId).toBe(77);
+  expect(offlineQueue.putResidentIdMapping).toHaveBeenCalledWith(
+    'offline:resident-operation',
+    77,
+    '7'
+  );
+  expect(offlineQueue.rewriteResidentReferences).toHaveBeenCalledWith(
+    'offline:resident-operation',
+    77,
+    '7'
+  );
+  expect(dependent.status).toBe('SYNCED');
+});
+
 test('retries interrupted direct requests with the same idempotency key', async () => {
   const item = {
     offlineOperationId: '123e4567-e89b-42d3-a456-426614174000',
@@ -107,20 +203,22 @@ test('retries interrupted direct requests with the same idempotency key', async 
     request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
   };
   queue = [item];
-  api.request.mockRejectedValue(new Error('Network Error'));
+  api.request
+    .mockRejectedValueOnce(new Error('Network Error'))
+    .mockResolvedValueOnce({ data: { success: true, data: { health_record_id: 15 } } });
 
   await runSync();
-  expect(item.status).toBe('PENDING');
+  expect(item.status).toBe('CONFLICT');
   expect(item.savedOffline).toBe(true);
-  expect(item.lastError).toContain('same idempotency key');
+  expect(item.lastError).toContain('same operation key');
 
-  await runSync();
+  await runSync({ manual: true });
 
   expect(api.request).toHaveBeenCalledTimes(2);
   expect(api.request.mock.calls.map(([request]) => request.headers['X-Idempotency-Key']))
     .toEqual([item.offlineOperationId, item.offlineOperationId]);
   expect(api.request.mock.calls.every(([request]) => request.headers['X-HealthSync-Offline-Sync'] === 'true')).toBe(true);
-  expect(item.status).toBe('PENDING');
+  expect(item.status).toBe('SYNCED');
 });
 
 test('automatically retries supported direct record types with their original keys', async () => {
@@ -156,13 +254,15 @@ test('automatically retries supported direct record types with their original ke
   });
 
   await runSync();
-  expect(queue.every((item) => item.status === 'PENDING')).toBe(true);
+  expect(queue.every((item) => item.status === 'CONFLICT')).toBe(true);
 
-  await runSync();
+  await runSync({ manual: true });
 
   expect(queue.every((item) => item.status === 'SYNCED')).toBe(true);
+  const orderedKeys = [...tables].sort((first, second) => first.localeCompare(second))
+    .map((table) => `${table}-operation`);
   expect(api.request.mock.calls.map(([request]) => request.headers['X-Idempotency-Key']))
-    .toEqual([...tables.map((table) => `${table}-operation`), ...tables.map((table) => `${table}-operation`)]);
+    .toEqual([...orderedKeys, ...orderedKeys]);
 });
 
 test('does not synchronize legacy report remark queue entries', async () => {
@@ -182,6 +282,28 @@ test('does not synchronize legacy report remark queue entries', async () => {
   expect(remark.status).toBe('PENDING');
 });
 
+test('preserves queued changes when the cross-tab lease cannot be stored', async () => {
+  const item = {
+    offlineOperationId: 'lease-storage-unavailable',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'health_records',
+    status: 'PENDING',
+    request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
+  };
+  queue = [item];
+  const originalSetItem = Storage.prototype.setItem;
+  jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function setItem(key, value) {
+    if (key.startsWith('healthsync_sync_lease_')) throw new Error('Storage unavailable');
+    return originalSetItem.call(this, key, value);
+  });
+
+  await expect(runSync()).resolves.toMatchObject({ skipped: true });
+
+  expect(api.request).not.toHaveBeenCalled();
+  expect(item.status).toBe('PENDING');
+});
+
 test('automatically retries generic sync operations after network loss using the same key', async () => {
   const item = {
     offlineOperationId: 'generic-health-record-operation',
@@ -198,9 +320,9 @@ test('automatically retries generic sync operations after network loss using the
     .mockResolvedValueOnce({ data: { success: true, data: { serverRecordId: 91 } } });
 
   await runSync();
-  expect(item.status).toBe('PENDING');
+  expect(item.status).toBe('CONFLICT');
 
-  await runSync();
+  await runSync({ manual: true });
 
   expect(api.post).toHaveBeenCalledTimes(2);
   expect(api.post.mock.calls.map(([, , config]) => config.headers['X-Idempotency-Key']))
@@ -234,8 +356,8 @@ test('retries a confirmed safe rollback with the same key and surfaces the backe
   await runSync();
 
   expect(item.status).toBe('PENDING');
-  expect(item.lastError).toBe('The transaction rolled back. Retry this change.');
-  await runSync();
+  expect(item.lastError).toContain('rolled back this attempt');
+  await runSync({ manual: true });
 
   expect(api.request).toHaveBeenCalledTimes(2);
   expect(api.request.mock.calls.map(([request]) => request.headers['X-Idempotency-Key']))
@@ -371,9 +493,9 @@ test('replays an uncertain create with the same key and stores the table record 
 
   await runSync();
 
-  expect(item.status).toBe('PENDING');
+  expect(item.status).toBe('CONFLICT');
   expect(item.retryCount).toBe(1);
-  await runSync();
+  await runSync({ manual: true });
 
   expect(api.request).toHaveBeenCalledTimes(2);
   expect(api.request.mock.calls.map(([request]) => request.headers['X-Idempotency-Key']))
@@ -431,4 +553,132 @@ test('marks unknown generic sync outcomes for review instead of retrying them', 
 
   expect(api.post).toHaveBeenCalledTimes(1);
   expect(item.status).toBe('CONFLICT');
+});
+
+test('pauses the queue on an expired session without failing queued changes', async () => {
+  const first = {
+    offlineOperationId: 'expired-session-operation',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'health_records',
+    status: 'PENDING',
+    request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
+  };
+  const second = {
+    ...first,
+    offlineOperationId: 'later-operation',
+  };
+  queue = [first, second];
+  api.request.mockRejectedValue({
+    response: { status: 401, data: { message: 'Session expired' } },
+  });
+
+  const result = await runSync();
+
+  expect(result.authRequired).toBe(true);
+  expect(api.request).toHaveBeenCalledTimes(1);
+  expect(first.status).toBe('PENDING');
+  expect(first.lastError).toBe('Sign in again to sync this saved change.');
+  expect(first.lastErrorCode).toBe('AUTH_REQUIRED');
+  expect(first.attempts).toBe(2);
+  expect(first.lastAttemptAt).toBeTruthy();
+  expect(first.nextRetryAt).toBeNull();
+  expect(second.status).toBe('PENDING');
+});
+
+test('marks permanent 400 and 422 responses for attention without automatic retry', async () => {
+  queue = [
+    {
+      offlineOperationId: 'bad-400',
+      userId: '7',
+      operation: 'CREATE',
+      table: 'health_records',
+      status: 'PENDING',
+      request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
+    },
+    {
+      offlineOperationId: 'bad-422',
+      userId: '7',
+      operation: 'CREATE',
+      table: 'adult_bmi_records',
+      status: 'PENDING',
+      request: { method: 'POST', url: '/adult-bmi', data: { resident_id: 5 } },
+    },
+  ];
+  api.request
+    .mockRejectedValueOnce({
+      response: { status: 400, data: { errorCode: 'VALIDATION_ERROR' } },
+    })
+    .mockRejectedValueOnce({
+      response: { status: 422, data: { errorCode: 'INVALID_BMI_VALUE' } },
+    });
+
+  const result = await runSync();
+
+  expect(result.failed).toBe(2);
+  expect(queue[0]).toEqual(expect.objectContaining({
+    status: 'FAILED',
+    lastErrorCode: 'VALIDATION_ERROR',
+    nextRetryAt: null,
+  }));
+  expect(queue[1]).toEqual(expect.objectContaining({
+    status: 'FAILED',
+    lastErrorCode: 'INVALID_BMI_VALUE',
+    nextRetryAt: null,
+  }));
+});
+
+test('respects Retry-After and marks 429 changes as transient', async () => {
+  const item = {
+    offlineOperationId: 'rate-limited-operation',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'health_records',
+    status: 'PENDING',
+    request: { method: 'POST', url: '/health-records', data: { resident_id: 5 } },
+  };
+  queue = [item];
+  api.request.mockRejectedValue({
+    response: {
+      status: 429,
+      headers: { 'retry-after': '120' },
+      data: { errorCode: 'RATE_LIMITED' },
+    },
+  });
+
+  await runSync();
+
+  expect(item.status).toBe('PENDING');
+  expect(item.nextRetryAt).toBeTruthy();
+  expect(Date.parse(item.nextRetryAt)).toBeGreaterThan(Date.now() + 100000);
+  expect(item.lastError).toContain('rate-limiting');
+});
+
+test('leaves a dependent record blocked while its offline resident needs attention', async () => {
+  const parent = {
+    offlineOperationId: 'resident-parent',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'residents',
+    status: 'FAILED',
+    lastErrorCode: 'VALIDATION_ERROR',
+    localRecord: { resident_id: 'offline:resident-parent', offlineResidentId: 'offline:resident-parent' },
+  };
+  const dependent = {
+    offlineOperationId: 'clinical-dependent',
+    userId: '7',
+    operation: 'CREATE',
+    table: 'patient_clinical_records',
+    status: 'PENDING',
+    payload: { resident_id: 'offline:resident-parent' },
+    request: { method: 'POST', url: '/resident-medical-records/offline:resident-parent/clinical', data: { resident_id: 'offline:resident-parent' } },
+  };
+  queue = [parent, dependent];
+
+  const result = await runSync();
+
+  expect(api.request).not.toHaveBeenCalled();
+  expect(result.blocked).toBe(1);
+  expect(dependent.status).toBe('BLOCKED');
+  expect(dependent.lastError).toContain('Resident registration needs attention');
 });

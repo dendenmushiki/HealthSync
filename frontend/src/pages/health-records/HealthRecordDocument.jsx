@@ -230,6 +230,8 @@ export default function HealthRecordDocument({
       <div className="health-record-document-title">
         <span>HEALTH RECORD</span>
         <h1>{title}</h1>
+        {(record?.offline === true || record?.sync_status === 'PENDING' || data?.offline === true || data?.sync_status === 'PENDING') &&
+          <span className="healthsync-not-synced-badge">Not synced</span>}
       </div>
       <div className="health-record-document-reference">
         <span>Record / Reference No.</span><strong>{recordId ?? EMPTY_VALUE}</strong>

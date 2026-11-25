@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { DataQualitySummary, IndicatorTable, NutritionPiePanel, ReportSection } from './ReportComponents';
+import { IndicatorTable, NutritionPiePanel, ReportScopeSummary, ReportSection } from './ReportComponents';
 
 const makeNutritionTable = (normalTotal = 3, underweightTotal = 2) => ({
   key: 'operation-timbang',
@@ -23,13 +23,19 @@ const nutritionProps = {
   onClearFilters: jest.fn(),
 };
 
-describe('FHSIS report components', () => {
+describe('HealthSync report components', () => {
   test('renders accessible nutrition slices and supports the table view', () => {
     const table = makeNutritionTable();
-    render(<NutritionPiePanel {...nutritionProps} table={table} displayRows={table.rows} />);
+    const { container } = render(<NutritionPiePanel {...nutritionProps} table={table} displayRows={table.rows} />);
 
     expect(screen.getByRole('group', { name: /operation timbang.*normal: 3/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /normal: male 2, female 1, total 3/i })).toBeInTheDocument();
+    expect(container.querySelector('.fhsis-donut-track')).toBeInTheDocument();
+    expect(container.querySelector('.fhsis-donut-total')).toHaveTextContent('5');
+    expect(container.querySelectorAll('.fhsis-donut-segment')).toHaveLength(2);
+    expect(container.querySelector('.fhsis-donut-segment').getAttribute('style')).toContain('--fhsis-series-normal');
+    expect(container.querySelector('.fhsis-donut-segment')).not.toHaveAttribute('transform');
+    expect(container.querySelector('.fhsis-donut-segment').parentElement).toHaveAttribute('transform', 'rotate(-90 110 110)');
 
     fireEvent.mouseEnter(screen.getByRole('button', { name: /underweight \/ thin: male 1/i }));
     expect(screen.getByText('Total 2 · 40.0%')).toBeInTheDocument();
@@ -80,18 +86,21 @@ describe('FHSIS report components', () => {
     expect(mergedCell).toHaveAttribute('colspan', '3');
   });
 
-  test('keeps section toggles accessible and quality filters as switches', () => {
+  test('keeps section toggles accessible and provides the report scope and remarks filter', () => {
     const section = { id: 'overview', title: 'Overview', description: 'Report overview' };
     render(
       <>
-        <ReportSection section={section} Icon={() => <span />} trackedCount={1} totalCount={1} expanded onToggle={jest.fn()}>
+        <ReportSection section={section} Icon={() => <span />} itemCount={1} expanded onToggle={jest.fn()}>
           <p>Section content</p>
         </ReportSection>
-        <DataQualitySummary tracked={1} total={2} hideNotTracked={false} onHideNotTracked={jest.fn()} remarksOnly={false} onRemarksOnly={jest.fn()} />
+        <ReportScopeSummary remarksOnly={false} onRemarksOnly={jest.fn()} />
       </>,
     );
 
     expect(screen.getByRole('button', { name: 'Collapse Overview' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getAllByRole('switch')).toHaveLength(2);
+    expect(screen.getByText('HealthSync-recorded indicators only')).toBeInTheDocument();
+    expect(screen.getByText(/not a complete FHSIS submission/i)).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /remarks only/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('switch')).toHaveLength(1);
   });
 });

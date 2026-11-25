@@ -55,14 +55,15 @@ describe('ReportsPage', () => {
     });
   });
 
-  test('preserves reporting period controls and applies not-tracked filtering to the data rows', async () => {
+  test('shows only HealthSync-supported indicators and preserves reporting period controls', async () => {
     renderReportsPage();
     const childTable = await screen.findByRole('table', { name: 'Child care & immunization indicators' });
-    const untrackedRow = within(childTable).getByRole('row', { name: /child protected at birth/i });
-    expect(untrackedRow.querySelector('td[colspan="3"]')).toHaveTextContent('Not tracked');
-
-    fireEvent.click(screen.getAllByRole('switch')[0]);
-    await waitFor(() => expect(within(childTable).queryByRole('row', { name: /child protected at birth/i })).not.toBeInTheDocument());
+    expect(within(childTable).queryByRole('row', { name: /child protected at birth/i })).not.toBeInTheDocument();
+    expect(within(childTable).getByRole('row', { name: /BCG/i })).toBeInTheDocument();
+    expect(screen.queryByText('Not tracked')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: 'HealthSync Community Health Report' })).not.toHaveLength(0);
+    expect(screen.getAllByText(/not a complete FHSIS submission/i)).not.toHaveLength(0);
+    expect(screen.queryByRole('switch', { name: /hide not-tracked/i })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Reporting period' }), { target: { value: 'quarter' } });
     expect(await screen.findByRole('combobox', { name: 'Quarter' })).toBeInTheDocument();
@@ -71,11 +72,36 @@ describe('ReportsPage', () => {
 
   test('removes the section navigator and keeps compact expand and collapse controls', async () => {
     renderReportsPage();
-    await screen.findByRole('heading', { name: 'FHSIS Report' });
+    await screen.findAllByRole('heading', { name: 'HealthSync Community Health Report' });
 
     expect(screen.queryByRole('navigation', { name: 'Report sections' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Expand all/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Collapse all/ })).toBeInTheDocument();
+  });
+
+  test('labels clinical records as an all-module total and opens its drilldown', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/reports/fhsis/remarks') return Promise.resolve({ data: { success: true, data: [] } });
+      if (path === '/reports/fhsis') return Promise.resolve({ data: { success: true, data: reportData } });
+      if (path === '/reports/fhsis/drilldown') {
+        return Promise.resolve({
+          data: { success: true, data: { items: [], total: 1, page: 1, pageSize: 10 } },
+        });
+      }
+      return Promise.reject(new Error(`Unexpected report endpoint: ${path}`));
+    });
+
+    renderReportsPage();
+    const clinicalRecordsCard = await screen.findByRole('button', { name: /Clinical records/ });
+    expect(clinicalRecordsCard).toHaveTextContent('Clinical, child, maternal & immunization records · period-based');
+    fireEvent.click(clinicalRecordsCard);
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(
+      '/reports/fhsis/drilldown',
+      expect.objectContaining({
+        params: expect.objectContaining({ indicator: 'clinical-records' }),
+      }),
+    ));
   });
 
   test('retries failed remarks loading without losing the migration guidance', async () => {
@@ -99,7 +125,10 @@ describe('ReportsPage', () => {
   });
 
   test('exports CSV and reports completion through the existing download action', async () => {
-    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    let downloadName = '';
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function captureDownloadName() {
+      downloadName = this.download;
+    });
     URL.createObjectURL = jest.fn(() => 'blob:report');
     URL.revokeObjectURL = jest.fn();
     renderReportsPage();
@@ -108,6 +137,7 @@ describe('ReportsPage', () => {
     fireEvent.click(exportButton);
     expect(await screen.findByText('CSV export completed.')).toBeInTheDocument();
     expect(clickSpy).toHaveBeenCalled();
+    expect(downloadName).toMatch(/^HealthSync_Community_Health_Report_/);
     expect(URL.createObjectURL).toHaveBeenCalled();
     clickSpy.mockRestore();
   });

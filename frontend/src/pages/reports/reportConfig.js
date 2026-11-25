@@ -71,7 +71,7 @@ export const SENIOR_INDICATORS = [
 export const NUTRITION_CATEGORIES = {
   operationTimbang: [
     { key: 'normal', label: 'Normal', definition: 'Recorded WFLH classification is Normal.' },
-    { key: 'underweight-thin', label: 'Underweight / Thin', definition: 'Combined WFLH undernutrition classifications retained from the current FHSIS mapping.' },
+    { key: 'underweight-thin', label: 'Underweight / Thin', definition: 'Combined WFLH undernutrition classifications used by HealthSync nutrition reporting.' },
     { key: 'overweight', label: 'Overweight', definition: 'Recorded WFLH classification contains Overweight.' },
     { key: 'obese', label: 'Obese', definition: 'Recorded WFLH classification contains Obese or Obesity.' },
   ],

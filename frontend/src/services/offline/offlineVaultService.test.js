@@ -339,6 +339,8 @@ test('reports the existing local PIN attempt and lockout status', async () => {
     lockedUntil: 0,
   });
   await expect(getPinAttemptStatus(7)).resolves.toEqual({
+    maxAttempts: 5,
+    lockoutDurationMinutes: 15,
     attemptsRemaining: 2,
     lockedUntil: 0,
   });
@@ -350,6 +352,8 @@ test('reports the existing local PIN attempt and lockout status', async () => {
     lockedUntil,
   });
   await expect(getPinAttemptStatus(7)).resolves.toEqual({
+    maxAttempts: 5,
+    lockoutDurationMinutes: 15,
     attemptsRemaining: 0,
     lockedUntil,
   });

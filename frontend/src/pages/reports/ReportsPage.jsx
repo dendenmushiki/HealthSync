@@ -39,12 +39,12 @@ import {
 } from './reportConfig';
 import {
   AlertBanner,
-  DataQualitySummary,
   DrilldownDrawer,
   IndicatorTable,
   NutritionPiePanel,
   ReportLoading,
   ReportSection,
+  ReportScopeSummary,
   SaveState,
 } from './ReportComponents';
 import './ReportsPage.css';
@@ -96,10 +96,6 @@ function trackedRow(key, label, values = {}, definition = '', group = '') {
     definition,
     group,
   };
-}
-
-function untrackedRow({ key, label, group, definition }) {
-  return { key, label, male: 'Not tracked', female: 'Not tracked', total: 'Not tracked', tracked: false, group, definition };
 }
 
 function categoriesFromApi(records, expectedCategories, prefix, normalize = (value) => value, totalDefinition) {
@@ -163,10 +159,9 @@ function buildReportTables(fhsis) {
     NUTRITION_TOTALS.adult,
   );
 
-  const staticRows = (definitions) => definitions.map((item) => {
-    if (item.tracked === false) return untrackedRow(item);
-    return trackedRow(item.key, item.label, readPath(fhsis, item.path), item.definition, item.group);
-  });
+  const staticRows = (definitions) => definitions
+    .filter((item) => item.tracked !== false)
+    .map((item) => trackedRow(item.key, item.label, readPath(fhsis, item.path), item.definition, item.group));
   return {
     nutrition: [
       { key: 'operation-timbang', title: 'Operation Timbang · 0–59 months', rows: operationRows },
@@ -208,7 +203,7 @@ function cacheReport(periodKey, reportData) {
     all[periodKey] = reportData;
     localStorage.setItem('hs_fhsis_reports', JSON.stringify(all));
   } catch (error) {
-    console.error('Unable to cache the FHSIS report for offline viewing.', error);
+    console.error('Unable to cache the HealthSync report for offline viewing.', error);
   }
 }
 
@@ -218,7 +213,7 @@ function saveCachedRemark(periodKey, key, remark) {
     all[periodKey] = { ...(all[periodKey] || {}), [key]: { ...(all[periodKey]?.[key] || {}), remark } };
     localStorage.setItem('hs_fhsis_remarks', JSON.stringify(all));
   } catch (error) {
-    console.error('Unable to cache FHSIS remarks locally.', error);
+    console.error('Unable to cache HealthSync report remarks locally.', error);
   }
 }
 
@@ -247,7 +242,6 @@ const ReportsPage = () => {
   const [retry, setRetry] = useState(0);
   const [remarks, setRemarks] = useState({});
   const [expanded, setExpanded] = useState(Object.fromEntries(REPORT_SECTIONS.map(({ id }) => [id, true])));
-  const [hideNotTracked, setHideNotTracked] = useState(false);
   const [remarksOnly, setRemarksOnly] = useState(false);
   const [exportScope, setExportScope] = useState('all');
   const [drawer, setDrawer] = useState(null);
@@ -318,7 +312,7 @@ const ReportsPage = () => {
         setOfflineNotice(`Showing the report saved on this device: ${cachedReport.metadata?.generatedAt ? formatDateTimeInTimeZone(cachedReport.metadata.generatedAt) : 'last available sync'}.`);
         setError('');
       } else {
-        console.error('Unable to load FHSIS report data.', loadError);
+        console.error('Unable to load HealthSync report data.', loadError);
         setError(loadError);
       }
     } finally {
@@ -357,7 +351,7 @@ const ReportsPage = () => {
       .catch((loadError) => {
         if (active) {
           setRemarksError('Saved remarks could not be loaded. Check the report_remarks migration and try refreshing.');
-          console.error('Unable to load saved FHSIS remarks.', loadError);
+          console.error('Unable to load saved HealthSync report remarks.', loadError);
         }
       });
     return () => { active = false; };
@@ -367,7 +361,6 @@ const ReportsPage = () => {
   const allRows = useMemo(() => Object.entries(tables).flatMap(([key, sectionRows]) => (
     key === 'nutrition' ? sectionRows.flatMap((table) => table.rows) : sectionRows
   )), [tables]);
-  const trackedCount = allRows.filter((row) => row.tracked).length;
   const summary = useMemo(() => report?.summary || {}, [report]);
   const metadata = useMemo(() => report?.metadata || {}, [report]);
   const generatedAt = metadata.generatedAt ? formatDateTimeInTimeZone(metadata.generatedAt) : '';
@@ -403,7 +396,7 @@ const ReportsPage = () => {
           setRemarks((current) => ({ ...current, [key]: { ...(current[key] || {}), status: 'failed' } }));
           if (key === 'general') setGeneralNoteStatus('failed');
           pendingRef.current = true;
-          console.error('Unable to save FHSIS remark.', saveError);
+          console.error('Unable to save HealthSync report remark.', saveError);
         });
   }, [periodKey, user?.full_name]);
 
@@ -445,9 +438,8 @@ const ReportsPage = () => {
   }, [remarks]);
 
   const filterRows = useCallback((rows = []) => rows.filter((row) => (
-    (!hideNotTracked || row.tracked)
-    && (!remarksOnly || Boolean(remarks[row.key]?.remark?.trim()))
-  )), [hideNotTracked, remarks, remarksOnly]);
+    !remarksOnly || Boolean(remarks[row.key]?.remark?.trim())
+  )), [remarks, remarksOnly]);
   const sectionRows = useMemo(() => ({
     'child-care': filterRows(tables['child-care']),
     'maternal-care': filterRows(tables['maternal-care']),
@@ -541,9 +533,9 @@ const ReportsPage = () => {
       const addRow = (section, row) => lines.push([
         section,
         row.label,
-        row.tracked ? row.male : 'Not tracked',
-        row.tracked ? row.female : 'Not tracked',
-        row.tracked ? row.total : 'Not tracked',
+        row.male,
+        row.female,
+        row.total,
         remarks[row.key]?.remark || '',
         periodLabel,
         generated,
@@ -555,7 +547,7 @@ const ReportsPage = () => {
             ['Total residents', summary.totalResidents],
             ['New residents in period', summary.newResidents],
             ['Active residents', summary.activeResidents],
-            ['Clinical records (legacy health_records)', summary.clinicalRecords],
+            ['Clinical, child, maternal & immunization records', summary.clinicalRecords],
             ['Senior citizens registered', summary.seniorCitizens?.total],
           ].forEach(([label, total]) => addRow(title, { key: `overview-${label}`, label, tracked: true, male: '', female: '', total: numericValue(total) }));
           return;
@@ -574,15 +566,15 @@ const ReportsPage = () => {
       const areaName = [metadata.barangay, metadata.municipality].filter(Boolean).join('_').replace(/[^a-z0-9_-]+/gi, '_') || 'HealthSync';
       const dateSuffix = period === 'month' ? (searchParams.get('month') || todayManila().slice(0, 7)) : `${range.from}_to_${range.to}`;
       link.href = url;
-      link.download = `FHSIS_${areaName}_${dateSuffix}.csv`;
+      link.download = `HealthSync_Community_Health_Report_${areaName}_${dateSuffix}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       setExportNotice({ type: 'success', message: 'CSV export completed.' });
     } catch (exportError) {
-      console.error('Unable to export the FHSIS report.', exportError);
-      setExportNotice({ type: 'error', message: exportError.message || 'Unable to export the FHSIS report.' });
+      console.error('Unable to export the HealthSync report.', exportError);
+      setExportNotice({ type: 'error', message: exportError.message || 'Unable to export the HealthSync report.' });
     } finally {
       setExporting(false);
     }
@@ -601,9 +593,9 @@ const ReportsPage = () => {
   };
 
   const sectionCount = (id) => {
-    if (id === 'overview') return { tracked: 5, total: 5 };
+    if (id === 'overview') return 5;
     const rows = id === 'nutrition' ? tables.nutrition?.flatMap((table) => table.rows) || [] : tables[id] || [];
-    return { tracked: rows.filter((row) => row.tracked).length, total: rows.length };
+    return rows.length;
   };
 
   const startExportDrilldown = async () => {
@@ -628,14 +620,13 @@ const ReportsPage = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `FHSIS_${drawer.row.key}_details.csv`;
+    link.download = `HealthSync_${drawer.row.key}_details.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
   const onDrilldown = (row, sex) => (event) => openDrilldown(row, sex, event);
   const clearFilters = () => {
-    setHideNotTracked(false);
     setRemarksOnly(false);
   };
   const sectionIcons = {
@@ -653,8 +644,8 @@ const ReportsPage = () => {
         className="fhsis-page-banner"
         icon={FileBarChart}
         eyebrow={<nav className="fhsis-breadcrumb" aria-label="Breadcrumb"><span>Reports</span></nav>}
-        title="Reports"
-        subtitle="A clear view of HealthSync indicators for the selected reporting period."
+        title="HealthSync Community Health Report"
+        subtitle="A report of community health information recorded in HealthSync for the selected period."
         actions={(
           <div className="fhsis-report-actions">
             <label className="fhsis-export-scope">
@@ -734,7 +725,7 @@ const ReportsPage = () => {
 
       <div className="fhsis-alert-stack">
         {periodError && <AlertBanner type="warning" title="Choose a valid reporting range" message="From must be on or before To, and To cannot be in the future." />}
-        {error && <AlertBanner type="error" title="Report data could not be loaded" message={error.response?.data?.message || error.message || 'Unable to load FHSIS report data.'} onRetry={() => setRetry((value) => value + 1)} />}
+        {error && <AlertBanner type="error" title="Report data could not be loaded" message={error.response?.data?.message || error.message || 'Unable to load the HealthSync report.'} onRetry={() => setRetry((value) => value + 1)} />}
         {remarksError && <AlertBanner type="warning" title="Remarks couldn't be loaded" message={remarksError} onRetry={() => { setRemarksError(''); setRemarksRetry((value) => value + 1); }} onDismiss={() => setRemarksError('')} />}
         {offlineNotice && <AlertBanner type="info" message={offlineNotice} />}
         {reportIsStale && <AlertBanner type="warning" message="This report was generated more than 24 hours ago. Refresh before relying on it." />}
@@ -746,11 +737,7 @@ const ReportsPage = () => {
 
       {report && !error && !periodError && (
         <>
-          <DataQualitySummary
-            tracked={trackedCount}
-            total={allRows.length}
-            hideNotTracked={hideNotTracked}
-            onHideNotTracked={setHideNotTracked}
+          <ReportScopeSummary
             remarksOnly={remarksOnly}
             onRemarksOnly={setRemarksOnly}
           />
@@ -765,15 +752,14 @@ const ReportsPage = () => {
             </div>
             <main className="fhsis-sections">
               {REPORT_SECTIONS.map((section) => {
-                const counts = sectionCount(section.id);
+                const itemCount = sectionCount(section.id);
                 const SectionIcon = sectionIcons[section.id];
                 return (
                   <ReportSection
                     key={section.id}
                     section={section}
                     Icon={SectionIcon}
-                    trackedCount={counts.tracked}
-                    totalCount={counts.total}
+                    itemCount={itemCount}
                     expanded={Boolean(expanded[section.id])}
                     onToggle={() => setExpanded((current) => ({ ...current, [section.id]: !current[section.id] }))}
                   >
@@ -784,7 +770,7 @@ const ReportsPage = () => {
                             { label: 'Total residents', value: summary.totalResidents, detail: 'Registered residents · all statuses', key: 'resident-total', Icon: Users },
                             { label: 'New residents', value: summary.newResidents, detail: 'Created during this period', key: 'resident-new', Icon: UserPlus },
                             { label: 'Active residents', value: summary.activeResidents, detail: 'Active status · snapshot today', key: 'resident-active', Icon: UserCheck },
-                            { label: 'Clinical records', value: summary.clinicalRecords, detail: 'Legacy health_records only · period-based', key: 'clinical-records', Icon: ClipboardList },
+                            { label: 'Clinical records', value: summary.clinicalRecords, detail: 'Clinical, child, maternal & immunization records · period-based', key: 'clinical-records', Icon: ClipboardList },
                             { label: 'Registered senior residents', value: summary.seniorCitizens?.total, detail: 'Senior Registry entries · snapshot today', key: 'seniorRegistered', Icon: HeartHandshake },
                           ].map((card) => {
                             const values = card.key === 'resident-total' ? summary.residentSex
@@ -826,7 +812,7 @@ const ReportsPage = () => {
                             onRemarkSave={saveRemarkNow}
                             canEdit={canEdit}
                             onDrilldown={onDrilldown}
-                            filtersActive={hideNotTracked || remarksOnly}
+                            filtersActive={remarksOnly}
                             onClearFilters={clearFilters}
                           />
                         ))}
@@ -840,7 +826,7 @@ const ReportsPage = () => {
                         onRemarkSave={saveRemarkNow}
                         canEdit={canEdit}
                         onDrilldown={onDrilldown}
-                        filtersActive={hideNotTracked || remarksOnly}
+                        filtersActive={remarksOnly}
                         onClearFilters={clearFilters}
                       />
                     )}
@@ -859,12 +845,12 @@ const ReportsPage = () => {
               <div className="fhsis-signature-cell"><span>Prepared by</span><i className="fhsis-signature-line" aria-hidden="true" /><strong>{user?.full_name || ''}</strong><small>{user?.role || 'Health worker'}</small><small className="fhsis-signature-caption">Signature over printed name</small></div>
               <div className="fhsis-signature-cell"><span>Noted by / Approved by</span><i className="fhsis-signature-line" aria-hidden="true" /><strong aria-label="Name not provided" /><small>Municipal health officer</small><small className="fhsis-signature-caption">Signature over printed name</small></div>
             </footer>
-            <p className="fhsis-report-footnote"><Info aria-hidden="true" /><span>“Not tracked” means the current HealthSync data model does not capture the indicator. A displayed zero is a count of matching recorded fields in the selected period, not an estimate of people without services.</span></p>
+            <p className="fhsis-report-footnote"><Info aria-hidden="true" /><span>This report covers information recorded in HealthSync and is not a complete FHSIS submission. A displayed zero means no matching HealthSync records were found for the selected period.</span></p>
           </div>
         </>
       )}
       <div className="fhsis-print-header">
-        <p>{municipality}</p><h1>Family Health Services Information System (FHSIS) Report</h1>
+        <p>{municipality}</p><h1>HealthSync Community Health Report</h1>
         <p>Reporting period: {periodLabel} · Generated: {generatedAt || '—'} · Prepared by: {user?.full_name || 'HealthSync user'}</p>
       </div>
       <DrilldownDrawer

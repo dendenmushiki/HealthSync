@@ -45,6 +45,8 @@ const SeniorCitizenDocumentPage = () => {
     <div className="health-record-document-toolbar">
       <div className="health-record-document-toolbar-meta">
         <h1>{[record.first_name, record.middle_name, record.last_name, record.suffix].filter(Boolean).join(' ') || 'Resident'}</h1>
+        {(record.offline === true || record.sync_status === 'PENDING') &&
+          <span className="healthsync-not-synced-badge">Not synced</span>}
         <span>Senior Citizen Health Record · {formatDateLabel(record.date_registered) || 'Date not recorded'} · Status: {record.status || '—'}</span>
       </div>
       <div className="health-record-document-toolbar-actions">

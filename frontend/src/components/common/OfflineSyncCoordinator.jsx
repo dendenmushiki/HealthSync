@@ -4,7 +4,7 @@ import api from '../../services/api/apiClient';
 import syncManager from '../../services/offline/syncManager';
 import networkService from '../../services/offline/networkService';
 
-const BACKEND_RECHECK_INTERVAL_MS = 20000;
+const PENDING_SYNC_RECHECK_INTERVAL_MS = 30000;
 
 const OfflineSyncCoordinator = () => {
   const { user, token, offlineVaultReady } = useContext(AuthContext) || {};
@@ -13,18 +13,18 @@ const OfflineSyncCoordinator = () => {
     if (typeof indexedDB === 'undefined' || !offlineVaultReady) return undefined;
     let active = true;
     let attemptPromise = null;
-    let onlineTimer = null;
     let backendWasAvailable = null;
+    let authenticationBlocked = false;
     const expectedToken = token || localStorage.getItem('hs_token');
     const expectedUserId = user?.user_id === undefined ? null : String(user.user_id);
 
     const attemptSync = () => {
       if (!active) return Promise.resolve(false);
       if (attemptPromise) return attemptPromise;
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return Promise.resolve(false);
+      if (authenticationBlocked) return Promise.resolve(false);
       if (!expectedToken || localStorage.getItem('hs_token') !== expectedToken) return Promise.resolve(false);
       attemptPromise = (async () => {
-        const backendAvailable = await networkService.healthCheck();
+        const backendAvailable = await (networkService.checkNow || networkService.healthCheck)();
         if (!active || localStorage.getItem('hs_token') !== expectedToken) return false;
         if (!backendAvailable) {
           backendWasAvailable = false;
@@ -43,10 +43,15 @@ const OfflineSyncCoordinator = () => {
         backendWasAvailable = true;
         if (shouldVerifySession) await api.get('/auth/me');
         if (!active || localStorage.getItem('hs_token') !== expectedToken) return false;
-        await syncManager.runSync();
+        const result = await syncManager.runSync();
+        if (result?.authRequired) authenticationBlocked = true;
         return true;
       })().catch((error) => {
         if (!active) return false;
+        if (error.response?.status === 401) {
+          authenticationBlocked = true;
+          window.dispatchEvent(new CustomEvent('healthsync:sync-auth-required'));
+        }
         window.dispatchEvent(new CustomEvent('healthsync:auto-sync-error', {
           detail: {
             message: error.response?.status === 401
@@ -64,26 +69,28 @@ const OfflineSyncCoordinator = () => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') attemptSync();
     };
-    const onOnline = () => {
-      if (onlineTimer !== null) window.clearTimeout(onlineTimer);
-      onlineTimer = window.setTimeout(() => {
-        onlineTimer = null;
-        attemptSync();
-      }, 750);
-    };
+    const onQueue = () => attemptSync();
+    const onOnline = () => attemptSync();
+    const onFocus = () => attemptSync();
 
+    window.dispatchEvent(new CustomEvent('healthsync:session-refreshed'));
     window.addEventListener('online', onOnline);
+    window.addEventListener('healthsync:connectivity-online', onOnline);
+    window.addEventListener('healthsync:offline-queued', onQueue);
+    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
     const retryTimer = window.setInterval(() => {
       if (document.visibilityState === 'visible') attemptSync();
-    }, BACKEND_RECHECK_INTERVAL_MS);
+    }, PENDING_SYNC_RECHECK_INTERVAL_MS);
     attemptSync();
     return () => {
       active = false;
-      if (onlineTimer !== null) window.clearTimeout(onlineTimer);
       window.clearInterval(retryTimer);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('healthsync:connectivity-online', onOnline);
+      window.removeEventListener('healthsync:offline-queued', onQueue);
+      window.removeEventListener('focus', onFocus);
     };
   }, [offlineVaultReady, token, user?.user_id]);
 

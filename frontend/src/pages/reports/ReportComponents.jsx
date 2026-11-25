@@ -13,7 +13,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   CircleSlash,
-  EyeOff,
   HeartPulse,
   Info,
   Loader2,
@@ -58,7 +57,7 @@ export function AlertBanner({ type = 'info', title, message, onRetry, onDismiss 
   );
 }
 
-export function ReportSection({ section, Icon, trackedCount, totalCount, expanded, onToggle, children }) {
+export function ReportSection({ section, Icon, itemCount, expanded, onToggle, children }) {
   const Chevron = expanded ? ChevronUp : ChevronDown;
   return (
     <section className="fhsis-section-card" id={`fhsis-${section.id}`} aria-labelledby={`fhsis-title-${section.id}`}>
@@ -68,7 +67,7 @@ export function ReportSection({ section, Icon, trackedCount, totalCount, expande
           <div className="fhsis-section-titles">
             <div className="fhsis-section-title-row">
               <h2 id={`fhsis-title-${section.id}`}>{section.title}</h2>
-              <span className="fhsis-tracked-chip">{numberFormat.format(trackedCount)} of {numberFormat.format(totalCount)} tracked</span>
+              <span className="fhsis-tracked-chip">{numberFormat.format(itemCount)} {itemCount === 1 ? 'indicator' : 'indicators'}</span>
             </div>
             <p className="fhsis-section-description">{section.description}</p>
           </div>
@@ -91,32 +90,18 @@ export function ReportSection({ section, Icon, trackedCount, totalCount, expande
   );
 }
 
-export function DataQualitySummary({ tracked, total, hideNotTracked, onHideNotTracked, remarksOnly, onRemarksOnly }) {
-  const progress = total ? Math.min(100, (tracked / total) * 100) : 0;
+export function ReportScopeSummary({ remarksOnly, onRemarksOnly }) {
   return (
-    <section className="fhsis-quality-card" aria-labelledby="fhsis-quality-title">
+    <section className="fhsis-quality-card fhsis-report-scope" aria-labelledby="fhsis-quality-title">
       <div className="fhsis-quality-heading">
         <span className="fhsis-quality-icon" aria-hidden="true"><ShieldCheck /></span>
         <div>
-          <span className="fhsis-eyebrow">Data quality</span>
-          <h2 id="fhsis-quality-title">{numberFormat.format(tracked)} of {numberFormat.format(total)} indicators tracked</h2>
-          <p>Tracked values count records in the selected period. “Not tracked” means the current HealthSync model does not capture that indicator; it is not a zero.</p>
+          <span className="fhsis-eyebrow">Report scope</span>
+          <h2 id="fhsis-quality-title">HealthSync-recorded indicators only</h2>
+          <p>This report includes measures supported by records entered in HealthSync. It is not a complete FHSIS submission; zero means no matching HealthSync records were found for the selected period.</p>
         </div>
-      </div>
-      <div className="fhsis-quality-progress">
-        <div className="fhsis-progress-track" role="progressbar" aria-label="Tracked indicators" aria-valuemin="0" aria-valuemax={total} aria-valuenow={tracked}>
-          <span style={{ width: `${progress}%` }} />
-        </div>
-        <strong>{Math.round(progress)}%</strong>
       </div>
       <div className="fhsis-quality-controls">
-        <label className="fhsis-switch">
-          <input type="checkbox" role="switch" checked={hideNotTracked} onChange={(event) => onHideNotTracked(event.target.checked)} />
-          <span className="fhsis-switch-track" aria-hidden="true" />
-          <span>Hide not-tracked indicators</span>
-          <button type="button" className="fhsis-switch-help" title="Hides indicators the current data model does not capture; tracked zero values remain visible." aria-label="Hide not-tracked indicators help" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}><Info /></button>
-          <EyeOff aria-hidden="true" className="fhsis-switch-leading-icon" />
-        </label>
         <label className="fhsis-switch">
           <input type="checkbox" role="switch" checked={remarksOnly} onChange={(event) => onRemarksOnly(event.target.checked)} />
           <span className="fhsis-switch-track" aria-hidden="true" />
@@ -124,7 +109,7 @@ export function DataQualitySummary({ tracked, total, hideNotTracked, onHideNotTr
           <button type="button" className="fhsis-switch-help" title="Shows indicators with a saved or in-progress remark." aria-label="Remarks only help" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}><Info /></button>
           <MessageSquareText aria-hidden="true" className="fhsis-switch-leading-icon" />
         </label>
-        {(hideNotTracked || remarksOnly) && <span className="fhsis-filter-chip">Filters active</span>}
+        {remarksOnly && <span className="fhsis-filter-chip">Filter active</span>}
       </div>
     </section>
   );
@@ -133,7 +118,7 @@ export function DataQualitySummary({ tracked, total, hideNotTracked, onHideNotTr
 export function ReportLoading() {
   return (
     <div className="fhsis-loading-skeleton" role="status" aria-live="polite">
-      <span className="sr-only">Loading FHSIS report…</span>
+      <span className="sr-only">Loading HealthSync report…</span>
       <div className="fhsis-skeleton-controls" />
       <div className="fhsis-skeleton-quality" />
       <div className="fhsis-skeleton-cards">{[1, 2, 3, 4, 5].map((item) => <i key={item} />)}</div>
@@ -320,27 +305,25 @@ export function ChartTableToggle({ view, onChange, label }) {
   );
 }
 
-function polarPoint(angle, radius) {
-  const radians = (angle - 90) * (Math.PI / 180);
-  return { x: 110 + radius * Math.cos(radians), y: 110 + radius * Math.sin(radians) };
-}
-
-function piePath(start, end) {
-  const first = polarPoint(start, 104);
-  const last = polarPoint(end, 104);
-  const largeArc = end - start > 180 ? 1 : 0;
-  return `M 110 110 L ${first.x} ${first.y} A 104 104 0 ${largeArc} 1 ${last.x} ${last.y} Z`;
-}
-
 function PieChartWithLegend({ rows, total, title }) {
   const categories = rows.filter((row) => !row.isTotal);
   const [activeIndex, setActiveIndex] = useState(-1);
-  let angle = 0;
+  const circumference = 2 * Math.PI * 84;
+  const signature = categories.map((row) => `${row.key}:${row.total}`).join('|');
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    setRevealed(false);
+    const frameId = window.requestAnimationFrame(() => setRevealed(true));
+    return () => window.cancelAnimationFrame(frameId);
+  }, [signature]);
+
+  let offset = 0;
   const slices = categories.map((row, index) => {
     const count = Number(row.total) || 0;
-    const sweep = total ? (count / total) * 360 : 0;
-    const slice = { row, index, count, start: angle, end: angle + sweep };
-    angle += sweep;
+    const length = total ? (count / total) * circumference : 0;
+    const slice = { row, index, count, length, offset };
+    offset += length;
     return slice;
   });
   const active = slices[activeIndex];
@@ -360,48 +343,39 @@ function PieChartWithLegend({ rows, total, title }) {
       {total > 0 ? (
         <div className="fhsis-pie-visual">
           <svg className="fhsis-pie-chart" viewBox="0 0 220 220" role="group" aria-label={`${title}. ${summary}`}>
-            {nonZeroSlices.length === 1 ? (
-              <circle
-                cx="110"
-                cy="110"
-                r="104"
-                style={{ fill: `var(${getNutritionCategoryColorVariable(nonZeroSlices[0].row.label)})` }}
-                stroke="var(--fhsis-card)"
-                strokeWidth="2"
-                role="button"
-                tabIndex="0"
-                aria-label={`${nonZeroSlices[0].row.label}: Male ${numberFormat.format(Number(nonZeroSlices[0].row.male) || 0)}, Female ${numberFormat.format(Number(nonZeroSlices[0].row.female) || 0)}, Total ${numberFormat.format(nonZeroSlices[0].count)}, 100%`}
-                onMouseEnter={() => setActiveIndex(nonZeroSlices[0].index)}
-                onFocus={() => setActiveIndex(nonZeroSlices[0].index)}
-                onBlur={() => setActiveIndex(-1)}
-                onClick={() => setActiveIndex(activeIndex === nonZeroSlices[0].index ? -1 : nonZeroSlices[0].index)}
-                onKeyDown={(event) => keyDown(event, nonZeroSlices[0].index)}
-              >
-                <title>{nonZeroSlices[0].row.label}: {numberFormat.format(nonZeroSlices[0].count)} (100%)</title>
-              </circle>
-            ) : nonZeroSlices.map((slice) => {
-              const percentage = total ? (slice.count / total) * 100 : 0;
-              return (
-                <path
-                  key={slice.row.key}
-                  d={piePath(slice.start, slice.end)}
-                  className={activeIndex === slice.index ? 'is-active' : ''}
-                  style={{ fill: `var(${getNutritionCategoryColorVariable(slice.row.label)})` }}
-                  stroke="var(--fhsis-card)"
-                  strokeWidth="2"
-                  role="button"
-                  tabIndex="0"
-                  aria-label={`${slice.row.label}: Male ${numberFormat.format(Number(slice.row.male) || 0)}, Female ${numberFormat.format(Number(slice.row.female) || 0)}, Total ${numberFormat.format(slice.count)}, ${percentage.toFixed(1)}%`}
-                  onMouseEnter={() => setActiveIndex(slice.index)}
-                  onFocus={() => setActiveIndex(slice.index)}
-                  onBlur={() => setActiveIndex(-1)}
-                  onClick={() => setActiveIndex(activeIndex === slice.index ? -1 : slice.index)}
-                  onKeyDown={(event) => keyDown(event, slice.index)}
-                >
-                  <title>{slice.row.label}: Male {numberFormat.format(Number(slice.row.male) || 0)}, Female {numberFormat.format(Number(slice.row.female) || 0)}, Total {numberFormat.format(slice.count)}, {percentage.toFixed(1)}%</title>
-                </path>
-              );
-            })}
+            <circle className="fhsis-donut-track" cx="110" cy="110" r="84" />
+            <g transform="rotate(-90 110 110)">
+              {nonZeroSlices.map((slice) => {
+                const percentage = total ? (slice.count / total) * 100 : 0;
+                return (
+                  <circle
+                    key={slice.row.key}
+                    className={`fhsis-donut-segment${activeIndex === slice.index ? ' is-active' : ''}`}
+                    cx="110"
+                    cy="110"
+                    r="84"
+                    style={{
+                      stroke: `var(${getNutritionCategoryColorVariable(slice.row.label)})`,
+                      strokeDasharray: revealed ? `${slice.length} ${circumference - slice.length}` : `0 ${circumference}`,
+                      strokeDashoffset: -slice.offset,
+                      transitionDelay: `${slice.index * 70}ms`,
+                    }}
+                    role="button"
+                    tabIndex="0"
+                    aria-label={`${slice.row.label}: Male ${numberFormat.format(Number(slice.row.male) || 0)}, Female ${numberFormat.format(Number(slice.row.female) || 0)}, Total ${numberFormat.format(slice.count)}, ${percentage.toFixed(1)}%`}
+                    onMouseEnter={() => setActiveIndex(slice.index)}
+                    onFocus={() => setActiveIndex(slice.index)}
+                    onBlur={() => setActiveIndex(-1)}
+                    onClick={() => setActiveIndex(activeIndex === slice.index ? -1 : slice.index)}
+                    onKeyDown={(event) => keyDown(event, slice.index)}
+                  >
+                    <title>{slice.row.label}: Male {numberFormat.format(Number(slice.row.male) || 0)}, Female {numberFormat.format(Number(slice.row.female) || 0)}, Total {numberFormat.format(slice.count)}, {percentage.toFixed(1)}%</title>
+                  </circle>
+                );
+              })}
+            </g>
+            <text className="fhsis-donut-total" x="110" y="106" textAnchor="middle">{numberFormat.format(total)}</text>
+            <text className="fhsis-donut-total-label" x="110" y="124" textAnchor="middle">total</text>
           </svg>
           {active && <div className="fhsis-pie-tooltip" role="status">
             <strong>{active.row.label}</strong>

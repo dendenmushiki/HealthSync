@@ -593,14 +593,27 @@ export async function putOfflineRecord(userId, collection, recordKey, value) {
   const keyName = normalizeRecordKey(recordKey);
   const storageKey = await getStorageRecordKey(indexKey, ownerId, collectionName, keyName);
   const encrypted = await encryptValue(key, value, recordAad(ownerId, collectionName, storageKey));
-  await idb.putToStore('offlineData', {
+  try {
+    await idb.putToStore('offlineData', {
     userId: ownerId,
     collection: collectionName,
     recordKey: storageKey,
     version: VAULT_VERSION,
     ...encrypted,
     updatedAt: new Date().toISOString(),
-  });
+    });
+  } catch (error) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('healthsync:offline-storage-error', {
+        detail: {
+          name: error?.name || 'StorageWriteError',
+          quota: error?.name === 'QuotaExceededError',
+          message: 'This device could not save the offline change. Storage may be full. Nothing was discarded.',
+        },
+      }));
+    }
+    throw error;
+  }
 }
 
 export async function getOfflineRecord(userId, collection, recordKey) {

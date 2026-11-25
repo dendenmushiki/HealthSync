@@ -3,6 +3,7 @@ const { writeAudit } = require('../services/auditService');
 const logger = require('../services/logger');
 const { validateClinicalRecord } = require('../services/clinicalRecordValidation');
 const { validateMaternalRecord } = require('../services/maternalRecordValidation');
+const { ensureMaternalRecordSchema } = require('../services/maternalRecordSchemaService');
 
 const RECORD_TABLES = {
   clinical: 'patient_clinical_records',
@@ -56,6 +57,7 @@ const listAllResidentMedicalRecords = async (req, res) => {
   ));
   const unionSql = unions.join(' UNION ALL ');
   try {
+    await ensureMaternalRecordSchema();
     const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM (${unionSql}) all_records`);
     const total = Number(countRows[0]?.total || 0);
     const [rows] = await pool.query(
@@ -91,6 +93,7 @@ const listResidentMedicalRecords = async (req, res) => {
   const table = tableFor(req.params.recordType);
   if (!ids || !table) return res.status(400).json({ success: false, message: 'Invalid resident or record type.' });
   try {
+    if (req.params.recordType === 'maternal') await ensureMaternalRecordSchema();
     const [residentRows] = await pool.query('SELECT resident_id FROM residents WHERE resident_id = ?', [ids.residentId]);
     if (!residentRows.length) return res.status(404).json({ success: false, message: 'Resident not found.' });
     const [rows] = await pool.query(
@@ -121,6 +124,7 @@ const getResidentMedicalRecord = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid resident, record, or record type.' });
   }
   try {
+    if (req.params.recordType === 'maternal') await ensureMaternalRecordSchema();
     const [rows] = await pool.query(
       `SELECT mr.id, mr.resident_id, mr.record_data, ${req.params.recordType === 'maternal' ? 'mr.edc' : 'NULL'} AS edc,
         mr.created_at, mr.updated_at,
@@ -161,6 +165,7 @@ const createResidentMedicalRecord = async (req, res) => {
     if (Object.keys(errors).length) return res.status(400).json({ success: false, message: Object.values(errors)[0], errors });
   }
   try {
+    if (req.params.recordType === 'maternal') await ensureMaternalRecordSchema();
     const connection = req.idempotencyConnection || pool;
     const [residentRows] = await connection.query('SELECT resident_id FROM residents WHERE resident_id = ?', [ids.residentId]);
     if (!residentRows.length) return res.status(404).json({ success: false, message: 'Resident not found.' });
@@ -208,6 +213,7 @@ const updateResidentMedicalRecord = async (req, res) => {
     if (Object.keys(errors).length) return res.status(400).json({ success: false, message: Object.values(errors)[0], errors });
   }
   try {
+    if (req.params.recordType === 'maternal') await ensureMaternalRecordSchema();
     const [oldRows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ? AND resident_id = ?`, [ids.recordId, ids.residentId]);
     if (!oldRows.length) return res.status(404).json({ success: false, message: 'Medical record not found.' });
     const maternal = req.params.recordType === 'maternal';

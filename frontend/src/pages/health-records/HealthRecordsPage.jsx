@@ -591,7 +591,7 @@ const HealthRecordsPage = () => {
                       </Link>
                     </td>
                     <td><span className="health-record-date-value"><CalendarDays size={14} strokeWidth={1.8} aria-hidden="true" /><time dateTime={String(item.record_date || '').slice(0, 10)}>{formatDateOnly(item.record_date, { month: 'short', day: 'numeric', year: 'numeric' }) || <i>Not provided</i>}</time></span></td>
-                    <td><TypeBadge type={item.record_type} /></td>
+                    <td><TypeBadge type={item.record_type} />{(item.offline === true || item.sync_status === 'PENDING') && <span className="healthsync-not-synced-badge">Not synced</span>}</td>
                     <td className="health-record-hide-tablet"><span className="health-record-summary" title={summary || undefined}>{summary || <i>No summary</i>}</span></td>
                     <td className="health-record-hide-tablet"><span className="health-record-recorded-by"><UserRound size={15} strokeWidth={1.8} aria-hidden="true" />{item.recorded_by_name || <i>Not provided</i>}</span></td>
                     <td className="health-record-hide-tablet"><span className="health-record-recorded-by">{item.status || <i>Not provided</i>}</span></td>

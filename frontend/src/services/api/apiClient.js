@@ -122,10 +122,35 @@ async function saveFailedAttempt(error) {
   if (!operationId || !activeAccountMatches(config)) return null;
   const status = Number(error.response?.status) || 0;
   const errorCode = error.response?.data?.errorCode;
+  const isAlreadyQueued = Boolean(config.healthsyncOperationId);
+  if (status === 401) {
+    if (!isAlreadyQueued) {
+      const queued = await enqueueOperation({
+        ...config.healthsyncQueueDetails,
+        offlineOperationId: operationId,
+        userId: config.healthsyncOwnerId,
+      });
+      config.healthsyncOperationId = queued.offlineOperationId;
+    }
+    await updateOperationStatus(operationId, {
+      status: 'PENDING',
+      retryCount: 1,
+      attempts: 1,
+      lastError: 'Sign in again to sync this saved change.',
+      lastErrorCode: errorCode || 'AUTH_REQUIRED',
+      syncStartedAt: null,
+    }, config.healthsyncOwnerId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('healthsync:sync-auth-required'));
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('healthsync:queue-changed'));
+    }
+    return 'PENDING';
+  }
   const safeToRetry = !error.response || errorCode === 'IDEMPOTENCY_RETRY_SAFE';
   const unknownOutcome = ['IDEMPOTENCY_OUTCOME_UNKNOWN', 'IDEMPOTENCY_KEY_CONFLICT', 'IDEMPOTENCY_KEY_REUSE']
     .includes(errorCode) || (status >= 500 && !safeToRetry);
-  const isAlreadyQueued = Boolean(config.healthsyncOperationId);
   if (!isAlreadyQueued && !safeToRetry && !unknownOutcome) return null;
   const nextStatus = safeToRetry ? 'PENDING' : unknownOutcome ? 'CONFLICT' : 'FAILED';
   if (!isAlreadyQueued) {
@@ -139,7 +164,10 @@ async function saveFailedAttempt(error) {
   await updateOperationStatus(operationId, {
     status: nextStatus,
     retryCount: 1,
-    lastError: error.response?.data?.message || error.message || 'The server could not confirm this change.',
+    attempts: 1,
+    lastAttemptAt: new Date().toISOString(),
+    lastError: status ? `The server returned HTTP ${status}. Review this saved change and retry when corrected.` :
+      'The connection was interrupted. The saved change will retry with its original operation key.',
     syncStartedAt: null,
   }, config.healthsyncOwnerId);
   dispatchQueueChange('healthsync:offline-queued', {
@@ -191,7 +219,7 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(async (response) => {
-  setBackendAvailability(true);
+  setBackendAvailability(true, response.status);
   const config = response.config || {};
   if (config.healthsyncProvisionalOperationId && response.status < 400 &&
       response.data?.success !== true && activeAccountMatches(config)) {
@@ -203,7 +231,7 @@ api.interceptors.response.use(async (response) => {
       });
       await updateOperationStatus(config.healthsyncProvisionalOperationId, {
         status: 'CONFLICT',
-        lastError: response.data?.message || 'The server did not confirm whether this change was saved.',
+        lastError: 'The server did not confirm whether this change was saved.',
         syncStartedAt: null,
       }, config.healthsyncOwnerId);
       dispatchQueueChange('healthsync:offline-queued', {
@@ -219,7 +247,8 @@ api.interceptors.response.use(async (response) => {
   }
   return response;
 }, async (error) => {
-  if (!error.response) setBackendAvailability(false);
+  if (error.response) setBackendAvailability(true, error.response.status);
+  else setBackendAvailability(false);
   if (error?.response?.data?.errorCode === 'PASSWORD_CHANGE_REQUIRED' && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('healthsync:password-change-required'));
   }

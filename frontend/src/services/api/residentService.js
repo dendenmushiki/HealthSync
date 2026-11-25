@@ -10,9 +10,12 @@ import {
 import { getOfflineSession } from '../offline/offlineSessionService';
 import offlineQueue from '../offline/offlineQueueService';
 import locations from '../../data/philippineLocations.json';
+import defaultResidentSitios from '../../data/residentSitios.json';
 import { calculateAge } from '../../utils/residentUtils';
 import { calculateAgeInMonths } from '../../utils/nutritionRecordAge';
 import { isOffline } from '../offline/networkService';
+
+const RESIDENT_SITIOS_CACHE_KEY = 'hs_resident_sitios_v1';
 
 function getStoredUser() {
   try {
@@ -38,6 +41,31 @@ const reportCacheFailure = () => {
     window.dispatchEvent(new CustomEvent('healthsync:offline-cache-error', {
       detail: { message: 'Resident data could not be secured for offline use.' },
     }));
+  }
+};
+
+const normalizeSitios = (sitios) => Array.isArray(sitios)
+  ? [...new Set(sitios.filter((sitio) => typeof sitio === 'string').map((sitio) => sitio.trim()).filter(Boolean))]
+  : [];
+
+const getCachedSitios = () => {
+  try {
+    const cached = JSON.parse(localStorage.getItem(RESIDENT_SITIOS_CACHE_KEY) || 'null');
+    return Array.isArray(cached) ? normalizeSitios(cached) : null;
+  } catch {
+    return null;
+  }
+};
+
+const cacheSitios = (sitios) => {
+  try {
+    localStorage.setItem(RESIDENT_SITIOS_CACHE_KEY, JSON.stringify(normalizeSitios(sitios)));
+  } catch {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('healthsync:offline-cache-error', {
+        detail: { message: 'Sitio options could not be saved for offline use.' },
+      }));
+    }
   }
 };
 
@@ -92,9 +120,23 @@ const getCachedResidents = async (params = {}) => {
   const user = getAuthorizedOfflineAccount();
   const collection = await getResidentCacheCollection(user.user_id);
   const cached = await getOfflineRecords(user.user_id, collection);
-  const queuedResidents = (await offlineQueue.getQueueItems(user.user_id))
+  const queuedItems = await offlineQueue.getQueueItems(user.user_id);
+  const queuedResidents = await Promise.all(queuedItems
     .filter((item) => item.table === 'residents' && item.localRecord && item.operation !== 'DELETE')
-    .map((item) => item.localRecord);
+    .map(async (item) => {
+      if (item.status === 'SYNCED' && item.serverRecordId) {
+        const localResidentId = item.localRecord.offlineResidentId || item.localRecord.resident_id;
+        await offlineQueue.putResidentIdMapping?.(localResidentId, item.serverRecordId, user.user_id);
+        return {
+          ...item.localRecord,
+          resident_id: item.serverRecordId,
+          id: item.serverRecordId,
+          offline: false,
+          sync_status: 'SYNCED',
+        };
+      }
+      return item.localRecord;
+    }));
   const residentsById = new Map(cached.map((resident) => [String(resident.resident_id), resident]));
   queuedResidents.forEach((resident) => residentsById.set(String(resident.resident_id), resident));
   const searchTokens = normalizeResidentSearchTokens(params.search || params.q);
@@ -151,13 +193,27 @@ const getCachedResidents = async (params = {}) => {
 
 const getCachedResident = async (user, id) => {
   const queueItems = await offlineQueue.getQueueItems(user.user_id);
+  const mapping = await offlineQueue.getResidentIdMapping?.(String(id), user.user_id);
+  const resolvedId = mapping?.serverResidentId ? String(mapping.serverResidentId) : String(id);
   const queued = queueItems.find((item) => (
     item.table === 'residents' && item.localRecord &&
-    String(item.localRecord.offlineResidentId || item.localRecord.resident_id) === String(id) &&
+    (String(item.localRecord.offlineResidentId || item.localRecord.resident_id) === String(id) ||
+      (item.status === 'SYNCED' && String(item.serverRecordId) === resolvedId)) &&
     item.operation !== 'DELETE'
   ));
-  if (queued) return queued.localRecord;
-  const numericId = Number(id);
+  if (queued) {
+    if (queued.status === 'SYNCED' && queued.serverRecordId) {
+      return {
+        ...queued.localRecord,
+        resident_id: queued.serverRecordId,
+        id: queued.serverRecordId,
+        offline: false,
+        sync_status: 'SYNCED',
+      };
+    }
+    return queued.localRecord;
+  }
+  const numericId = Number(resolvedId);
   const cached = Number.isFinite(numericId) ? await getOfflineRecord(
     user.user_id,
     await getResidentCacheCollection(user.user_id),
@@ -195,8 +251,30 @@ export async function getResidentStats() {
 }
 
 export async function getResidentSitios() {
-  const response = await api.get('/residents/sitios');
-  return response.data;
+  const cachedSitios = getCachedSitios();
+  if (isOffline()) {
+    return {
+      success: true,
+      data: cachedSitios || normalizeSitios(defaultResidentSitios),
+      offline: true,
+    };
+  }
+  try {
+    const response = await api.get('/residents/sitios');
+    if (response.data?.success && Array.isArray(response.data.data)) {
+      cacheSitios(response.data.data);
+    }
+    return response.data;
+  } catch (error) {
+    if (!error.response) {
+      return {
+        success: true,
+        data: cachedSitios || normalizeSitios(defaultResidentSitios),
+        offline: true,
+      };
+    }
+    throw error;
+  }
 }
 
 export async function getAllResidents(params = {}) {

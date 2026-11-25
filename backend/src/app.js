@@ -70,7 +70,9 @@ app.use(cors({
   allowedHeaders: [
     'Content-Type',
     'Authorization',
-    'X-Idempotency-Key'
+    'X-Idempotency-Key',
+    'X-HealthSync-Offline-Sync',
+    'X-HealthSync-Client-Created-At'
   ]
 }));
 

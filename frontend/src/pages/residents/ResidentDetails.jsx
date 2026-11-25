@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   ArrowLeft,
@@ -25,6 +25,7 @@ import Pagination from '../../components/common/Pagination';
 import { calculateAge, formatResidentName } from '../../utils/residentUtils';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { getProfilePhotoUrl } from '../../utils/profilePhoto';
+import offlineQueue from '../../services/offline/offlineQueueService';
 
 const TABS = [
   ['overview', 'Overview', 'person'],
@@ -196,6 +197,7 @@ const StatusBadge = ({ status }) => {
 
 const ResidentDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -231,6 +233,17 @@ const ResidentDetails = () => {
   const firstNutritionRecord = nutritionRecordsTotal ? (currentNutritionRecordsPage - 1) * HISTORY_PAGE_SIZE + 1 : 0;
   const lastNutritionRecord = Math.min(currentNutritionRecordsPage * HISTORY_PAGE_SIZE, nutritionRecordsTotal);
   const visibleNutritionRecords = (nutritionRecords || []).slice(firstNutritionRecord - 1, lastNutritionRecord);
+
+  useEffect(() => {
+    if (typeof id !== 'string' || !id.startsWith('offline:')) return undefined;
+    let active = true;
+    offlineQueue.getResidentIdMapping(id).then((mapping) => {
+      if (!active || !mapping?.serverResidentId) return;
+      const next = `/residents/${mapping.serverResidentId}`;
+      navigate(`${next}${window.location.search}${window.location.hash}`, { replace: true });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [id, navigate]);
 
   const showToast = useCallback((message, isError = false) => {
     window.clearTimeout(toastTimer.current);
@@ -412,7 +425,7 @@ const ResidentDetails = () => {
             : <div className={`resident-profile-avatar resident-profile-avatar-initials resident-avatar-color-${avatarColor}`} aria-label={`${fullName} initials`}>{initials}</div>}
           <div className="resident-profile-copy">
             <span className="resident-profile-eyebrow">Resident profile</span>
-            <div className="resident-name-status"><h1>{fullName}</h1><StatusBadge status={status} /></div>
+            <div className="resident-name-status"><h1>{fullName}</h1><StatusBadge status={status} />{(resident?.offline === true || resident?.sync_status === 'PENDING') && <span className="healthsync-not-synced-badge">Not synced</span>}</div>
             <p className="resident-profile-meta">{age === null ? 'Age not provided' : `${age} ${age === 1 ? 'year' : 'years'}`}<span aria-hidden="true">·</span>{capitalize(resident.sex) || 'Gender not provided'}{resident.occupation && <><span aria-hidden="true">·</span>{capitalize(resident.occupation)}</>}</p>
             {categories.length > 0 && <div className="resident-category-chips" aria-label="Resident categories">{categories.map((category) => <span className="resident-category-chip" key={category}>{category}</span>)}</div>}
           </div>

@@ -112,7 +112,7 @@ test('rechecks backend availability and synchronizes when the server returns', a
   expect(syncManager.runSync).not.toHaveBeenCalled();
 
   await act(async () => {
-    jest.advanceTimersByTime(20000);
+    jest.advanceTimersByTime(30000);
     await Promise.resolve();
     await Promise.resolve();
   });

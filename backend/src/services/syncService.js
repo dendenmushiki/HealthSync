@@ -427,12 +427,14 @@ async function claimIdempotencyRecord({
   ownerId,
   requestFingerprint,
   offlineSync = false,
+  clientCreatedAt = null,
 }) {
   const metadata = {
     ownerId: String(ownerId),
     requestFingerprint,
     outcome: 'PENDING',
     offlineSync: Boolean(offlineSync),
+    ...(clientCreatedAt ? { clientCreatedAt } : {}),
   };
   try {
     await pool.query(
@@ -469,6 +471,7 @@ async function saveIdempotency({
   ownerId = null,
   requestFingerprint = null,
   offlineSync = false,
+  clientCreatedAt = null,
 }) {
   const storedResponse = response && ownerId !== null && requestFingerprint
     ? JSON.stringify({
@@ -476,6 +479,7 @@ async function saveIdempotency({
       requestFingerprint,
       outcome: 'SUCCESS',
       offlineSync: Boolean(offlineSync),
+      ...(clientCreatedAt ? { clientCreatedAt } : {}),
       response,
     })
     : response ? JSON.stringify(response) : null;
@@ -502,6 +506,7 @@ async function processOperation({
   userAgent = null,
   requestFingerprint = null,
   offlineSync = false,
+  clientCreatedAt = null,
 }) {
   // ensure idempotency table exists
   await ensureIdempotencyTable();
@@ -533,6 +538,7 @@ async function processOperation({
       ownerId: userId,
       requestFingerprint,
       offlineSync,
+      clientCreatedAt,
     });
     if (claimed) return { fromCache: true, record: claimed };
   }
@@ -618,6 +624,7 @@ async function processOperation({
           ownerId: userId,
           requestFingerprint,
           offlineSync,
+          clientCreatedAt,
         });
         return { fromCache: false, response };
       } catch (err) {
@@ -675,6 +682,7 @@ async function processOperation({
           ownerId: userId,
           requestFingerprint,
           offlineSync,
+          clientCreatedAt,
         });
         return { fromCache: false, response };
       } catch (err) {
@@ -771,6 +779,7 @@ async function processOperation({
         ownerId: userId,
         requestFingerprint,
         offlineSync,
+        clientCreatedAt,
       });
       return { fromCache: false, response };
     } else if (operation === 'UPDATE') {
@@ -799,6 +808,7 @@ async function processOperation({
         ownerId: userId,
         requestFingerprint,
         offlineSync,
+        clientCreatedAt,
       });
       return { fromCache: false, response };
     } else if (operation === 'DELETE' && ['patient_clinical_records', 'child_records', 'maternal_records', 'immunization_records'].includes(table)) {
@@ -821,6 +831,7 @@ async function processOperation({
         ownerId: userId,
         requestFingerprint,
         offlineSync,
+        clientCreatedAt,
       });
       return { fromCache: false, response };
     }

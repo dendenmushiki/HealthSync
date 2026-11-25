@@ -9,7 +9,7 @@ import {
 } from '../offline/offlineVaultService';
 import { createOfflineSession } from '../offline/offlineSessionService';
 import { enqueueOperation } from '../offline/offlineQueueService';
-import { getResidents } from './residentService';
+import { getResidentSitios, getResidents } from './residentService';
 
 jest.mock('./apiClient', () => ({
   __esModule: true,
@@ -97,6 +97,56 @@ test('passes abort signals through to server-side resident searches', async () =
   expect(api.get).toHaveBeenCalledWith('/residents', {
     params: { search: 'ID 19', page: 2, pageSize: 10 },
     signal: controller.signal,
+  });
+});
+
+test('caches server-provided Sitio options for resident forms opened offline', async () => {
+  api.get.mockClear();
+  const sitios = ['Capitol', 'Melgar'];
+  api.get.mockResolvedValueOnce({ data: { success: true, data: sitios } });
+
+  expect(await getResidentSitios()).toEqual({ success: true, data: sitios });
+  expect(localStorage.getItem('hs_resident_sitios_v1')).toBe(JSON.stringify(sitios));
+
+  Object.defineProperty(global.navigator, 'onLine', { configurable: true, value: false });
+  expect(await getResidentSitios()).toEqual({ success: true, data: sitios, offline: true });
+  expect(api.get).toHaveBeenCalledTimes(1);
+});
+
+test('provides bundled Sitio options when the device goes offline before the first fetch', async () => {
+  api.get.mockClear();
+  Object.defineProperty(global.navigator, 'onLine', { configurable: true, value: false });
+
+  const response = await getResidentSitios();
+
+  expect(response).toEqual({
+    success: true,
+    data: [
+      'Capitol',
+      'Melgar',
+      'Refulgente',
+      'F. Enriquez',
+      'Motus/Inocencio',
+      'Cipriano',
+      'Meren',
+      'Omeña Ave',
+      'Villa Emilia',
+      'Libtong',
+    ],
+    offline: true,
+  });
+  expect(api.get).not.toHaveBeenCalled();
+});
+
+test('uses cached Sitio options after a network-level request failure', async () => {
+  api.get.mockClear();
+  localStorage.setItem('hs_resident_sitios_v1', JSON.stringify(['Capitol', 'Melgar']));
+  api.get.mockRejectedValueOnce(new Error('Network unavailable'));
+
+  expect(await getResidentSitios()).toEqual({
+    success: true,
+    data: ['Capitol', 'Melgar'],
+    offline: true,
   });
 });
 

@@ -5,6 +5,7 @@ import { AuthContext } from '../context/AuthContext';
 import SyncStatus from './SyncStatus';
 import offlineQueue from '../services/offline/offlineQueueService';
 import useSyncStatus from '../services/offline/useSyncStatus';
+import syncManager from '../services/offline/syncManager';
 import api from '../services/api/apiClient';
 import {
   downloadOfflineData,
@@ -41,6 +42,22 @@ jest.mock('../services/api/apiClient', () => ({
   default: { get: jest.fn() },
 }));
 
+jest.mock('../services/offline/offlineStorageService', () => ({
+  __esModule: true,
+  formatStorageBytes: jest.fn((bytes) => `${bytes} bytes`),
+  getOfflineStorageStatus: jest.fn(async () => ({
+    supported: false,
+    usage: null,
+    quota: null,
+    usedPercent: null,
+    warning: false,
+    critical: false,
+  })),
+  default: {
+    formatStorageBytes: jest.fn((bytes) => `${bytes} bytes`),
+  },
+}));
+
 const makeItem = (status) => ({
   offlineOperationId: 'offline-1',
   operation: 'CREATE',
@@ -55,20 +72,21 @@ const makeItem = (status) => ({
   ...(status === 'SYNCED' ? { syncedAt: '2026-11-16T00:01:00.000Z' } : {}),
 });
 
-async function renderSyncStatus(item) {
+async function renderSyncStatus(item, { online = true, checkNow = jest.fn().mockResolvedValue(true) } = {}) {
   useSyncStatus.mockReturnValue({
     items: [item],
-    online: true,
+    online,
+    checkNow,
     syncing: false,
     setSyncing: jest.fn(),
     loaded: true,
     refresh: jest.fn().mockResolvedValue(undefined),
     pending: item.status === 'PENDING' ? 1 : 0,
-    failed: 0,
+    failed: item.status === 'FAILED' ? 1 : 0,
     syncingCount: 0,
     syncedToday: item.status === 'SYNCED' ? 1 : 0,
-    conflicts: 0,
-    waiting: item.status === 'PENDING' ? 1 : 0,
+    conflicts: item.status === 'CONFLICT' ? 1 : 0,
+    waiting: item.status === 'SYNCED' ? 0 : 1,
     lastSynced: item.syncedAt || null,
   });
 
@@ -80,7 +98,7 @@ async function renderSyncStatus(item) {
     </MemoryRouter>
   );
   if (item.status !== 'SYNCED') {
-    fireEvent.click(screen.getByRole('button', { name: /Details for/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Details for/ })[0]);
   }
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -135,18 +153,88 @@ test('Synced status shows other BHWs server records and opens full saved details
   });
   await renderSyncStatus(makeItem('SYNCED'));
   expect(api.get).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Synced' }));
 
   const historySummary = /Added Adult BMI · Record #91 · Synced by BHW Account A/;
   expect((await screen.findAllByRole('button', { name: historySummary })).length).toBeGreaterThan(0);
   expect(api.get).toHaveBeenCalledWith('/sync/activity', { params: { scope: 'all' } });
-  fireEvent.click(screen.getByRole('button', { name: /Details for Added Adult BMI/ }));
+  fireEvent.click(screen.getAllByRole('button', { name: /Details for Added Adult BMI/ })[0]);
   const drawer = await screen.findByRole('dialog', { name: 'Synced record details' });
   expect(within(drawer).getByText('Saved to server')).toBeInTheDocument();
   expect(await within(drawer).findByText('Normal')).toBeInTheDocument();
   expect(api.get).toHaveBeenCalledWith('/sync/activity/42');
   expect(screen.queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument();
   expect(screen.queryByRole('dialog', { name: 'Discard this queued change?' })).not.toBeInTheDocument();
+});
+
+test('offers keep-mine and keep-server choices for real 409 conflicts', async () => {
+  const item = makeItem('CONFLICT');
+  item.lastErrorCode = 'VALIDATION_CONFLICT';
+  item.lastError = 'The server reported a conflict.';
+  useSyncStatus.mockReturnValue({
+    items: [item],
+    online: true,
+    syncing: false,
+    setSyncing: jest.fn(),
+    loaded: true,
+    refresh: jest.fn().mockResolvedValue(undefined),
+    pending: 0,
+    failed: 0,
+    syncingCount: 0,
+    syncedToday: 0,
+    conflicts: 1,
+    waiting: 1,
+  });
+
+  render(
+    <MemoryRouter>
+      <AuthContext.Provider value={{ user: { user_id: 7, role: 'bhw' }, offlineVaultReady: true }}>
+        <SyncStatus />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+  fireEvent.click(screen.getAllByRole('button', { name: /Details for/ })[0]);
+
+  expect(screen.getByRole('button', { name: 'Keep server version' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Keep my version' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Keep server version' }));
+  await waitFor(() => expect(offlineQueue.deleteOperation).toHaveBeenCalledWith('offline-1'));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my version' }));
+  await waitFor(() => expect(offlineQueue.updateOperationStatus).toHaveBeenCalledWith(
+    'offline-1',
+    expect.objectContaining({ status: 'PENDING', nextRetryAt: null })
+  ));
+});
+
+test('row retry checks connectivity instead of being disabled while offline', async () => {
+  const checkNow = jest.fn().mockResolvedValue(true);
+  const item = makeItem('FAILED');
+  await renderSyncStatus(item, { online: false, checkNow });
+
+  const retryButtons = screen.getAllByRole('button', { name: 'Retry' });
+  expect(retryButtons[0]).toBeEnabled();
+  fireEvent.click(retryButtons[0]);
+
+  await waitFor(() => expect(checkNow).toHaveBeenCalledTimes(1));
+  expect(offlineQueue.updateOperationStatus).toHaveBeenCalledWith('offline-1', {
+    status: 'PENDING',
+    lastError: null,
+    nextRetryAt: null,
+  });
+  await waitFor(() => expect(syncManager.runSync).toHaveBeenCalledWith({ manual: true }));
+});
+
+test('sync summary cards apply the accessible status tab filter', async () => {
+  await renderSyncStatus(makeItem('PENDING'));
+
+  expect(screen.getByRole('heading', { level: 1, name: 'Sync Status' })).toBeInTheDocument();
+  expect(screen.getByRole('tablist', { name: 'Saved change status filters' })).toBeInTheDocument();
+  expect(screen.getByLabelText('Search saved changes')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Filter saved changes by Pending' }));
+  expect(screen.getByRole('tab', { name: 'Pending' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('shared synced history refreshes after a synchronization completes', async () => {
@@ -169,7 +257,7 @@ test('shared synced history refreshes after a synchronization completes', async 
       },
     });
   await renderSyncStatus(makeItem('SYNCED'));
-  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Synced' }));
   await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
   expect(api.get).toHaveBeenCalledTimes(1);
 
@@ -205,7 +293,7 @@ test('synced history can be scoped to the current BHW or all BHW accounts', asyn
     .mockResolvedValueOnce({ data: { success: true, data: { items: [ownSync, otherSync] } } })
     .mockResolvedValueOnce({ data: { success: true, data: { items: [ownSync] } } });
   await renderSyncStatus(makeItem('SYNCED'));
-  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Synced' }));
 
   expect((await screen.findAllByText(/Synced by Another BHW account/)).length).toBeGreaterThan(0);
   fireEvent.change(screen.getByRole('combobox', { name: 'Synced history account filter' }), {
@@ -297,8 +385,9 @@ test('BHWs can download offline data from Sync Status and inspect included datas
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('Residents: 12')).toBeInTheDocument();
-  fireEvent.click(screen.getByText('What’s included in the download'));
+  fireEvent.click(screen.getByRole('button', { name: 'What’s included in the download' }));
+  const residentCount = await screen.findByText('Residents:');
+  expect(await within(residentCount.closest('.sync-offline-count')).findByText('12')).toBeInTheDocument();
   expect(screen.getByText(/Operation Timbang, Adult BMI, and Adolescent BMI/)).toBeInTheDocument();
   expect(screen.getByText(/clinical, child, maternal, and immunization/)).toBeInTheDocument();
 
@@ -310,7 +399,7 @@ test('shared sync activity errors are surfaced instead of showing an empty succe
   jest.spyOn(console, 'error').mockImplementation(() => {});
   api.get.mockRejectedValue(new Error('Shared synced history is unavailable.'));
   await renderSyncStatus(makeItem('SYNCED'));
-  fireEvent.click(screen.getByRole('button', { name: 'Synced' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Synced' }));
 
   expect(await screen.findByText('Shared synced history is unavailable.')).toBeInTheDocument();
 });
@@ -377,4 +466,40 @@ test('locked local queue is not described as fully synchronized', async () => {
   expect(screen.queryByText('Everything is synced')).not.toBeInTheDocument();
   expect(screen.getByText(/has not been counted as synchronized/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Unlock offline queue' })).not.toBeInTheDocument();
+});
+
+test('allows manual sync while the last connectivity state is offline and probes first', async () => {
+  const checkNow = jest.fn().mockResolvedValue(true);
+  useSyncStatus.mockReturnValue({
+    items: [makeItem('PENDING')],
+    online: false,
+    connectivity: { state: 'offline', lastChecked: null },
+    checkNow,
+    syncing: false,
+    setSyncing: jest.fn(),
+    loaded: true,
+    refresh: jest.fn().mockResolvedValue(undefined),
+    pending: 1,
+    failed: 0,
+    syncingCount: 0,
+    syncedToday: 0,
+    conflicts: 0,
+    waiting: 1,
+    lastSynced: null,
+  });
+  syncManager.runSync.mockResolvedValue({ synced: 1, failed: 0, blocked: 0 });
+
+  render(
+    <MemoryRouter>
+      <AuthContext.Provider value={{ user: { user_id: 7, role: 'bhw' }, offlineVaultReady: true }}>
+        <SyncStatus />
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+  const syncButton = screen.getByRole('button', { name: /sync now/i });
+  expect(syncButton).toBeEnabled();
+  fireEvent.click(syncButton);
+
+  await waitFor(() => expect(checkNow).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(syncManager.runSync).toHaveBeenCalledWith({ manual: true }));
 });

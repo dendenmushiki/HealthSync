@@ -2,6 +2,29 @@ const crypto = require('crypto');
 const pool = require('../config/database');
 const logger = require('../services/logger');
 const { ensureIdempotencyTable, findIdempotency } = require('../services/syncService');
+const { writeAudit } = require('../services/auditService');
+
+async function logOfflineSyncAudit(req, outcome, serverRecordId = null) {
+  if (String(req.get('X-HealthSync-Offline-Sync') || '').toLowerCase() !== 'true') return;
+  await writeAudit({
+    actorId: req.user?.user_id,
+    action: 'OFFLINE_SYNC',
+    module: req.idempotencyTable || 'sync',
+    table_name: req.idempotencyTable || null,
+    record_id: serverRecordId,
+    status: outcome === 'SUCCESS' ? 'SUCCESS' : 'FAILED',
+    result: outcome === 'SUCCESS' ? 'success' : 'failure',
+    metadata: {
+      offlineSync: true,
+      clientCreatedAt: req.offlineClientCreatedAt || null,
+      serverTimestamp: new Date().toISOString(),
+      idempotencyKeyHash: crypto.createHash('sha256')
+        .update(String(req.get('X-Idempotency-Key') || '').trim())
+        .digest('hex'),
+    },
+    req,
+  });
+}
 
 const ID_COLUMN_BY_TABLE = {
   residents: ['resident_id', 'id'],
@@ -74,6 +97,12 @@ function respondWithExisting(res, existing, ownerId, requestFingerprint) {
 function createIdempotencyMiddleware(moduleName, tableName, { atomic = false } = {}) {
   return async (req, res, next) => {
     const key = String(req.get('X-Idempotency-Key') || '').trim();
+    const clientCreatedAt = String(req.get('X-HealthSync-Client-Created-At') || '').trim();
+    const safeClientCreatedAt = /^\d{4}-\d{2}-\d{2}T/.test(clientCreatedAt) &&
+      !Number.isNaN(Date.parse(clientCreatedAt))
+      ? new Date(clientCreatedAt).toISOString()
+      : null;
+    req.offlineClientCreatedAt = safeClientCreatedAt;
     if (!key) return next();
     if (!/^[\da-f-]{36}$/i.test(key)) {
       return res.status(400).json({ success: false, message: 'Invalid idempotency key.' });
@@ -105,6 +134,7 @@ function createIdempotencyMiddleware(moduleName, tableName, { atomic = false } =
         requestFingerprint,
         outcome: 'PENDING',
         offlineSync: String(req.get('X-HealthSync-Offline-Sync') || '').toLowerCase() === 'true',
+        clientCreatedAt: safeClientCreatedAt,
       };
       if (atomic) {
         const connection = await pool.getConnection();
@@ -203,6 +233,7 @@ function createIdempotencyMiddleware(moduleName, tableName, { atomic = false } =
 
             try {
               await connection.commit();
+              await logOfflineSyncAudit(req, 'SUCCESS', serverRecordId);
             } catch (error) {
               logger.error('Could not confirm an idempotent transaction commit', {
                 errorCode: error?.code || 'IDEMPOTENCY_COMMIT_UNKNOWN',
@@ -238,6 +269,7 @@ function createIdempotencyMiddleware(moduleName, tableName, { atomic = false } =
           requestFingerprint,
           outcome,
           offlineSync: pendingMetadata.offlineSync,
+          clientCreatedAt: pendingMetadata.clientCreatedAt,
         };
         const serverRecordId = outcome === 'SUCCESS' ? getResponseRecordId(body, req) : null;
         const status = outcome === 'UNKNOWN' ? 'PENDING' : outcome;

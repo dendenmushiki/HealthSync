@@ -77,6 +77,8 @@ function SeniorResidentIdentity({ resident, onView }) {
           : initials || <UsersRound size={17} strokeWidth={1.8} />}
       </span>
       <span className="senior-resident-name">{name}</span>
+      {(resident.offline === true || resident.sync_status === 'PENDING') &&
+        <span className="healthsync-not-synced-badge">Not synced</span>}
     </Link>
   );
 }

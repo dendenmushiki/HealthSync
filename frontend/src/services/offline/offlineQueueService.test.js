@@ -7,10 +7,15 @@ import {
   unlockOfflineVault,
 } from './offlineVaultService';
 import {
+  cleanupSyncedOperations,
   enqueueOperation,
+  getDependentOperations,
   getPendingOperations,
   getQueueItems,
+  getResidentIdMapping,
   migrateLegacyQueue,
+  putResidentIdMapping,
+  rewriteResidentReferences,
   updateOperationStatus,
 } from './offlineQueueService';
 import { clearOfflineSession, createOfflineSession } from './offlineSessionService';
@@ -114,6 +119,58 @@ test('assigns a stable local resident ID to encrypted resident queue records', a
   expect(JSON.stringify(Array.from(getStore('offlineData').values()))).not.toContain('Offline');
 });
 
+test('coalesces an offline resident edit into its pending create', async () => {
+  const create = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'residents',
+    table: 'residents',
+    payload: { first_name: 'Offline', sitio: 'North' },
+    request: { method: 'POST', url: '/residents', data: { first_name: 'Offline', sitio: 'North' } },
+    localRecord: { first_name: 'Offline', sitio: 'North' },
+    userId: 7,
+  });
+
+  const updated = await enqueueOperation({
+    operation: 'UPDATE',
+    module: 'residents',
+    table: 'residents',
+    payload: { first_name: 'Updated', sitio: 'South' },
+    request: { method: 'PUT', url: `/residents/${create.localRecord.resident_id}`, data: { first_name: 'Updated', sitio: 'South' } },
+    localRecord: { ...create.localRecord, first_name: 'Updated', sitio: 'South' },
+    userId: 7,
+  });
+
+  expect(updated.offlineOperationId).toBe(create.offlineOperationId);
+  expect(updated.operation).toBe('CREATE');
+  expect(updated.request).toEqual(expect.objectContaining({
+    method: 'POST',
+    url: '/residents',
+    data: expect.objectContaining({ first_name: 'Updated', sitio: 'South' }),
+  }));
+  expect(await getQueueItems()).toHaveLength(1);
+});
+
+test('records the parent resident operation as a local dependency', async () => {
+  const resident = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'residents',
+    table: 'residents',
+    payload: { first_name: 'Offline' },
+    localRecord: { first_name: 'Offline' },
+    userId: 7,
+  });
+  const record = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'clinical_records',
+    table: 'patient_clinical_records',
+    payload: { resident_id: resident.localRecord.resident_id },
+    request: { method: 'POST', url: `/resident-medical-records/${resident.localRecord.resident_id}/clinical`, data: { resident_id: resident.localRecord.resident_id } },
+    userId: 7,
+  });
+
+  expect(record.dependsOn).toBe(resident.offlineOperationId);
+});
+
 test('marks every supported local record as pending before synchronization', async () => {
   const item = await enqueueOperation({
     operation: 'CREATE',
@@ -211,7 +268,45 @@ test('preserves Account A queued changes across logout and account switching', a
   ]);
 });
 
-test('recovers stale Adult BMI processing state without changing the operation key or payload', async () => {
+test('stores resident ID mappings and rewrites dependent resident references', async () => {
+  const resident = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'residents',
+    table: 'residents',
+    payload: { first_name: 'Offline', last_name: 'Resident' },
+    localRecord: { first_name: 'Offline', last_name: 'Resident' },
+    userId: 7,
+  });
+  const localResidentId = resident.localRecord.resident_id;
+  const dependent = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'health_records',
+    table: 'patient_clinical_records',
+    payload: { resident_id: localResidentId },
+    request: {
+      method: 'POST',
+      url: `/resident-medical-records/${localResidentId}/clinical`,
+      data: { resident_id: localResidentId },
+    },
+    userId: 7,
+  });
+
+  await putResidentIdMapping(localResidentId, 77, 7);
+  await rewriteResidentReferences(localResidentId, 77, 7);
+
+  await expect(getResidentIdMapping(localResidentId, 7)).resolves.toEqual(
+    expect.objectContaining({ localResidentId, serverResidentId: 77 })
+  );
+  expect(dependent.payload.resident_id).toBe(localResidentId);
+  const rewritten = (await getQueueItems()).find((item) => item.offlineOperationId === dependent.offlineOperationId);
+  expect(rewritten.payload.resident_id).toBe(77);
+  expect(rewritten.request.url).toContain('/77/');
+  expect(await getDependentOperations(resident.offlineOperationId, 7)).toEqual([
+    expect.objectContaining({ offlineOperationId: dependent.offlineOperationId }),
+  ]);
+});
+
+test('marks stale Adult BMI processing state for idempotent outcome verification', async () => {
   const item = await enqueueOperation({
     operation: 'CREATE',
     module: 'adult_bmi',
@@ -229,13 +324,42 @@ test('recovers stale Adult BMI processing state without changing the operation k
   expect(recovered).toEqual(expect.objectContaining({
     offlineOperationId: item.offlineOperationId,
     payload: item.payload,
-    status: 'PENDING',
+    status: 'CONFLICT',
     syncStartedAt: null,
-    lastError: expect.stringContaining('same idempotency key'),
+    lastErrorCode: 'IDEMPOTENCY_OUTCOME_UNKNOWN',
+    lastError: expect.stringContaining('same operation key'),
   }));
 });
 
-test('recovers interrupted non-BMI operations so the coordinator can retry them', async () => {
+test('cleans only confirmed old synced history and preserves unsynced records', async () => {
+  const oldSynced = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'health_records',
+    table: 'health_records',
+    payload: { resident_id: 15 },
+    userId: 7,
+  });
+  await updateOperationStatus(oldSynced.offlineOperationId, {
+    status: 'SYNCED',
+    syncedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const pending = await enqueueOperation({
+    operation: 'CREATE',
+    module: 'adult_bmi',
+    table: 'adult_bmi_records',
+    payload: { resident_id: 15 },
+    userId: 7,
+  });
+
+  await expect(cleanupSyncedOperations(7)).resolves.toBe(1);
+
+  expect(await getQueueItems()).toEqual([
+    expect.objectContaining({ offlineOperationId: pending.offlineOperationId, status: 'PENDING' }),
+  ]);
+});
+
+test('marks interrupted non-BMI operations for idempotent outcome verification', async () => {
   const item = await enqueueOperation({
     operation: 'CREATE',
     module: 'health_records',
@@ -253,8 +377,9 @@ test('recovers interrupted non-BMI operations so the coordinator can retry them'
   expect(recovered).toEqual(expect.objectContaining({
     offlineOperationId: item.offlineOperationId,
     payload: item.payload,
-    status: 'PENDING',
+    status: 'CONFLICT',
     syncStartedAt: null,
+    lastErrorCode: 'IDEMPOTENCY_OUTCOME_UNKNOWN',
   }));
 });
 

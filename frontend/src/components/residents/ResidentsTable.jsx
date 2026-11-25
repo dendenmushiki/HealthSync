@@ -27,6 +27,12 @@ const StatusBadge = ({ status }) => {
   return <span className={`residents-nutrition residents-nutrition-${className}`}>{value}</span>;
 };
 
+const NotSyncedBadge = ({ resident }) => (
+  resident?.offline === true || resident?.sync_status === 'PENDING'
+    ? <span className="healthsync-not-synced-badge" title="Saved on this device; waiting to sync">Not synced</span>
+    : null
+);
+
 const ResidentActions = ({ resident, name, onSelect }) => (
   <div className="residents-row-actions" onClick={(event) => event.stopPropagation()}>
     <button type="button" className="residents-icon-button" aria-label={`View ${name}`} title="View resident" onClick={() => onSelect(resident)}>
@@ -92,6 +98,7 @@ const ResidentsTable = ({ items, sort = 'id-asc', onSort = () => {}, onSelect = 
                   <ResidentAvatar resident={resident} name={name} />
                   <button type="button" className="residents-name-link residents-name-button"
                     onClick={(event) => { event.stopPropagation(); openResident(resident); }}>{name}</button>
+                  <NotSyncedBadge resident={resident} />
                 </div></td>
                 <td className="residents-age-cell" data-label="Age" role="cell"><span className="residents-mobile-label">Age</span>{age ?? '—'}</td>
                 <td data-label="Gender" role="cell"><span className="residents-mobile-label">Gender</span><span className={`residents-gender residents-gender-${String(resident.sex || '').toLowerCase()}`}>{gender}</span></td>

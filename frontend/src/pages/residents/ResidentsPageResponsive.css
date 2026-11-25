@@ -95,6 +95,8 @@ html[data-theme='dark'] #root .residents-directory-page .resident-record-table-a
   }
 
   #root .residents-directory-page .resident-stat-grid .resident-stat-trend {
+    display: flex;
+    flex-wrap: wrap;
     overflow: visible;
     line-height: 1.2;
     text-overflow: clip;

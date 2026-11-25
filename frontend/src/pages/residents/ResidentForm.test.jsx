@@ -166,6 +166,28 @@ test('address selectors load dependent province, city, and barangay options', as
   await waitFor(() => expect(getResidentBarangays).toHaveBeenCalledWith('012801000'));
 });
 
+test('shows cached Sitio choices in the resident form while offline', async () => {
+  getResidentSitios.mockResolvedValueOnce({
+    success: true,
+    data: ['Capitol', 'Melgar'],
+    offline: true,
+  });
+
+  render(
+    <AuthContext.Provider value={{ user: null }}>
+      <MemoryRouter initialEntries={['/residents/new']}>
+        <Routes>
+          <Route path="/residents/new" element={<ResidentForm />} />
+        </Routes>
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+
+  const sitioSelect = await screen.findByLabelText('Sitio');
+  expect(within(sitioSelect).getByRole('option', { name: 'Capitol' })).toBeInTheDocument();
+  expect(within(sitioSelect).getByRole('option', { name: 'Melgar' })).toBeInTheDocument();
+});
+
 test('shows inline validation when required resident fields are missing', async () => {
   render(
     <AuthContext.Provider value={{ user: null }}>

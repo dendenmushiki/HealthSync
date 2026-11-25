@@ -16,6 +16,12 @@ function getRequestFingerprint({ operation, module, table, payload }) {
     .digest('hex');
 }
 
+function getClientCreatedAt(req) {
+  const value = String(req.get('X-HealthSync-Client-Created-At') || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || Number.isNaN(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
+
 function readStoredResponse(record) {
   if (!record?.response) return null;
   if (typeof record.response === 'object') return record.response;
@@ -37,6 +43,7 @@ const handleSync = async (req, res) => {
 
     const userId = req.user?.user_id;
     const offlineSync = String(req.get('X-HealthSync-Offline-Sync') || '').toLowerCase() === 'true';
+    const clientCreatedAt = getClientCreatedAt(req);
     const requestFingerprint = getRequestFingerprint({ operation, module, table, payload });
     idempotencyContext = { key: idempotencyKey, ownerId: userId, requestFingerprint };
     const cachedResponse = (record) => {
@@ -88,6 +95,7 @@ const handleSync = async (req, res) => {
       userAgent,
       requestFingerprint,
       offlineSync,
+      clientCreatedAt,
     });
     if (result.fromCache) {
       return cachedResponse(result.record);

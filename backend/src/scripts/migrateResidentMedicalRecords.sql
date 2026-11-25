@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS maternal_records (
   CONSTRAINT fk_maternal_record_recorded_by FOREIGN KEY (recorded_by) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
+ALTER TABLE maternal_records
+  ADD COLUMN IF NOT EXISTS edc DATE NULL AFTER record_data;
+
 CREATE TABLE IF NOT EXISTS immunization_records (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   resident_id INT NOT NULL,

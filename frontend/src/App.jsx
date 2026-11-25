@@ -28,7 +28,23 @@ import SyncStatus from './pages/SyncStatus';
 import ReportsPage from './pages/reports/ReportsPage';
 import { getProfilePhotoUrl } from './utils/profilePhoto';
 import { getRoleLabel } from './utils/roleLabels';
-import { Cloud, LayoutDashboard, LogOut, Menu, RefreshCw, ScrollText, Settings, Users, WifiOff, X } from 'lucide-react';
+import {
+  Accessibility,
+  Activity,
+  BarChart3,
+  ClipboardList,
+  Cloud,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  RefreshCw,
+  ScrollText,
+  Settings,
+  ServerOff,
+  Users,
+  WifiOff,
+  X,
+} from 'lucide-react';
 import useSyncStatus, { SyncStatusProvider } from './services/offline/useSyncStatus';
 import { getOfflineSession } from './services/offline/offlineSessionService';
 import { ThemeProvider } from './context/ThemeContext';
@@ -66,25 +82,22 @@ const LegacyHealthRecordDetailRedirect = () => {
   return <Navigate to={`/health-records/${type}/${encodeURIComponent(`${sourceTable}-${recordId}`)}`} replace state={location.state} />;
 };
 
-const SidebarIcon = ({ name, useLucide = false }) => {
-  const lucideIcons = { dashboard: LayoutDashboard, users: Users, audit: ScrollText, settings: Settings, logout: LogOut };
-  const LucideIcon = useLucide ? lucideIcons[name] : null;
-  if (LucideIcon) return <LucideIcon className="healthsync-nav-icon" size={19} strokeWidth={1.8} aria-hidden="true" />;
-  if (name === 'audit') return <ScrollText className="healthsync-nav-icon" size={19} strokeWidth={1.8} aria-hidden="true" />;
-  const paths = {
-    dashboard: 'M3 3h8v8H3z M13 3h8v5h-8z M13 10h8v11h-8z M3 13h8v8H3z',
-    residents: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M23 11h-6',
-    senior: 'M12 14l-4 7 1-5-5-1 5-3-1-5 4 3 4-3-1 5 5 3-5 1 1 5z M12 14V3',
-    records: 'M8 4h11a2 2 0 0 1 2 2v14H8a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z M5 7a3 3 0 0 1 3-3 M10 9h7 M10 13h7 M10 17h5',
-    nutrition: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z M3 12h4l2-3 3 6 2-3h7',
-    reports: 'M4 19V5 M4 19h17 M8 16v-5 M12 16V8 M16 16v-8 M20 16V4',
-    sync: 'M20 7h-5V2 M4 17h5v5 M5.6 9A7 7 0 0 1 18 5l2 2 M4 17l2 2a7 7 0 0 0 12.4-4',
-    settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.7 2.9-.2-.1a1.7 1.7 0 0 0-1.8.2l-.1.1h-3.4l-.1-.2a1.7 1.7 0 0 0-1.6-1l-.2.1-2.9-1.7.1-.2a1.7 1.7 0 0 0-.2-1.8L7.6 15v-3.4l.2-.1a1.7 1.7 0 0 0 1-1.6l-.1-.2 1.7-2.9.2.1a1.7 1.7 0 0 0 1.8-.2l.1-.1h3.4l.1.2a1.7 1.7 0 0 0 1.6 1l.2-.1 2.9 1.7-.1.2a1.7 1.7 0 0 0 .2 1.8l.1.1V15z',
-    users: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 21v-2a4 4 0 0 0-3-3.9 M16 3.1a4 4 0 0 1 0 7.8',
-    audit: 'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01',
-    logout: 'M10 17l5-5-5-5 M15 12H3 M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6'
+const SidebarIcon = ({ name }) => {
+  const icons = {
+    dashboard: LayoutDashboard,
+    residents: Users,
+    senior: Accessibility,
+    records: ClipboardList,
+    nutrition: Activity,
+    reports: BarChart3,
+    sync: RefreshCw,
+    settings: Settings,
+    users: Users,
+    audit: ScrollText,
+    logout: LogOut,
   };
-  return <svg className="healthsync-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name] || paths.dashboard} /></svg>;
+  const Icon = icons[name] || LayoutDashboard;
+  return <Icon className="healthsync-nav-icon" size={19} strokeWidth={1.8} aria-hidden="true" />;
 };
 
 function App() {
@@ -313,6 +326,7 @@ function AppShellContent() {
   const [profilePhotoLoadError, setProfilePhotoLoadError] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState(() => {
@@ -331,15 +345,42 @@ function AppShellContent() {
   const isOfficial = user?.role === 'official' || user?.role === 'barangay_official';
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
   const syncHeaderState = useSyncStatus();
-  const syncUnavailable = !syncHeaderState.online || syncHeaderState.dashboardRequestFailed;
-  const syncHeaderLabel = syncUnavailable
-    ? 'Offline'
+  const syncConnectivity = syncHeaderState.connectivity || {
+    state: syncHeaderState.online ? 'online' : 'offline',
+    lastChecked: null,
+    lastError: null,
+  };
+  const syncUnavailable = !syncHeaderState.online;
+  const syncHeaderLabel = syncHeaderState.signInRequired
+    ? 'Sign in to sync'
+    : syncHeaderState.error
+      ? 'Unlock to sync'
     : syncHeaderState.syncing
-      ? 'Syncing'
-      : syncHeaderState.waiting
-        ? `${syncHeaderState.waiting} waiting`
-        : 'Synced';
-  const SyncStatusIcon = syncUnavailable ? WifiOff : syncHeaderState.syncing ? RefreshCw : Cloud;
+      ? `Syncing ${syncHeaderState.waiting}…`
+      : syncConnectivity.state === 'server-unreachable'
+        ? 'Can’t reach server'
+        : syncUnavailable
+          ? 'Offline'
+          : syncHeaderState.waiting
+            ? `${syncHeaderState.waiting} pending`
+            : 'Online / Synced';
+  const SyncStatusIcon = syncHeaderState.signInRequired
+    ? RefreshCw
+    : syncHeaderState.error
+      ? WifiOff
+    : syncHeaderState.syncing
+      ? RefreshCw
+      : syncConnectivity.state === 'server-unreachable'
+        ? ServerOff
+        : syncUnavailable ? WifiOff : Cloud;
+  const handleLogout = useCallback(async () => {
+    if (syncHeaderState.waiting > 0 &&
+        !window.confirm(`${syncHeaderState.waiting} saved change${syncHeaderState.waiting === 1 ? '' : 's'} are still on this device. Sign out without syncing them? The changes will remain on this device.`)) {
+      return;
+    }
+    closeNavigation();
+    await logout();
+  }, [closeNavigation, logout, syncHeaderState.waiting]);
 
   useEffect(() => {
     setProfilePhotoLoadError(false);
@@ -521,8 +562,8 @@ function AppShellContent() {
         <nav className="healthsync-nav" aria-label="Main navigation">
           {navGroups.map((group, groupIndex) => <div className={`healthsync-nav-group ${group.title === 'System' ? 'healthsync-nav-group-system' : ''}`} key={group.title || `main-${groupIndex}`}>
             {group.title && <h2 className="healthsync-nav-group-title">{group.title}</h2>}
-            {group.items.map((item) => <NavLink key={item.to} to={item.to} onClick={closeNavigation} className={({ isActive }) => `healthsync-nav-link ${isActive ? 'active' : ''}`}><SidebarIcon name={item.icon} useLucide={isAdmin && pathname === '/audit-logs'} /><span>{item.label}</span>{item.to === '/sync-status' && syncHeaderState.waiting > 0 && <span className="healthsync-sync-badge">{syncHeaderState.waiting}</span>}</NavLink>)}
-            {group.title === 'System' && <button type="button" className="healthsync-nav-link healthsync-nav-logout" onClick={() => { closeNavigation(); logout(); }}><SidebarIcon name="logout" useLucide={isAdmin && pathname === '/audit-logs'} /><span>Logout</span></button>}
+            {group.items.map((item) => <NavLink key={item.to} to={item.to} onClick={closeNavigation} className={({ isActive }) => `healthsync-nav-link ${isActive ? 'active' : ''}`}><SidebarIcon name={item.icon} /><span>{item.label}</span>{item.to === '/sync-status' && syncHeaderState.waiting > 0 && <span className="healthsync-sync-badge">{syncHeaderState.waiting}</span>}</NavLink>)}
+            {group.title === 'System' && <button type="button" className="healthsync-nav-link healthsync-nav-logout" onClick={handleLogout}><SidebarIcon name="logout" /><span>Logout</span></button>}
           </div>)}
         </nav>
       </aside>
@@ -536,7 +577,27 @@ function AppShellContent() {
           </div>
           <div className="healthsync-topbar-user" aria-label={user ? `Signed in as ${user.username || user.name || 'User'}, ${user.role || 'User'}` : 'Account'}>
             <ThemeToggle />
-            {!isAdmin && !isOfficial && <NavLink className={`healthsync-sync-chip ${syncUnavailable ? 'offline' : 'online'}`} to="/sync-status" title={`Sync status: ${syncHeaderLabel}`} aria-label={`Sync status: ${syncHeaderLabel}`}><SyncStatusIcon aria-hidden="true" />{syncHeaderLabel}</NavLink>}
+            {!isAdmin && !isOfficial && <div className="healthsync-sync-wrap">
+              <button type="button" className={`healthsync-sync-chip ${syncUnavailable || syncHeaderState.signInRequired ? 'offline' : 'online'}`} onClick={() => setSyncPopoverOpen((open) => !open)} aria-expanded={syncPopoverOpen} aria-label={`Sync status: ${syncHeaderLabel}`}>
+                <SyncStatusIcon aria-hidden="true" />{syncHeaderLabel}
+                {syncHeaderState.waiting > 0 && <span className="healthsync-sync-badge">{syncHeaderState.waiting}</span>}
+              </button>
+              {syncPopoverOpen && <div className="healthsync-sync-popover" role="dialog" aria-label="Connection status">
+                <strong>{syncHeaderLabel}</strong>
+                <span>Last checked: {syncConnectivity.lastChecked ? new Date(syncConnectivity.lastChecked).toLocaleTimeString() : 'Not checked yet'}</span>
+                <span>{syncHeaderState.waiting} pending change{syncHeaderState.waiting === 1 ? '' : 's'}</span>
+                {syncConnectivity.lastError && <span>{syncConnectivity.lastError}</span>}
+                {syncHeaderState.signInRequired && <span>Sign in again before queued changes can be sent.</span>}
+                {syncHeaderState.error && <span>Unlock this account’s encrypted offline queue to continue synchronization.</span>}
+                <button type="button" onClick={async () => {
+                  const reached = await syncHeaderState.checkNow?.();
+                  if (reached && syncHeaderState.waiting > 0) {
+                    await syncHeaderState.refresh?.();
+                  }
+                }}>Check connection now</button>
+                <NavLink to="/sync-status" onClick={() => setSyncPopoverOpen(false)}>Open Sync Status</NavLink>
+              </div>}
+            </div>}
             {user && <div className="healthsync-notification-wrap">
               <button type="button" className="healthsync-notification-button" aria-label={`Notifications${notifications.some((item) => !item.read) ? `, ${notifications.filter((item) => !item.read).length} unread` : ''}`} aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen((open) => !open); if (!notificationsOpen) setNotifications((items) => items.map((item) => ({ ...item, read: true }))); }}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
@@ -560,7 +621,7 @@ function AppShellContent() {
                 <div className="healthsync-account-menu-panel" id="healthsync-account-menu" role="dialog" aria-label="Account options" hidden={!accountMenuOpen}>
                   <strong>{user.full_name || userDisplayName}</strong>
                   <span>{pathname === '/audit-logs' ? getRoleLabel(user.role) : user.role || 'User'}</span>
-                  <button type="button" onClick={() => { setAccountMenuOpen(false); logout(); }}>Logout</button>
+                  <button type="button" onClick={() => { setAccountMenuOpen(false); handleLogout(); }}>Logout</button>
                 </div>
               </div>
             </> : <NavLink className="btn btn-sm btn-primary" to="/login">Login</NavLink>}

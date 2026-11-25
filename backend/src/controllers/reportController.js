@@ -74,6 +74,31 @@ const sexTotals = (rows, field) => {
   return totals;
 };
 
+const visitDateExpression = (alias) => (
+  `COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${alias}.record_data, '$.visit_date')), ''), ` +
+  `DATE_FORMAT(CONVERT_TZ(${alias}.created_at, @@session.time_zone, '+08:00'), '%Y-%m-%d'))`
+);
+
+const CLINICAL_RECORDS_SOURCE = `(
+  SELECT 'legacy-clinical' AS record_type, health_record_id AS record_id, resident_id, record_date
+  FROM health_records
+  UNION ALL
+  SELECT 'clinical' AS record_type, pcr.id AS record_id, pcr.resident_id, ${visitDateExpression('pcr')} AS record_date
+  FROM patient_clinical_records pcr
+  UNION ALL
+  SELECT 'child-health' AS record_type, chr.id AS record_id, chr.resident_id, chr.record_date
+  FROM child_health_records chr
+  UNION ALL
+  SELECT 'child' AS record_type, cr.id AS record_id, cr.resident_id, ${visitDateExpression('cr')} AS record_date
+  FROM child_records cr
+  UNION ALL
+  SELECT 'maternal' AS record_type, mr.id AS record_id, mr.resident_id, ${visitDateExpression('mr')} AS record_date
+  FROM maternal_records mr
+  UNION ALL
+  SELECT 'immunization' AS record_type, ir.id AS record_id, ir.resident_id, ${visitDateExpression('ir')} AS record_date
+  FROM immunization_records ir
+)`;
+
 const getMonthlyReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -206,8 +231,8 @@ const getFhsisReport = async (req, res) => {
     `, [range.from, range.to]);
     const [[clinicalSummary]] = await pool.query(`
       SELECT COUNT(*) AS clinicalRecords
-      FROM health_records
-      WHERE record_date >= ? AND record_date <= ?
+      FROM ${CLINICAL_RECORDS_SOURCE} all_records
+      WHERE all_records.record_date BETWEEN ? AND ?
     `, [range.from, range.to]);
 
     const immunization = Object.keys(immunizationRows[0] || {})
@@ -359,7 +384,10 @@ const getFhsisDrilldown = async (req, res) => {
     } else if (indicator === 'resident-new') {
       definition = dateQuery('residents src', "DATE(CONVERT_TZ(src.created_at, @@session.time_zone, '+08:00'))", '1 = 1', 'residents', 'JOIN residents r ON r.resident_id = src.resident_id');
     } else if (indicator === 'clinical-records') {
-      definition = dateQuery('health_records src', 'src.record_date', '1 = 1', 'records', 'LEFT JOIN residents r ON r.resident_id = src.resident_id');
+      definition = dateQuery(CLINICAL_RECORDS_SOURCE + ' src', 'src.record_date', '1 = 1', 'records',
+        'LEFT JOIN residents r ON r.resident_id = src.resident_id');
+      definition.recordId = "CONCAT(src.record_type, '-', src.record_id)";
+      definition.residentId = 'src.resident_id';
     } else if (indicator === 'seniorRegistered') {
       definition = { source: 'senior_citizen_records src', residentJoin: 'JOIN residents r ON r.resident_id = src.resident_id', dateExpression: 'DATE(src.date_registered)', where: '1 = 1', params: [], countMode: 'residents', sexAllowed: true };
     } else {

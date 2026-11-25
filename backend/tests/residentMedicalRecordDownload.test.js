@@ -8,6 +8,7 @@ test('paginates bulk medical records with a capped limit and parses record data'
   const calls = [];
   pool.query = async (sql, params) => {
     calls.push({ sql, params });
+    if (sql === 'SHOW COLUMNS FROM maternal_records') return [[{ Field: 'edc' }]];
     if (sql.startsWith('SELECT COUNT(*)')) return [[{ total: 101 }]];
     return [[{
       id: 8,
@@ -37,6 +38,6 @@ test('paginates bulk medical records with a capped limit and parses record data'
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.body.data.items[0].record_data, { assessment: 'cached' });
   assert.deepEqual(response.body.data.pagination, { page: 2, limit: 100, total: 101, totalPages: 2 });
-  assert.deepEqual(calls[1].params, [100, 100]);
-  assert.match(calls[1].sql, /UNION ALL/);
+  assert.deepEqual(calls[2].params, [100, 100]);
+  assert.match(calls[2].sql, /UNION ALL/);
 });

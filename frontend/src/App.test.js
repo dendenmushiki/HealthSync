@@ -30,6 +30,12 @@ jest.mock('./services/offline/useSyncStatus', () => ({
     return {
       pending: 0,
       failed: 0,
+      waiting: 0,
+      syncing: false,
+      signInRequired: false,
+      error: null,
+      connectivity: { state: 'online', lastChecked: null, lastError: null },
+      checkNow: React.useCallback(() => Promise.resolve(true), []),
       online: true,
       dashboardRequestFailed: false,
       setDashboardRequestFailed: jest.fn(),
@@ -292,6 +298,10 @@ test('keeps content inert while the navigation drawer is open and exposes accoun
   );
 
   const navigationButton = screen.getByRole('button', { name: 'Open navigation menu' });
+  const sidebarIcons = document.querySelectorAll('.healthsync-sidebar .healthsync-nav-icon');
+  expect(sidebarIcons.length).toBeGreaterThan(0);
+  expect(Array.from(sidebarIcons).every((icon) => icon.classList.contains('lucide'))).toBe(true);
+
   fireEvent.click(navigationButton);
   expect(navigationButton).toHaveAttribute('aria-expanded', 'true');
   expect(document.getElementById('healthsync-content')).toHaveAttribute('inert');

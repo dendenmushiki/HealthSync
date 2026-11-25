@@ -74,7 +74,30 @@ export async function enqueueOperation({
   offlineOperationId: requestedOperationId,
 }) {
   const ownerId = requireOwner(userId);
-  const offlineOperationId = requestedOperationId || uuidv4();
+  const activeUser = getStoredUser();
+  const queuedItems = await getOfflineRecords(ownerId, 'offlineQueue');
+  const updateId = operation === 'UPDATE'
+    ? String(localRecord?.id || localRecord?.resident_id || '').trim()
+    : '';
+  const coalescedCreate = updateId
+    ? queuedItems.find((item) => item.table === table && item.operation === 'CREATE' &&
+      item.status === 'PENDING' && !item.syncComplete &&
+      [item.localRecord?.id, item.localRecord?.resident_id, item.localRecord?.offlineResidentId]
+        .some((value) => String(value ?? '') === updateId))
+    : null;
+  const offlineOperationId = coalescedCreate?.offlineOperationId || requestedOperationId || uuidv4();
+  const mergedPayload = coalescedCreate && payload && typeof payload === 'object'
+    ? { ...coalescedCreate.payload, ...payload }
+    : payload;
+  const mergedRequest = coalescedCreate && request
+    ? {
+      ...coalescedCreate.request,
+      data: { ...(coalescedCreate.request?.data || {}), ...(request.data || {}) },
+    }
+    : request;
+  const mergedLocalRecord = coalescedCreate && localRecord
+    ? { ...coalescedCreate.localRecord, ...localRecord, offline: true, sync_status: 'PENDING' }
+    : localRecord;
   const localId = `offline:${offlineOperationId}`;
   const localRecordIdFields = {
     health_records: 'health_record_id',
@@ -89,34 +112,57 @@ export async function enqueueOperation({
     immunization_records: 'id',
   };
   const localRecordIdField = localRecordIdFields[table];
-  const storedLocalRecord = localRecord
+  const storedLocalRecord = mergedLocalRecord
     ? {
-      ...localRecord,
-      id: table === 'residents' && operation === 'CREATE' ? localId : (localRecord.id || localId),
-      ...(table === 'residents' && operation === 'CREATE'
+      ...mergedLocalRecord,
+      id: table === 'residents' && (operation === 'CREATE' || coalescedCreate) ? localId : (mergedLocalRecord.id || localId),
+      ...(table === 'residents' && (operation === 'CREATE' || coalescedCreate)
         ? { resident_id: localId, offlineResidentId: localId }
         : {}),
-      ...(localRecordIdField && !localRecord[localRecordIdField] ? { [localRecordIdField]: localId } : {}),
+      ...(localRecordIdField && !mergedLocalRecord[localRecordIdField] ? { [localRecordIdField]: localId } : {}),
       offline: true,
       sync_status: 'PENDING',
     }
     : null;
+  const residentReference = mergedPayload?.resident_id || mergedRequest?.data?.resident_id ||
+    mergedRequest?.url?.match(/resident-medical-records\/([^/]+)/)?.[1];
+  const residentDependency = typeof residentReference === 'string' && residentReference.startsWith('offline:')
+    ? queuedItems.find((queued) => queued.table === 'residents' &&
+      String(queued.localRecord?.offlineResidentId || queued.localRecord?.resident_id) === residentReference)
+    : null;
   const item = {
     offlineOperationId,
+    clientId: coalescedCreate?.clientId || offlineOperationId,
     operation,
     module,
     table,
-    payload,
+    payload: mergedPayload,
     createdAt: new Date().toISOString(),
     userId: ownerId,
+    userRole: activeUser?.role || null,
+    sequence: coalescedCreate?.sequence || Math.max(0, ...queuedItems.map((queued) => Number(queued.sequence) || 0)) + 1,
+    dependsOn: residentDependency?.offlineOperationId || null,
     photo,
     photoAction,
-    request,
+    request: mergedRequest,
     localRecord: storedLocalRecord,
     savedOffline: true,
     status: 'PENDING',
     retryCount: 0,
   };
+  if (coalescedCreate) {
+    const updated = {
+      ...coalescedCreate,
+      ...item,
+      offlineOperationId: coalescedCreate.offlineOperationId,
+      clientId: coalescedCreate.clientId || coalescedCreate.offlineOperationId,
+      operation: 'CREATE',
+      status: 'PENDING',
+      retryCount: Number(coalescedCreate.retryCount || 0),
+    };
+    await putOfflineRecord(ownerId, 'offlineQueue', updated.offlineOperationId, updated);
+    return updated;
+  }
   await putOfflineRecord(ownerId, 'offlineQueue', item.offlineOperationId, item);
   return item;
 }
@@ -129,9 +175,10 @@ export async function getQueueItems(userId = getStoredUserId()) {
     const startedAt = Date.parse(item.syncStartedAt || item.createdAt || '');
     if (!Number.isFinite(startedAt) || Date.now() - startedAt < STALE_SYNC_MS) continue;
     const recovered = await updateOperationStatus(item.offlineOperationId, {
-      status: 'PENDING',
+      status: 'CONFLICT',
       syncStartedAt: null,
-      lastError: 'A previous sync attempt was interrupted. The next attempt will reuse the same idempotency key.',
+      lastErrorCode: 'IDEMPOTENCY_OUTCOME_UNKNOWN',
+      lastError: 'A previous sync attempt was interrupted. HealthSync will verify the outcome using the same operation key before retrying.',
     }, ownerId);
     if (recovered) Object.assign(item, recovered);
   }
@@ -172,6 +219,88 @@ export async function deleteOperation(offlineOperationId, userId) {
   return true;
 }
 
+export async function putResidentIdMapping(localResidentId, serverResidentId, userId) {
+  const ownerId = requireOwner(userId);
+  const key = String(localResidentId || '').trim();
+  if (!key || !serverResidentId) return null;
+  await putOfflineRecord(ownerId, 'syncMappings', `resident:${key}`, {
+    localResidentId: key,
+    serverResidentId,
+    mappedAt: new Date().toISOString(),
+  });
+  return { localResidentId: key, serverResidentId };
+}
+
+export async function getResidentIdMapping(localResidentId, userId) {
+  const ownerId = requireOwner(userId);
+  const key = String(localResidentId || '').trim();
+  if (!key) return null;
+  return await getOfflineRecord(ownerId, 'syncMappings', `resident:${key}`) || null;
+}
+
+export async function getDependentOperations(parentOperationId, userId) {
+  const ownerId = requireOwner(userId);
+  const items = await getOfflineRecords(ownerId, 'offlineQueue');
+  return items.filter((item) =>
+    String(item.dependsOn || '') === String(parentOperationId) ||
+    (item.payload?.resident_id && String(item.payload.resident_id).startsWith(`offline:${parentOperationId}`))
+  );
+}
+
+export async function rewriteResidentReferences(localResidentId, serverResidentId, userId) {
+  const ownerId = requireOwner(userId);
+  const items = await getOfflineRecords(ownerId, 'offlineQueue');
+  const localId = String(localResidentId || '').trim();
+  let rewritten = 0;
+  for (const item of items) {
+    if (!item.payload && !item.request && !item.localRecord) continue;
+    const payloadChanged = item.payload?.resident_id === localId;
+    const requestChanged = item.request?.data?.resident_id === localId ||
+      String(item.request?.url || '').split('/').includes(localId);
+    const localRecordChanged = item.localRecord?.resident_id === localId;
+    if (!payloadChanged && !requestChanged && !localRecordChanged) continue;
+    const payload = item.payload && typeof item.payload === 'object'
+      ? (item.payload.resident_id === localId ? { ...item.payload, resident_id: serverResidentId } : item.payload)
+      : item.payload;
+    const requestData = item.request?.data && typeof item.request.data === 'object'
+      ? (item.request.data.resident_id === localId
+        ? { ...item.request.data, resident_id: serverResidentId }
+        : item.request.data)
+      : item.request?.data;
+    const requestUrl = item.request?.url
+      ? String(item.request.url).split('/').map((part) => part === localId ? String(serverResidentId) : part).join('/')
+      : item.request?.url;
+    const localRecord = item.localRecord && typeof item.localRecord === 'object'
+      ? (item.localRecord.resident_id === localId
+        ? { ...item.localRecord, resident_id: serverResidentId }
+        : item.localRecord)
+      : item.localRecord;
+    await putOfflineRecord(ownerId, 'offlineQueue', item.offlineOperationId, {
+      ...item,
+      payload,
+      request: item.request ? { ...item.request, url: requestUrl, data: requestData } : item.request,
+      localRecord,
+    });
+    rewritten += 1;
+  }
+  return rewritten;
+}
+
+export async function cleanupSyncedOperations(userId, retentionMs = 7 * 24 * 60 * 60 * 1000) {
+  const ownerId = requireOwner(userId);
+  const items = await getOfflineRecords(ownerId, 'offlineQueue');
+  const cutoff = Date.now() - retentionMs;
+  let removed = 0;
+  for (const item of items) {
+    if (item.status !== 'SYNCED' || !item.syncedAt) continue;
+    const syncedAt = Date.parse(item.syncedAt);
+    if (!Number.isFinite(syncedAt) || syncedAt >= cutoff) continue;
+    await deleteOfflineRecord(ownerId, 'offlineQueue', item.offlineOperationId);
+    removed += 1;
+  }
+  return removed;
+}
+
 export async function migrateLegacyQueue(userId) {
   const ownerId = requireOwner(userId);
   const legacyItems = await idb.getAllFromStore('offlineQueue');
@@ -205,12 +334,17 @@ export async function migrateLegacyQueue(userId) {
 }
 
 const offlineQueueService = {
+  cleanupSyncedOperations,
   deleteOperation,
   enqueueOperation,
+  getDependentOperations,
   getOperation,
   getPendingOperations,
   getQueueItems,
+  getResidentIdMapping,
   migrateLegacyQueue,
+  putResidentIdMapping,
+  rewriteResidentReferences,
   updateOperationStatus,
 };
 

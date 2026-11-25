@@ -36,12 +36,21 @@ test('creates and updates maternal EDC in both JSON data and the nullable date c
     },
   };
   const createResponseBody = createResponse();
-  await createResidentMedicalRecord({
-    params: { residentId: '7', recordType: 'maternal' },
-    body: { record_data: recordData },
-    user: { user_id: 3 },
-    idempotencyConnection: connection,
-  }, createResponseBody);
+  const originalSchemaQuery = pool.query;
+  pool.query = async (sql) => {
+    if (sql === 'SHOW COLUMNS FROM maternal_records') return [[{ Field: 'edc' }]];
+    throw new Error(`Unexpected schema query: ${sql}`);
+  };
+  try {
+    await createResidentMedicalRecord({
+      params: { residentId: '7', recordType: 'maternal' },
+      body: { record_data: recordData },
+      user: { user_id: 3 },
+      idempotencyConnection: connection,
+    }, createResponseBody);
+  } finally {
+    pool.query = originalSchemaQuery;
+  }
 
   assert.equal(createResponseBody.statusCode, 201);
   const insertCall = createCalls.find((call) => call.sql.startsWith('INSERT INTO `maternal_records`'));
